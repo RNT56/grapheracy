@@ -40,12 +40,22 @@ For every new direct dependency, document:
 Direct JavaScript dependencies are pinned in `pnpm-workspace.yaml` and locked in `pnpm-lock.yaml`. They are required for
 the runnable React/Vite shell and TypeScript contract checks, including React type packages used only at compile time.
 
-Direct Python dependencies are locked through `uv.lock`. FastAPI, Pydantic Settings, SQLAlchemy, Alembic, and Uvicorn are
-required for the API scaffold. Arq and Pydantic Settings are required for the worker scaffold. HTTPX and Pytest are dev
-dependencies for service tests.
+Direct Python dependencies are locked through `uv.lock`. FastAPI, Pydantic Settings, SQLAlchemy, Alembic, Uvicorn, HTTPX,
+and PyPDF are required for the API scaffold and ingestion path. Arq, Pydantic Settings, and PyPDF are required for the
+worker scaffold. Pytest remains a dev dependency for service tests.
 
 Lifecycle scripts remain denied by default. Any package that requires a build or postinstall exception must be documented
 before it is allowed.
+
+## Phase 4 Dependency Approval Notes
+
+- HTTPX moved to an API runtime dependency because backend URL fetch is a Phase 4 ingestion feature. It was already
+  present in the lockfile for tests, has no npm lifecycle-script exposure, and is covered by API ingestion tests.
+- PyPDF was added to the API and worker runtime dependency sets for PDF text extraction. The direct need is bounded to
+  local PDF parsing; no native build or postinstall script is required; `uv.lock` records the exact resolved version.
+- External LLM and embedding providers are intentionally not added in Phase 4. The implemented provider boundary uses
+  deterministic local heuristics and hash embeddings until secrets, vendor risk, data retention, and cost controls are
+  reviewed.
 
 ## Required Gates
 

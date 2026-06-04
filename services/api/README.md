@@ -8,7 +8,8 @@ Owner: backend worker.
 Entrypoints:
 
 - Contract skeleton: `openapi.yaml`
-- Planned app module: `services/api/src/graphview_api`
+- App module: `services/api/src/graphview_api`
+- Ingestion adapters: `services/api/src/graphview_api/ingestion.py`
 - Repository: `services/api/src/graphview_api/repository.py`
 - Schemas: `services/api/src/graphview_api/schemas.py`
 
@@ -20,13 +21,15 @@ Commands:
 
 Environment variables: `POSTGRES_*`, `MINIO_*`, `OIDC_*`, `GRAPHVIEW_API_BASE_URL`, `GRAPHVIEW_ENV`.
 
-Phase 3 endpoints:
+Runnable endpoints:
 
 - `GET /graph`
 - `GET /sources`
 - `POST /sources`
 - `PATCH /sources/{source_id}`
 - `DELETE /sources/{source_id}`
+- `GET /ingestion-runs`
+- `POST /ingestion-runs`
 - `GET /proposals`
 - `POST /proposals`
 - `GET /review-decisions`
@@ -37,4 +40,8 @@ Phase 3 endpoints:
 
 Test path: `services/api/tests`.
 
-Failure modes: OpenAPI drift, auth adapter mismatch, incomplete provenance persistence, and migration rollback gaps.
+Phase 4 ingestion supports inline text, markdown, backend URL fetch, and PDF text extraction. It writes a source,
+ingestion run, reviewable proposals, provenance, and deterministic local embeddings in one repository transaction.
+
+Failure modes: OpenAPI drift, auth adapter mismatch, failed URL/PDF extraction, incomplete provenance persistence, and
+migration rollback gaps.

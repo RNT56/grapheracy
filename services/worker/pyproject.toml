@@ -5,7 +5,8 @@ description = "Future async ingestion worker for Graphview."
 requires-python = ">=3.14"
 dependencies = [
   "arq",
-  "pydantic-settings"
+  "pydantic-settings",
+  "pypdf"
 ]
 
 [dependency-groups]

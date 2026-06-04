@@ -26,6 +26,7 @@
     "docs:check": "node scripts/run-local-checks.mjs doc-links doc-freshness",
     "phase1:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test",
     "phase2:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test && pnpm --filter @graphview/web build",
-    "phase3:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test && pnpm --filter @graphview/web build"
+    "phase3:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test && pnpm --filter @graphview/web build",
+    "phase4:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test && pnpm --filter @graphview/web build"
   }
 }

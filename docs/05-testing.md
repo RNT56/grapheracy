@@ -33,6 +33,13 @@ presence, and the product-first web shell.
 - API workflow tests for source CRUD, proposal review commits, search, import, and export.
 - Web shell tests for source and review controls.
 
+## Phase 4 Checks
+
+- `pnpm run phase4:check`
+- API tests for text ingestion, backend URL fetch, proposal creation, embedding persistence, and review linkage.
+- Worker tests for markdown normalization, deterministic embeddings, proposal generation, stage ordering, and PDF parsing.
+- Web shell tests for the ingestion control and API route wiring.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.
@@ -47,7 +54,7 @@ presence, and the product-first web shell.
 - Health and version endpoints. Initial coverage exists in Phase 2.
 - Auth adapter behavior. Initial local-dev rejection coverage exists in Phase 2.
 - Source CRUD and provenance persistence. Initial coverage exists in Phase 3.
-- Ingestion idempotency.
+- Ingestion idempotency. Initial deterministic ingestion coverage exists in Phase 4.
 - Proposal review decisions. Initial coverage exists in Phase 3.
 - Graph update transactions. Initial accepted-node commit coverage exists in Phase 3.
 - Search behavior. Initial source and node search coverage exists in Phase 3.

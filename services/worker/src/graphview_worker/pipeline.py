@@ -14,7 +14,8 @@ def build_stage_plan() -> list[WorkerStage]:
         WorkerStage("source.fetch", "Source", "RawArtifact", "source.id + checksum"),
         WorkerStage("source.extract", "RawArtifact", "NormalizedText", "source.id + artifact checksum"),
         WorkerStage("content.analyze", "NormalizedText", "CandidateGraph", "ingestionRun.id + extract checksum"),
-        WorkerStage("proposal.generate", "CandidateGraph", "ExtractionProposal[]", "candidate hash + project.id"),
+        WorkerStage("content.embed", "NormalizedText", "ContentEmbedding", "source.id + embedding model + checksum"),
+        WorkerStage("proposal.generate", "CandidateGraph + ContentEmbedding", "ExtractionProposal[]", "candidate hash + project.id"),
         WorkerStage("review.commit", "ReviewDecision", "GraphUpdate", "reviewDecision.id"),
     ]
 

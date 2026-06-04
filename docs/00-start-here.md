@@ -5,8 +5,9 @@ personal knowledge workflows.
 
 ## Current Phase
 
-Phase 1 prepares the project foundation. It does not implement production ingestion, graph persistence, auth, or graph
-rendering. The old prototype is preserved at `../prototypes/knowledge-graph-explorer.html` as UX evidence only.
+Phase 4 provides deterministic ingestion scaffolding on top of the runnable web, API, worker, persistence, proposal
+review, provenance, search, import, and export workflows. The old prototype is preserved at
+`../prototypes/knowledge-graph-explorer.html` as UX evidence only.
 
 ## Read Order
 
@@ -34,7 +35,7 @@ Every new subsystem must document:
 - Test path.
 - Failure modes.
 
-## Phase 1 Acceptance Map
+## Acceptance Map
 
 - Setup path: `04-development.md`.
 - Agent entry path: `../CLAUDE.md`.

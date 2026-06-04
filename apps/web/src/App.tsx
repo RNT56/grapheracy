@@ -139,6 +139,9 @@ async function fetchHealth() {
 
 function Shell() {
   const [sourceTitle, setSourceTitle] = useState("Research memo");
+  const [ingestionText, setIngestionText] = useState(
+    "Graphview Ingestion keeps fetched sources, deterministic embeddings, proposals, and provenance traceable."
+  );
   const [searchText, setSearchText] = useState("");
   const health = useQuery({ queryKey: ["health"], queryFn: fetchHealth, retry: false });
   const graph = useQuery({
@@ -172,6 +175,24 @@ function Shell() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["sources"] });
       setSourceTitle("");
+    }
+  });
+
+  const ingestText = useMutation({
+    mutationFn: (payload: { title: string; content: string }) =>
+      fetchJson("/ingestion-runs", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: "text",
+          title: payload.title,
+          content: payload.content,
+          proposal_limit: 3
+        })
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["sources"] });
+      await queryClient.invalidateQueries({ queryKey: ["proposals"] });
+      setIngestionText("");
     }
   });
 
@@ -256,15 +277,26 @@ function Shell() {
               className="source-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (sourceTitle.trim()) createSource.mutate(sourceTitle.trim());
+                if (sourceTitle.trim() && ingestionText.trim()) {
+                  ingestText.mutate({ title: sourceTitle.trim(), content: ingestionText.trim() });
+                } else if (sourceTitle.trim()) {
+                  createSource.mutate(sourceTitle.trim());
+                }
               }}
             >
               <label>
                 Source title
                 <input value={sourceTitle} onChange={(event) => setSourceTitle(event.target.value)} />
               </label>
-              <button type="submit" disabled={createSource.isPending || !sourceTitle.trim()}>
-                Add source
+              <label>
+                Ingestion text
+                <textarea value={ingestionText} onChange={(event) => setIngestionText(event.target.value)} />
+              </label>
+              <button
+                type="submit"
+                disabled={(createSource.isPending || ingestText.isPending) || !sourceTitle.trim()}
+              >
+                {ingestionText.trim() ? "Ingest text" : "Add source"}
               </button>
             </form>
             <label className="search-field">

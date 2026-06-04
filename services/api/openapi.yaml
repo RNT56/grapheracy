@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Graphview API
-  version: 0.0.0
-  description: Phase 1 contract skeleton for the future FastAPI service.
+  version: 0.4.0
+  description: Runnable Graphview API contract for graph, source, ingestion, proposal, review, and import/export flows.
 paths:
   /health:
     get:
@@ -70,6 +70,21 @@ paths:
       responses:
         "200":
           description: Ingestion run list response.
+    post:
+      summary: Ingest text, markdown, URL, or PDF content and create reviewable proposals.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestionCreate"
+      responses:
+        "201":
+          description: Created source, ingestion run, proposals, and embeddings.
+        "422":
+          description: Missing required source content.
+        "502":
+          description: Source fetch or extraction failed.
   /proposals:
     get:
       summary: List extraction proposals awaiting or carrying review decisions.
@@ -131,3 +146,23 @@ components:
           type: string
         environment:
           type: string
+    IngestionCreate:
+      type: object
+      required: [kind, title]
+      properties:
+        kind:
+          type: string
+          enum: [text, markdown, url, pdf]
+        title:
+          type: string
+        content:
+          type: string
+        uri:
+          type: string
+        content_base64:
+          type: string
+        proposal_limit:
+          type: integer
+          minimum: 1
+          maximum: 12
+          default: 4

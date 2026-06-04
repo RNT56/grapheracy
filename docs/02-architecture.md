@@ -37,6 +37,7 @@ The public interfaces are defined in `../packages/shared-types/src/index.ts`.
 - `IngestionRun`: traceable execution of source processing.
 - `ExtractionProposal`: worker-generated candidate node or edge.
 - `ReviewDecision`: reviewer action that accepts, rejects, edits, or defers a proposal.
+- `ContentEmbedding`: vector record linked to a proposal and, after acceptance, a reviewed content node.
 - `Provenance`: source location, actor, timestamps, and extraction metadata.
 
 ## API Skeleton
@@ -48,11 +49,21 @@ The OpenAPI contract skeleton lives in `../services/api/openapi.yaml`, and the r
 - `GET /version`
 - `GET /graph`
 - `GET /sources`
+- `POST /sources`
+- `PATCH /sources/{source_id}`
+- `DELETE /sources/{source_id}`
 - `GET /ingestion-runs`
+- `POST /ingestion-runs`
 - `GET /proposals`
+- `POST /proposals`
 - `GET /review-decisions`
+- `POST /review-decisions`
+- `GET /search`
+- `GET /export`
+- `POST /import`
 
-Phase 2 will add request and response schemas backed by shared contracts.
+Phase 4 adds backend-triggered ingestion for text, markdown, URLs, and PDFs. The request creates a source, ingestion run,
+reviewable proposals, deterministic local embeddings, and provenance in one repository transaction.
 
 ## Worker Lifecycle
 
@@ -62,8 +73,9 @@ Worker stages are documented in `../services/worker/worker-contract.md`, with th
 1. Source fetch.
 2. Source extract.
 3. Content analyze.
-4. Proposal generate.
-5. Review-aware commit.
+4. Content embed.
+5. Proposal generate.
+6. Review-aware commit.
 
 Every stage must be idempotent, traceable, retryable, and linked to `IngestionRun` provenance.
 
@@ -87,6 +99,10 @@ holds raw source artifacts and derived text where database storage would be inef
 Phase 3 adds a SQLAlchemy repository with a local SQLite default for development and tests. The table model mirrors the
 Postgres direction and keeps JSON payloads explicit for provenance, topic IDs, proposal values, and edited review values.
 Future migrations can replace JSON text with richer Postgres types where measured need justifies it.
+
+Phase 4 adds `content_embeddings` records linked to proposals and later accepted content nodes. Embeddings use a
+deterministic local hash model in Phase 4 so review workflows can be tested without external secrets. pgvector remains
+the production direction once semantic retrieval requirements are measured.
 
 ## Failure Modes
 

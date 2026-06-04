@@ -6,6 +6,8 @@ test("web shell is product-first and wired to API health", async () => {
   const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(source, /fetchHealth/);
   assert.match(source, /createSource/);
+  assert.match(source, /ingestText/);
+  assert.match(source, /\/ingestion-runs/);
   assert.match(source, /reviewProposal/);
   assert.match(source, /Reviewed knowledge graph/);
   assert.doesNotMatch(source, /hero/i);

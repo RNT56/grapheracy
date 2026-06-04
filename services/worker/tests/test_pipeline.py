@@ -8,6 +8,7 @@ def test_stage_plan_is_idempotent_and_ordered() -> None:
         "source.fetch",
         "source.extract",
         "content.analyze",
+        "content.embed",
         "proposal.generate",
         "review.commit",
     ]

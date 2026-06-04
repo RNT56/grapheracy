@@ -85,6 +85,18 @@ extraction_proposals = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
+content_embeddings = Table(
+    "content_embeddings",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("proposal_id", String(64), ForeignKey("extraction_proposals.id"), nullable=True, index=True),
+    Column("content_node_id", String(64), ForeignKey("content_nodes.id"), nullable=True, index=True),
+    Column("embedding_model", String(120), nullable=False),
+    Column("vector_json", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
 review_decisions = Table(
     "review_decisions",
     metadata,

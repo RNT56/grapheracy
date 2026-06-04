@@ -19,6 +19,8 @@ versioned release is cut. Before release consolidation, multi-worker changes lan
   baseline Alembic migration.
 - Phase 3 core graph workflow with persistent source CRUD, proposal review commits, provenance, search, import/export,
   and a web shell wired to those endpoints.
+- Phase 4 ingestion workflow with text, markdown, backend URL fetch, PDF extraction, deterministic local embeddings,
+  provider-boundary proposal generation, and web shell ingestion controls.
 
 ### Changed
 

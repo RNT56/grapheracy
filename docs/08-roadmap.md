@@ -38,11 +38,13 @@ Status: complete.
 
 ## Phase 4: Ingestion Workers
 
+Status: complete.
+
 - Add text and markdown ingestion.
 - Add URL fetch through backend.
 - Add PDF extraction.
-- Add embeddings.
-- Add LLM proposal generation.
+- Add deterministic local embeddings.
+- Add provider-boundary proposal generation with a local heuristic implementation.
 
 ## Phase 5: Hardening
 

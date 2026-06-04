@@ -151,6 +151,88 @@ class GraphRepository:
                 ).mappings()
             ]
 
+    def create_ingestion_result(
+        self,
+        *,
+        source_payload: SourceCreate,
+        generated_proposals: list[dict],
+        embedding_model: str,
+        embedding_vector: list[float],
+        actor_id: str,
+    ) -> dict:
+        timestamp = now()
+        source = {
+            "id": new_id("src"),
+            "project_id": DEFAULT_PROJECT_ID,
+            "kind": source_payload.kind,
+            "title": source_payload.title,
+            "uri": source_payload.uri,
+            "object_key": source_payload.object_key,
+            "checksum": source_payload.checksum,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+        ingestion_run = {
+            "id": new_id("run"),
+            "project_id": DEFAULT_PROJECT_ID,
+            "source_id": source["id"],
+            "status": "proposal_ready",
+            "stage": "propose",
+            "trace_id": new_id("trace"),
+            "started_at": timestamp,
+            "finished_at": timestamp,
+            "error_code": None,
+        }
+        proposals: list[dict] = []
+        embeddings: list[dict] = []
+        for generated in generated_proposals:
+            provenance = [
+                {
+                    "sourceId": source["id"],
+                    "sourceUri": source.get("uri"),
+                    "locator": generated.get("locator"),
+                    "extractedBy": "worker",
+                    "actorId": actor_id,
+                    "ingestionRunId": ingestion_run["id"],
+                    "observedAt": timestamp.isoformat(),
+                    "traceId": ingestion_run["trace_id"],
+                }
+            ]
+            proposal = {
+                "id": new_id("proposal"),
+                "project_id": DEFAULT_PROJECT_ID,
+                "ingestion_run_id": ingestion_run["id"],
+                "kind": generated.get("kind", "content_node"),
+                "status": "pending_review",
+                "proposed_value_json": dump_json(generated["proposed_value"]),
+                "confidence": generated.get("confidence"),
+                "provenance_json": dump_json(provenance),
+                "created_at": timestamp,
+            }
+            embedding = {
+                "id": new_id("embedding"),
+                "project_id": DEFAULT_PROJECT_ID,
+                "proposal_id": proposal["id"],
+                "content_node_id": None,
+                "embedding_model": embedding_model,
+                "vector_json": dump_json(embedding_vector),
+                "created_at": timestamp,
+            }
+            proposals.append(proposal)
+            embeddings.append(embedding)
+        with self.engine.begin() as conn:
+            conn.execute(insert(db.sources).values(**source))
+            conn.execute(insert(db.ingestion_runs).values(**ingestion_run))
+            if proposals:
+                conn.execute(insert(db.extraction_proposals), proposals)
+                conn.execute(insert(db.content_embeddings), embeddings)
+        return {
+            "source": source,
+            "ingestion_run": ingestion_run,
+            "proposals": [self._proposal_from_row(proposal) for proposal in proposals],
+            "embeddings": [self._embedding_from_row(embedding) for embedding in embeddings],
+        }
+
     def create_proposal(self, payload: ProposalCreate, actor_id: str) -> dict:
         source = self.get_source(payload.source_id)
         if source is None:
@@ -256,6 +338,11 @@ class GraphRepository:
                             updated_at=timestamp,
                         )
                     )
+                    conn.execute(
+                        update(db.content_embeddings)
+                        .where(db.content_embeddings.c.proposal_id == payload.proposal_id)
+                        .values(content_node_id=node_id)
+                    )
                 elif proposal_row["kind"] == "semantic_edge":
                     conn.execute(
                         insert(db.semantic_edges).values(
@@ -323,6 +410,9 @@ class GraphRepository:
                     self._proposal_from_row(row)
                     for row in conn.execute(select(db.extraction_proposals)).mappings()
                 ],
+                "embeddings": [
+                    self._embedding_from_row(row) for row in conn.execute(select(db.content_embeddings)).mappings()
+                ],
                 "review_decisions": [
                     self._decision_from_row(row) for row in conn.execute(select(db.review_decisions)).mappings()
                 ],
@@ -345,6 +435,11 @@ class GraphRepository:
     def _decision_from_row(self, row) -> dict:
         data = dict(row)
         data["edited_value"] = load_json(data.pop("edited_value_json"), None)
+        return data
+
+    def _embedding_from_row(self, row) -> dict:
+        data = dict(row)
+        data["vector"] = load_json(data.pop("vector_json"), [])
         return data
 
     def _node_from_row(self, row) -> dict:

@@ -223,6 +223,7 @@ a {
 }
 
 .source-form input,
+.source-form textarea,
 .search-field input {
   width: 100%;
   border: 1px solid #c8d8d6;
@@ -231,6 +232,11 @@ a {
   font: inherit;
   margin-top: 6px;
   padding: 9px 10px;
+}
+
+.source-form textarea {
+  min-height: 86px;
+  resize: vertical;
 }
 
 button {

@@ -3,11 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from graphview_api.auth import CurrentUser, get_current_user
 from graphview_api.db import create_app_engine
+from graphview_api.ingestion import EMBEDDING_MODEL, build_document, embed_text, generate_proposals
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
     ExportBundle,
     GraphOut,
     ImportBundle,
+    IngestionCreate,
+    IngestionResultOut,
     IngestionRunOut,
     ProposalCreate,
     ProposalOut,
@@ -96,6 +99,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository: GraphRepository = Depends(repo),
     ) -> dict[str, list[IngestionRunOut]]:
         return {"ingestion_runs": repository.list_ingestion_runs()}
+
+    @app.post("/ingestion-runs", response_model=IngestionResultOut, status_code=status.HTTP_201_CREATED)
+    async def create_ingestion_run(
+        payload: IngestionCreate,
+        user: CurrentUser = Depends(get_current_user),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            document = await build_document(
+                kind=payload.kind,
+                title=payload.title,
+                content=payload.content,
+                uri=payload.uri,
+                content_base64=payload.content_base64,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        except Exception as error:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Source ingestion failed") from error
+        generated = [
+            proposal.__dict__ for proposal in generate_proposals(document, limit=payload.proposal_limit)
+        ]
+        return repository.create_ingestion_result(
+            source_payload=SourceCreate(
+                kind=payload.kind,
+                title=payload.title,
+                uri=payload.uri,
+                checksum=document.checksum,
+            ),
+            generated_proposals=generated,
+            embedding_model=EMBEDDING_MODEL,
+            embedding_vector=embed_text(document.text),
+            actor_id=user.id,
+        )
 
     @app.get("/proposals")
     async def proposals(repository: GraphRepository = Depends(repo)) -> dict[str, list[ProposalOut]]:

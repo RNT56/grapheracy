@@ -23,7 +23,7 @@ def test_version() -> None:
     response = client.get("/version")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "0.3.0"
+    assert response.json()["version"] == "0.4.0"
 
 
 def test_local_auth_rejects_unknown_user() -> None:
@@ -114,3 +114,61 @@ def test_export_and_import_sources() -> None:
     bundle = client.get("/export")
     assert bundle.status_code == 200
     assert bundle.json()["sources"][0]["title"] == "Graph paper"
+
+
+def test_text_ingestion_creates_source_run_proposal_and_embedding() -> None:
+    client = make_client()
+
+    response = client.post(
+        "/ingestion-runs",
+        json={
+            "kind": "text",
+            "title": "Knowledge Architecture",
+            "content": "Knowledge Architecture connects sources, provenance, and review decisions.",
+            "proposal_limit": 2,
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"]["checksum"]
+    assert body["ingestion_run"]["status"] == "proposal_ready"
+    assert body["proposals"][0]["provenance"][0]["extractedBy"] == "worker"
+    assert body["embeddings"][0]["embedding_model"] == "graphview-local-hash-v1"
+    assert len(body["embeddings"][0]["vector"]) == 16
+
+    proposal_id = body["proposals"][0]["id"]
+    decision = client.post("/review-decisions", json={"proposal_id": proposal_id, "decision": "accept"})
+    assert decision.status_code == 201
+    exported = client.get("/export").json()
+    embedding = next(item for item in exported["embeddings"] if item["proposal_id"] == proposal_id)
+    assert embedding["content_node_id"] == exported["nodes"][0]["id"]
+
+
+def test_url_ingestion_fetches_from_backend(monkeypatch) -> None:
+    from graphview_api import ingestion
+
+    async def fake_fetch_url_text(uri: str) -> str:
+        assert uri == "https://example.invalid/research"
+        return "Fetched Research Note describes Graphview ingestion."
+
+    monkeypatch.setattr(ingestion, "fetch_url_text", fake_fetch_url_text)
+    client = make_client()
+
+    response = client.post(
+        "/ingestion-runs",
+        json={
+            "kind": "url",
+            "title": "Fetched note",
+            "uri": "https://example.invalid/research",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["source"]["uri"] == "https://example.invalid/research"
+    assert body["proposals"][0]["proposed_value"]["label"] in {
+        "Fetched Research Note",
+        "Graphview",
+        "Fetched note",
+    }

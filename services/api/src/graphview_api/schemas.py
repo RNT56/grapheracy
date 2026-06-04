@@ -79,6 +79,15 @@ class ProposalCreate(BaseModel):
     locator: str | None = None
 
 
+class IngestionCreate(BaseModel):
+    kind: Literal["text", "markdown", "url", "pdf"] = "text"
+    title: str = Field(min_length=1, max_length=240)
+    content: str | None = None
+    uri: str | None = None
+    content_base64: str | None = None
+    proposal_limit: int = Field(default=4, ge=1, le=12)
+
+
 class ProposalOut(BaseModel):
     id: str
     project_id: str
@@ -89,6 +98,23 @@ class ProposalOut(BaseModel):
     confidence: float | None = None
     provenance: list[dict[str, Any]]
     created_at: datetime
+
+
+class EmbeddingOut(BaseModel):
+    id: str
+    project_id: str
+    proposal_id: str | None = None
+    content_node_id: str | None = None
+    embedding_model: str
+    vector: list[float]
+    created_at: datetime
+
+
+class IngestionResultOut(BaseModel):
+    source: SourceOut
+    ingestion_run: IngestionRunOut
+    proposals: list[ProposalOut]
+    embeddings: list[EmbeddingOut]
 
 
 class ReviewDecisionCreate(BaseModel):
@@ -123,6 +149,7 @@ class ExportBundle(BaseModel):
     edges: list[SemanticEdgeOut]
     ingestion_runs: list[IngestionRunOut]
     proposals: list[ProposalOut]
+    embeddings: list[EmbeddingOut]
     review_decisions: list[ReviewDecisionOut]
 
 

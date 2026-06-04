@@ -13,6 +13,7 @@ test("shared contracts expose required public interfaces", async () => {
     "IngestionRun",
     "ExtractionProposal",
     "ReviewDecision",
+    "ContentEmbedding",
     "Provenance"
   ]) {
     assert.match(source, new RegExp(`interface ${name}`));

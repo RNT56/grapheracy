@@ -8,6 +8,7 @@ export type SemanticEdgeId = Id<"SemanticEdge">;
 export type IngestionRunId = Id<"IngestionRun">;
 export type ExtractionProposalId = Id<"ExtractionProposal">;
 export type ReviewDecisionId = Id<"ReviewDecision">;
+export type ContentEmbeddingId = Id<"ContentEmbedding">;
 
 export interface Provenance {
   sourceId: SourceId;
@@ -86,7 +87,7 @@ export interface IngestionRun {
   projectId: GraphProjectId;
   sourceId: SourceId;
   status: "queued" | "running" | "proposal_ready" | "committed" | "failed" | "cancelled";
-  stage: "fetch" | "extract" | "analyze" | "propose" | "commit";
+  stage: "fetch" | "extract" | "analyze" | "embed" | "propose" | "commit";
   traceId: string;
   startedAt?: string;
   finishedAt?: string;
@@ -114,6 +115,16 @@ export interface ReviewDecision {
   editedValue?: unknown;
   rationale?: string;
   decidedAt: string;
+}
+
+export interface ContentEmbedding {
+  id: ContentEmbeddingId;
+  projectId: GraphProjectId;
+  proposalId?: ExtractionProposalId;
+  contentNodeId?: ContentNodeId;
+  embeddingModel: string;
+  vector: number[];
+  createdAt: string;
 }
 
 export type GraphviewEventName =
