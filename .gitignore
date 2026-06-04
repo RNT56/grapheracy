@@ -24,4 +24,5 @@ tmp/
 logs/
 *.log
 
+.graphview/
 infra/compose/.data/

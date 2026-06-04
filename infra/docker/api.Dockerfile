@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock /app/
 COPY services/api /app/services/api
 COPY services/worker /app/services/worker
-RUN uv sync --project services/api --frozen --no-dev
+RUN uv sync --project services/api --frozen --no-dev && mkdir -p /app/.graphview && chown -R graphview:graphview /app
 ENV PYTHONPATH=/app/services/api/src
 ENV PATH=/app/.venv/bin:$PATH
 USER graphview

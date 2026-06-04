@@ -27,6 +27,8 @@ Status: complete.
 
 ## Phase 3: Core Graph Product
 
+Status: complete.
+
 - Implement graph persistence.
 - Add source CRUD.
 - Add import/export.

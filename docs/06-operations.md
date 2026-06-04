@@ -39,6 +39,7 @@ The app services run from the local workspace for development. Production image 
 | `MINIO_*` | api/worker | `.env.example` | Keys yes | Object storage. |
 | `OIDC_*` | api | `.env.example` | Secret yes | Internal SSO adapter. |
 | `ARQ_REDIS_URL` | worker | `redis://localhost:6379/0` | No locally | Worker queue. |
+| `GRAPHVIEW_DATABASE_URL` | api | `sqlite:///./.graphview/graphview.sqlite` | No locally | API persistence URL. |
 
 ## Release Process
 

@@ -38,6 +38,7 @@ pnpm run phase2:check
 | `pnpm run test` | Runnable placeholder | Runs package tests as implementations appear. |
 | `pnpm run phase1:check` | Runnable | Runs the local Phase 1 acceptance checks. |
 | `pnpm run phase2:check` | Runnable | Runs local Phase 2 checks and builds the web app. |
+| `pnpm run phase3:check` | Runnable | Runs local Phase 3 checks, API workflow tests, and the web build. |
 | `pnpm --filter @graphview/web dev` | Runnable | Starts the Vite web app on `127.0.0.1:5173`. |
 | `pnpm --filter @graphview/api-contract dev` | Runnable | Starts the FastAPI service on `127.0.0.1:8000`. |
 | `pnpm --filter @graphview/worker-contract dev` | Runnable | Runs the worker scaffold and prints the stage plan. |
@@ -45,6 +46,9 @@ pnpm run phase2:check
 ## Environment Variables
 
 Use `.env.example` as the local template. Production values must come from external secret management.
+
+The API defaults to `GRAPHVIEW_DATABASE_URL=sqlite:///./.graphview/graphview.sqlite` for local development. Use a
+Postgres URL for shared development or production-like environments.
 
 ## Package Additions
 

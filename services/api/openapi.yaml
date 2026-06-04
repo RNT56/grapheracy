@@ -36,6 +36,34 @@ paths:
       responses:
         "200":
           description: Source list response.
+    post:
+      summary: Create a source for the active project.
+      responses:
+        "201":
+          description: Created source.
+  /sources/{source_id}:
+    patch:
+      summary: Update a source.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated source.
+    delete:
+      summary: Delete a source.
+      parameters:
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted source.
   /ingestion-runs:
     get:
       summary: List ingestion runs and current stages.
@@ -48,12 +76,40 @@ paths:
       responses:
         "200":
           description: Proposal list response.
+    post:
+      summary: Create an extraction proposal from a source.
+      responses:
+        "201":
+          description: Created proposal.
   /review-decisions:
     get:
       summary: List review decisions.
       responses:
         "200":
           description: Review decision list response.
+    post:
+      summary: Review a proposal and commit accepted graph changes.
+      responses:
+        "201":
+          description: Created review decision.
+  /search:
+    get:
+      summary: Search sources and graph nodes.
+      responses:
+        "200":
+          description: Search results.
+  /export:
+    get:
+      summary: Export the active project graph bundle.
+      responses:
+        "200":
+          description: Export bundle.
+  /import:
+    post:
+      summary: Import sources and proposal seeds.
+      responses:
+        "200":
+          description: Imported bundle.
 components:
   schemas:
     HealthResponse:

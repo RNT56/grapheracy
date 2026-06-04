@@ -27,6 +27,12 @@ implemented.
 Phase 2 tests cover health/version endpoints, local auth rejection, worker stage ordering, shared TypeScript contract
 presence, and the product-first web shell.
 
+## Phase 3 Checks
+
+- `pnpm run phase3:check`
+- API workflow tests for source CRUD, proposal review commits, search, import, and export.
+- Web shell tests for source and review controls.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.
@@ -40,11 +46,11 @@ presence, and the product-first web shell.
 
 - Health and version endpoints. Initial coverage exists in Phase 2.
 - Auth adapter behavior. Initial local-dev rejection coverage exists in Phase 2.
-- Source CRUD and provenance persistence.
+- Source CRUD and provenance persistence. Initial coverage exists in Phase 3.
 - Ingestion idempotency.
-- Proposal review decisions.
-- Graph update transactions.
-- Search behavior.
+- Proposal review decisions. Initial coverage exists in Phase 3.
+- Graph update transactions. Initial accepted-node commit coverage exists in Phase 3.
+- Search behavior. Initial source and node search coverage exists in Phase 3.
 - Graph rendering interaction and large-graph performance.
 
 ## Failure Modes

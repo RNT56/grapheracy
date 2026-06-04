@@ -84,6 +84,10 @@ Postgres is the system of record for graph projects, topics, sources, nodes, edg
 job state. pgvector is reserved for embeddings once extraction workflows require semantic retrieval. Object storage
 holds raw source artifacts and derived text where database storage would be inefficient.
 
+Phase 3 adds a SQLAlchemy repository with a local SQLite default for development and tests. The table model mirrors the
+Postgres direction and keeps JSON payloads explicit for provenance, topic IDs, proposal values, and edited review values.
+Future migrations can replace JSON text with richer Postgres types where measured need justifies it.
+
 ## Failure Modes
 
 - Worker stage retries without idempotency can duplicate proposals or graph edges.

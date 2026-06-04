@@ -37,7 +37,8 @@ uv python install 3.14.5
 pnpm run phase2:check
 ```
 
-Phase 2 provides runnable app, API, and worker scaffolds.
+Phase 3 provides runnable app, API, and worker scaffolds plus source CRUD, proposal review commits, provenance, search,
+and import/export.
 
 ```sh
 pnpm --filter @graphview/web dev
