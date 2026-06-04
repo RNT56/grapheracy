@@ -17,6 +17,16 @@ These checks validate documentation hygiene, security policy, changelog process,
 package scripts. Phase 1 intentionally does not add production feature tests because no production features are
 implemented.
 
+## Phase 2 Checks
+
+- `pnpm run phase2:check`
+- `pnpm --filter @graphview/web build`
+- API tests through `pnpm --filter @graphview/api-contract test`
+- Worker tests through `pnpm --filter @graphview/worker-contract test`
+
+Phase 2 tests cover health/version endpoints, local auth rejection, worker stage ordering, shared TypeScript contract
+presence, and the product-first web shell.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.
@@ -28,8 +38,8 @@ implemented.
 
 ## Required Coverage Areas From Phase 2 Onward
 
-- Health and version endpoints.
-- Auth adapter behavior.
+- Health and version endpoints. Initial coverage exists in Phase 2.
+- Auth adapter behavior. Initial local-dev rejection coverage exists in Phase 2.
 - Source CRUD and provenance persistence.
 - Ingestion idempotency.
 - Proposal review decisions.

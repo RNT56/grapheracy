@@ -15,6 +15,8 @@ versioned release is cut. Before release consolidation, multi-worker changes lan
 - Security and dependency governance policy before broad dependency adoption.
 - Contract skeletons for shared graph types, API endpoints, worker stages, and events.
 - CI skeletons for lint, typecheck, tests, audits, secret scanning, docs hygiene, and changelog validation.
+- Runnable Phase 2 scaffolds for the React/Vite web app, FastAPI API, async worker stage plan, local auth stub, and
+  baseline Alembic migration.
 
 ### Changed
 

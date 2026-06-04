@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { delimiter } from "node:path";
 
 const scriptName = process.argv[2];
 if (!scriptName) {
@@ -30,11 +31,16 @@ for (const rootDir of roots) {
 for (const pkg of workspacePackages) {
   console.log(`\n> ${pkg.name} ${scriptName}`);
   await new Promise((resolve, reject) => {
+    const binPaths = [
+      path.join(process.cwd(), pkg.dir, "node_modules", ".bin"),
+      path.join(process.cwd(), "node_modules", ".bin"),
+      process.env.PATH ?? ""
+    ];
     const child = spawn(pkg.command, {
       cwd: pkg.dir,
       shell: true,
       stdio: "inherit",
-      env: process.env
+      env: { ...process.env, PATH: binPaths.join(delimiter) }
     });
     child.on("exit", (code) => {
       if (code === 0) resolve();

@@ -4,12 +4,12 @@ Purpose: future design tokens and shared UI primitives for Graphview apps.
 
 Owner: frontend worker.
 
-Entrypoints: planned `packages/design-system/src`.
+Entrypoints: `packages/design-system/src`.
 
-Commands: package scripts are placeholders until Phase 2.
+Commands: `pnpm --filter @graphview/design-system typecheck` and `pnpm --filter @graphview/design-system test`.
 
 Environment variables: none.
 
-Test path: planned `packages/design-system/src`.
+Test path: `packages/design-system/tests`.
 
 Failure modes: undocumented design tokens, component behavior drift between apps, and visual changes without review.

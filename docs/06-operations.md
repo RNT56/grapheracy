@@ -20,8 +20,13 @@ containers must be deployable into internal infrastructure without SaaS assumpti
 
 ## Compose
 
-The development Compose skeleton is `../infra/compose/docker-compose.dev.yml`. It documents service topology and security
-defaults before runnable app images exist.
+The development Compose file is `../infra/compose/docker-compose.dev.yml`.
+
+```sh
+docker compose -f infra/compose/docker-compose.dev.yml up web api worker postgres redis minio
+```
+
+The app services run from the local workspace for development. Production image hardening remains a later phase.
 
 ## Environment Matrix
 

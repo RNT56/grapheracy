@@ -2,23 +2,23 @@ name: graphview-dev
 
 services:
   web:
-    build:
-      context: ../..
-      dockerfile: infra/docker/web.Dockerfile
-    profiles: ["app"]
+    image: node:24-slim
+    working_dir: /workspace
+    command: sh -lc "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @graphview/web dev --host 0.0.0.0"
     environment:
       GRAPHVIEW_PUBLIC_BASE_URL: http://localhost:5173
-      GRAPHVIEW_API_BASE_URL: http://localhost:8000
+      VITE_GRAPHVIEW_API_BASE_URL: http://localhost:8000
     ports:
       - "5173:5173"
+    volumes:
+      - ../..:/workspace
     depends_on:
       - api
 
   api:
-    build:
-      context: ../..
-      dockerfile: infra/docker/api.Dockerfile
-    profiles: ["app"]
+    image: ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+    working_dir: /workspace/services/api
+    command: sh -lc "PYTHONPATH=src uv run uvicorn graphview_api.main:app --host 0.0.0.0 --port 8000"
     environment:
       GRAPHVIEW_ENV: local
       POSTGRES_HOST: postgres
@@ -29,20 +29,23 @@ services:
       MINIO_ENDPOINT: http://minio:9000
     ports:
       - "8000:8000"
+    volumes:
+      - ../..:/workspace
     depends_on:
       - postgres
       - minio
 
   worker:
-    build:
-      context: ../..
-      dockerfile: infra/docker/worker.Dockerfile
-    profiles: ["app"]
+    image: ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+    working_dir: /workspace/services/worker
+    command: sh -lc "PYTHONPATH=src uv run python -m graphview_worker"
     environment:
       GRAPHVIEW_ENV: local
       POSTGRES_HOST: postgres
       ARQ_REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: http://minio:9000
+    volumes:
+      - ../..:/workspace
     depends_on:
       - postgres
       - redis

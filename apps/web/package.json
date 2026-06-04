@@ -3,8 +3,28 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@graphview/design-system": "workspace:*",
+    "@graphview/graph-core": "workspace:*",
+    "@graphview/shared-types": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-router": "catalog:",
+    "zustand": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  },
   "scripts": {
-    "typecheck": "node -e \"console.log('web typecheck planned for Phase 2')\"",
-    "test": "node -e \"console.log('web tests planned for Phase 2')\""
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --project tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs"
   }
 }

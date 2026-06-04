@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "node -e \"console.log('worker typecheck planned for Phase 2')\"",
-    "test": "node -e \"console.log('worker tests planned for Phase 2')\""
+    "dev": "PYTHONPATH=src uv run python -m graphview_worker",
+    "typecheck": "uv run python -m compileall src tests",
+    "test": "PYTHONPATH=src uv run --group dev pytest"
   }
 }

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "node -e \"console.log('api typecheck planned for Phase 2')\"",
-    "test": "node -e \"console.log('api tests planned for Phase 2')\""
+    "dev": "PYTHONPATH=src uv run uvicorn graphview_api.main:app --reload --host 127.0.0.1 --port 8000",
+    "typecheck": "uv run python -m compileall src tests",
+    "test": "PYTHONPATH=src uv run --group dev pytest"
   }
 }

@@ -3,8 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "dependencies": {
+    "@graphview/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  },
   "scripts": {
-    "typecheck": "node -e \"console.log('graph-core typecheck planned for Phase 2')\"",
-    "test": "node -e \"console.log('graph-core tests planned for Phase 2')\""
+    "typecheck": "tsc --project tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs"
   }
 }

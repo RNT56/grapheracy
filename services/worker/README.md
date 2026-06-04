@@ -10,10 +10,14 @@ Entrypoints:
 - Worker contract: `worker-contract.md`
 - Planned worker module: `services/worker/src/graphview_worker`
 
-Commands: planned `uv run graphview-worker`, `uv run pytest` after Phase 2 scaffolding.
+Commands:
+
+- `pnpm --filter @graphview/worker-contract dev`
+- `pnpm --filter @graphview/worker-contract typecheck`
+- `pnpm --filter @graphview/worker-contract test`
 
 Environment variables: `POSTGRES_*`, `MINIO_*`, `ARQ_REDIS_URL`, `GRAPHVIEW_ENV`.
 
-Test path: planned `services/worker/tests`.
+Test path: `services/worker/tests`.
 
 Failure modes: non-idempotent retries, untraceable stages, duplicate proposals, and graph commits without review state.

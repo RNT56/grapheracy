@@ -10,3 +10,9 @@ export const graphviewDesignTokens = {
     card: "8px"
   }
 } as const;
+
+export const graphviewAppShell = {
+  sidebarWidth: "280px",
+  topbarHeight: "56px",
+  graphPanelMinHeight: "520px"
+} as const;

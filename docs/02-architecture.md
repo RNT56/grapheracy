@@ -41,7 +41,8 @@ The public interfaces are defined in `../packages/shared-types/src/index.ts`.
 
 ## API Skeleton
 
-The OpenAPI contract skeleton lives in `../services/api/openapi.yaml`.
+The OpenAPI contract skeleton lives in `../services/api/openapi.yaml`, and the runnable FastAPI scaffold lives in
+`../services/api/src/graphview_api`.
 
 - `GET /health`
 - `GET /version`
@@ -55,7 +56,8 @@ Phase 2 will add request and response schemas backed by shared contracts.
 
 ## Worker Lifecycle
 
-Worker stages are documented in `../services/worker/worker-contract.md`.
+Worker stages are documented in `../services/worker/worker-contract.md`, with the runnable stage plan in
+`../services/worker/src/graphview_worker/pipeline.py`.
 
 1. Source fetch.
 2. Source extract.

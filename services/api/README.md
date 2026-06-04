@@ -10,10 +10,14 @@ Entrypoints:
 - Contract skeleton: `openapi.yaml`
 - Planned app module: `services/api/src/graphview_api`
 
-Commands: planned `uv run fastapi dev`, `uv run pytest`, and migration commands after Phase 2 scaffolding.
+Commands:
+
+- `pnpm --filter @graphview/api-contract dev`
+- `pnpm --filter @graphview/api-contract typecheck`
+- `pnpm --filter @graphview/api-contract test`
 
 Environment variables: `POSTGRES_*`, `MINIO_*`, `OIDC_*`, `GRAPHVIEW_API_BASE_URL`, `GRAPHVIEW_ENV`.
 
-Test path: planned `services/api/tests`.
+Test path: `services/api/tests`.
 
 Failure modes: OpenAPI drift, auth adapter mismatch, incomplete provenance persistence, and migration rollback gaps.

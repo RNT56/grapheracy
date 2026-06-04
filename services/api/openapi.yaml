@@ -10,12 +10,20 @@ paths:
       responses:
         "200":
           description: API process is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
   /version:
     get:
       summary: Service version and build metadata.
       responses:
         "200":
           description: Version metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
   /graph:
     get:
       summary: List or query graph projects, nodes, and edges.
@@ -46,3 +54,24 @@ paths:
       responses:
         "200":
           description: Review decision list response.
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+    VersionResponse:
+      type: object
+      required: [service, version, environment]
+      properties:
+        service:
+          type: string
+        version:
+          type: string
+        environment:
+          type: string

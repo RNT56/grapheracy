@@ -35,6 +35,18 @@ For every new direct dependency, document:
 - `pnpm audit --audit-level=moderate` or ecosystem equivalent.
 - OSV scan result against lockfiles.
 
+## Phase 2 Dependency Approval Notes
+
+Direct JavaScript dependencies are pinned in `pnpm-workspace.yaml` and locked in `pnpm-lock.yaml`. They are required for
+the runnable React/Vite shell and TypeScript contract checks, including React type packages used only at compile time.
+
+Direct Python dependencies are locked through `uv.lock`. FastAPI, Pydantic Settings, SQLAlchemy, Alembic, and Uvicorn are
+required for the API scaffold. Arq and Pydantic Settings are required for the worker scaffold. HTTPX and Pytest are dev
+dependencies for service tests.
+
+Lifecycle scripts remain denied by default. Any package that requires a build or postinstall exception must be documented
+before it is allowed.
+
 ## Required Gates
 
 - JS audit: `pnpm audit --audit-level=moderate`.

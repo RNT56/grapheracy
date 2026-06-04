@@ -2,7 +2,7 @@
 
 ## Phase 1: Project Preparation
 
-Status: in progress until local validation and review are complete.
+Status: complete.
 
 Goals:
 
@@ -16,6 +16,8 @@ Goals:
 - Add CI skeletons for lint, typecheck, test, audits, secret scan, docs hygiene, and changelog validation.
 
 ## Phase 2: Runnable Service Scaffolds
+
+Status: complete.
 
 - Scaffold React/Vite web app.
 - Scaffold FastAPI API service.

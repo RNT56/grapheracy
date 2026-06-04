@@ -3,7 +3,12 @@ name = "graphview-worker"
 version = "0.0.0"
 description = "Future async ingestion worker for Graphview."
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+  "arq",
+  "pydantic-settings"
+]
 
 [dependency-groups]
-dev = []
+dev = [
+  "pytest"
+]

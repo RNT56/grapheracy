@@ -32,15 +32,18 @@ Required for Phase 1 checks:
 - Docker for local service orchestration once Phase 2 adds runnable services.
 
 ```sh
-corepack enable
 pnpm install --frozen-lockfile
-pnpm run lint
-pnpm run security:local
-pnpm run changelog:check
+uv python install 3.14.5
+pnpm run phase2:check
 ```
 
-`pnpm run typecheck` and `pnpm run test` are wired for workspace packages and currently pass through because Phase 1
-defines contracts and scaffolding rather than production implementations.
+Phase 2 provides runnable app, API, and worker scaffolds.
+
+```sh
+pnpm --filter @graphview/web dev
+pnpm --filter @graphview/api-contract dev
+pnpm --filter @graphview/worker-contract dev
+```
 
 ## Repository Layout
 
