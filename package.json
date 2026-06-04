@@ -1,0 +1,29 @@
+{
+  "name": "graphview",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Internal research and personal-knowledge graph product workspace.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": ">=10.27.0"
+  },
+  "scripts": {
+    "setup": "pnpm install --frozen-lockfile",
+    "lint": "node scripts/run-local-checks.mjs lint:docs lint:metadata",
+    "lint:docs": "node scripts/run-local-checks.mjs doc-links doc-freshness",
+    "lint:metadata": "node scripts/check-workspace-metadata.mjs",
+    "typecheck": "node scripts/run-workspace-scripts.mjs typecheck",
+    "test": "node scripts/run-workspace-scripts.mjs test",
+    "security:local": "node scripts/check-security-policy.mjs",
+    "security:audit": "pnpm audit --audit-level=moderate",
+    "security:signatures": "node scripts/check-npm-signatures.mjs",
+    "security:osv": "osv-scanner scan source -r .",
+    "security:secrets": "gitleaks detect --source . --no-git",
+    "security:licenses": "node scripts/check-license-policy.mjs",
+    "changelog:check": "node scripts/check-changelog.mjs",
+    "docs:check": "node scripts/run-local-checks.mjs doc-links doc-freshness",
+    "phase1:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test"
+  }
+}

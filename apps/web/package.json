@@ -1,0 +1,10 @@
+{
+  "name": "@graphview/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "node -e \"console.log('web typecheck planned for Phase 2')\"",
+    "test": "node -e \"console.log('web tests planned for Phase 2')\""
+  }
+}

@@ -1,0 +1,23 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: false
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/docs-app: {}
+
+  apps/web: {}
+
+  packages/design-system: {}
+
+  packages/graph-core: {}
+
+  packages/shared-types: {}
+
+  services/api: {}
+
+  services/worker: {}

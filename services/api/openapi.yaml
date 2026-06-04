@@ -1,0 +1,48 @@
+openapi: 3.1.0
+info:
+  title: Graphview API
+  version: 0.0.0
+  description: Phase 1 contract skeleton for the future FastAPI service.
+paths:
+  /health:
+    get:
+      summary: Service health check.
+      responses:
+        "200":
+          description: API process is healthy.
+  /version:
+    get:
+      summary: Service version and build metadata.
+      responses:
+        "200":
+          description: Version metadata.
+  /graph:
+    get:
+      summary: List or query graph projects, nodes, and edges.
+      responses:
+        "200":
+          description: Graph data response.
+  /sources:
+    get:
+      summary: List sources for the active project.
+      responses:
+        "200":
+          description: Source list response.
+  /ingestion-runs:
+    get:
+      summary: List ingestion runs and current stages.
+      responses:
+        "200":
+          description: Ingestion run list response.
+  /proposals:
+    get:
+      summary: List extraction proposals awaiting or carrying review decisions.
+      responses:
+        "200":
+          description: Proposal list response.
+  /review-decisions:
+    get:
+      summary: List review decisions.
+      responses:
+        "200":
+          description: Review decision list response.

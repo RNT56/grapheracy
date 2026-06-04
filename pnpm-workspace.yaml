@@ -1,0 +1,15 @@
+packages:
+  - apps/*
+  - services/*
+  - packages/*
+
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+
+catalog:
+  "vite": "^8.0.0"
+  "react": "^19.2.0"
+  "react-dom": "^19.2.0"

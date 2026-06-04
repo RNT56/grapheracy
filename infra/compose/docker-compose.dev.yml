@@ -1,0 +1,77 @@
+name: graphview-dev
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    profiles: ["app"]
+    environment:
+      GRAPHVIEW_PUBLIC_BASE_URL: http://localhost:5173
+      GRAPHVIEW_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    profiles: ["app"]
+    environment:
+      GRAPHVIEW_ENV: local
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: graphview
+      POSTGRES_USER: graphview
+      POSTGRES_PASSWORD: graphview-local-only
+      MINIO_ENDPOINT: http://minio:9000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - minio
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    profiles: ["app"]
+    environment:
+      GRAPHVIEW_ENV: local
+      POSTGRES_HOST: postgres
+      ARQ_REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: http://minio:9000
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    environment:
+      POSTGRES_DB: graphview
+      POSTGRES_USER: graphview
+      POSTGRES_PASSWORD: graphview-local-only
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+
+  minio:
+    image: minio/minio:RELEASE.2026-05-24T00-00-00Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: graphview
+      MINIO_ROOT_PASSWORD: graphview-local-only
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./.data/minio:/data

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 7am on monday"],
+  "separateMajorMinor": true,
+  "separateMinorPatch": false,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "1 day",
+  "packageRules": [
+    {
+      "matchManagers": ["npm"],
+      "groupName": "javascript dependencies",
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "matchManagers": ["pep621"],
+      "groupName": "python dependencies",
+      "matchUpdateTypes": ["minor", "patch"]
+    },
+    {
+      "matchDepTypes": ["devDependencies"],
+      "groupName": "development dependencies"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchPackageNames": ["*"],
+      "matchDatasources": ["npm", "pypi"],
+      "semanticCommitType": "chore"
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security", "dependencies"],
+    "schedule": []
+  }
+}
