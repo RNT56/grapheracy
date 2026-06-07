@@ -7,6 +7,8 @@ node_modules/
 .pnpm-store/
 dist/
 coverage/
+apps/web/test-results/
+apps/web/playwright-report/
 
 .venv/
 __pycache__/

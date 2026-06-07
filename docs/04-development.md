@@ -19,7 +19,7 @@ Install dependencies and run the current local acceptance gate:
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase25:check
+pnpm run phase26:check
 ```
 
 ## Root Commands
@@ -63,6 +63,7 @@ pnpm run phase25:check
 | `pnpm run phase23:check` | Runnable | Runs AI-native graph workspace checks, release readiness validation, and the web build. |
 | `pnpm run phase24:check` | Runnable | Runs living graph source contracts, Playwright browser QA, release readiness validation, and the web build. |
 | `pnpm run phase25:check` | Runnable | Runs digital nervous system checks, web build, and browser graph QA. |
+| `pnpm run phase26:check` | Runnable | Runs release hardening checks, web build, browser graph QA, and artifact cleanup. |
 | `pnpm run release:check` | Runnable | Validates release readiness docs, commands, mode discovery, lineage, insights, neighborhoods, paths, review worklists, review dashboards, review activity, source review coverage, full graph workspace, backup/restore, and observability references. |
 | `pnpm --filter @graphview/web dev` | Runnable | Starts the Vite web app on `127.0.0.1:5173`. |
 | `pnpm --filter @graphview/api-contract dev` | Runnable | Starts the FastAPI service on `127.0.0.1:8000`. |

@@ -219,7 +219,8 @@ fields above must remain stable.
 - Research task idempotency keys are unique within a project.
 - Backup and restore must preserve original IDs, timestamps, provenance, proposals, decisions, connector records, source
   chunks, graph settings, planning records, agent records, digital nervous system records, and graph activity events.
-- Phase 25 action runs require an approved proposal and an action type on the safe execution allowlist.
+- Phase 25 action runs require an approved proposal and an action type on the configured safe execution allowlist.
+- Source freshness action runs can only mutate a source in the proposal project; missing targets produce failed runs.
 - Restoring Phase 25 action proposals and runs must not execute side effects.
 
 ## Change Procedure

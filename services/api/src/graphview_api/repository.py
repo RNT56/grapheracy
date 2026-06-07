@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, and_, delete, insert, or_, select, text, update
 
 from graphview_api import db
+from graphview_api.action_policy import normalize_safe_action_types
 from graphview_api.connectors import NormalizedSourceDocument, stable_id
 from graphview_api.demo_seed import DEMO_PROJECT_ID, seed_demo_graph
 from graphview_api.lenses import normalize_graph_lens
@@ -84,15 +85,6 @@ OPS_RELATIONS = {"owned_by", "has_review_cycle", "governs", "supports", "depends
 RESEARCH_RELATIONS = {"supports", "contradicts", "causes", "mentions", "defines", "relates_to", "references"}
 GRAPH_LENSES = ("research", "engineering", "ops")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
-SAFE_ACTION_TYPES = {
-    "mark_source_stale",
-    "mark_source_refreshed",
-    "create_notification",
-    "create_external_ticket",
-    "connector_sync",
-    "create_graph_proposal",
-    "request_owner_confirmation",
-}
 SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credentials"}
 
 
@@ -135,10 +127,12 @@ class GraphRepository:
         *,
         secret_key: str = "local-dev-graphview-secret",
         auto_commit_threshold: float = 0.92,
+        safe_action_types: list[str] | tuple[str, ...] | set[str] | frozenset[str] | str | None = None,
     ):
         self.engine = engine
         self.secret_key = secret_key
         self.auto_commit_threshold = auto_commit_threshold
+        self.safe_action_types = normalize_safe_action_types(safe_action_types)
 
     def initialize(self) -> None:
         db.metadata.create_all(self.engine)
@@ -2536,8 +2530,8 @@ class GraphRepository:
                 raise KeyError(payload.action_proposal_id)
             if proposal_row["status"] != "approved":
                 raise ValueError("Action proposal must be approved before execution.")
-            if proposal_row["action_type"] not in SAFE_ACTION_TYPES:
-                raise ValueError("Action type is not in the Phase 25 safe execution allowlist.")
+            if proposal_row["action_type"] not in self.safe_action_types:
+                raise ValueError("Action type is not in the configured safe execution allowlist.")
             action_payload = load_json(proposal_row["payload_json"], {})
             redacted_payload = load_json(proposal_row["redacted_payload_json"], {})
             status_value, external_id, error_code, error = self._execute_safe_action(conn, proposal_row, action_payload, timestamp)
@@ -3654,13 +3648,25 @@ class GraphRepository:
             source_id = payload.get("source_id")
             if not source_id:
                 return "failed", None, "missing_source", "source_id is required."
-            conn.execute(update(db.sources).where(db.sources.c.id == source_id).values(stale_at=timestamp, updated_at=timestamp))
+            result = conn.execute(
+                update(db.sources)
+                .where(and_(db.sources.c.id == source_id, db.sources.c.project_id == proposal_row["project_id"]))
+                .values(stale_at=timestamp, updated_at=timestamp)
+            )
+            if result.rowcount == 0:
+                return "failed", None, "source_not_found", "source_id was not found in this project."
             return "succeeded", None, None, None
         if action_type == "mark_source_refreshed":
             source_id = payload.get("source_id")
             if not source_id:
                 return "failed", None, "missing_source", "source_id is required."
-            conn.execute(update(db.sources).where(db.sources.c.id == source_id).values(stale_at=None, updated_at=timestamp))
+            result = conn.execute(
+                update(db.sources)
+                .where(and_(db.sources.c.id == source_id, db.sources.c.project_id == proposal_row["project_id"]))
+                .values(stale_at=None, updated_at=timestamp)
+            )
+            if result.rowcount == 0:
+                return "failed", None, "source_not_found", "source_id was not found in this project."
             return "succeeded", None, None, None
         if action_type == "create_external_ticket":
             return "succeeded", f"ticket-{uuid4().hex[:10]}", None, None

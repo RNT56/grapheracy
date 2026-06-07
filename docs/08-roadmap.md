@@ -259,6 +259,21 @@ Status: complete.
   after restore.
 - Use `12-digital-nervous-system-phase25-plan.md` as the implementation record for this phase.
 
+## Phase 26: Release Hardening And Performance Split
+
+Status: complete.
+
+- Lazy-load the Three.js 3D graph renderer so the default 2D workspace does not eagerly load the 3D dependency path.
+- Add WebGL initialization fallback handling inside the Three.js renderer adapter.
+- Add browser QA artifact cleanup and wire `phase26:check` through lint, security local checks, license checks,
+  changelog checks, typecheck, tests, release readiness, web build, browser QA, and cleanup.
+- Make the Phase 25 safe-action execution allowlist configurable through settings and environment configuration.
+- Scope source freshness actions to the proposal project and report missing targets as failed action runs.
+- Add graph activity stream anti-buffering headers for more reliable server-sent event delivery.
+- Add API coverage for action policy configuration, scoped action mutation failure, activity stream headers, and linear
+  Alembic migration continuity through graph activity and digital nervous system tables.
+- Suppress only the known external Starlette TestClient deprecation in pytest output while keeping new warnings visible.
+
 ## Coordinator Notes
 
 - `CHANGELOG.md` and this roadmap are coordinator-owned.

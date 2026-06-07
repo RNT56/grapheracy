@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import {
   buildGraphTetherPlan,
   buildGraphTooltipModel,
@@ -16,7 +16,6 @@ import {
   type GraphVisualStatus,
   type SemanticEdge
 } from "@graphview/shared-types";
-import { ThreeGraphScene } from "./ThreeGraphScene";
 
 export type GraphLayoutMode = "force" | "radial" | "arc";
 export type GraphDimensionMode = "2d" | "3d";
@@ -102,6 +101,10 @@ const VIEWBOX = { width: 900, height: 640 };
 const DEFAULT_CAMERA: CameraState = { panX: 0, panY: 0, zoom: 1, yaw: -0.58, pitch: 0.58 };
 const NODE_KIND_ORDER = NODE_KIND_DEFINITIONS.map((definition) => definition.id);
 const NODE_KIND_INDEX = new Map(NODE_KIND_ORDER.map((kind, index) => [kind, index]));
+const LazyThreeGraphScene = lazy(async () => {
+  const module = await import("./ThreeGraphScene");
+  return { default: module.ThreeGraphScene };
+});
 
 export function GraphCanvas({
   nodes,
@@ -264,29 +267,31 @@ export function GraphCanvas({
       onPointerLeave={() => setHoveredObjectId(undefined)}
     >
       {use3d && (
-        <ThreeGraphScene
-          nodes={view.nodes.map((viewNode) => ({
-            id: viewNode.node.id,
-            label: viewNode.node.label,
-            kind: viewNode.node.kind,
-            x: viewNode.x,
-            y: viewNode.y,
-            z: viewNode.z,
-            radius: viewNode.radius,
-            statuses: viewNode.statuses
-          }))}
-          edges={view.edges.map((viewEdge) => ({
-            id: viewEdge.edge.id,
-            sourceNodeId: viewEdge.edge.sourceNodeId,
-            targetNodeId: viewEdge.edge.targetNodeId,
-            relation: viewEdge.edge.relation,
-            statuses: viewEdge.statuses
-          }))}
-          selectedNodeId={selectedNodeId}
-          reducedMotion={animationBudget.tier !== "full_motion"}
-          onHoverObject={setHoveredObjectId}
-          onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
-        />
+        <Suspense fallback={<div className="three-graph-loading" role="status" aria-label="Preparing 3D graph" />}>
+          <LazyThreeGraphScene
+            nodes={view.nodes.map((viewNode) => ({
+              id: viewNode.node.id,
+              label: viewNode.node.label,
+              kind: viewNode.node.kind,
+              x: viewNode.x,
+              y: viewNode.y,
+              z: viewNode.z,
+              radius: viewNode.radius,
+              statuses: viewNode.statuses
+            }))}
+            edges={view.edges.map((viewEdge) => ({
+              id: viewEdge.edge.id,
+              sourceNodeId: viewEdge.edge.sourceNodeId,
+              targetNodeId: viewEdge.edge.targetNodeId,
+              relation: viewEdge.edge.relation,
+              statuses: viewEdge.statuses
+            }))}
+            selectedNodeId={selectedNodeId}
+            reducedMotion={animationBudget.tier !== "full_motion"}
+            onHoverObject={setHoveredObjectId}
+            onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
+          />
+        </Suspense>
       )}
       <svg
         className={`graph-canvas ${use3d ? "graph-canvas-overlay" : ""}`}

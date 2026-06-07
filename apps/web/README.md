@@ -47,7 +47,8 @@ Scoped research starts agent runs and displays review-gated action proposals wit
 Phase 24 adds living graph activity, tethered tooltips, reduced-motion handling, and 2D/3D renderer parity. Phase 25 adds
 the graph-centered Attention mode for the digital nervous system loop: signals, alerts, owners, routing policies,
 decision records, gated action proposals, action runs, outcomes, and feedback are surfaced without bypassing review or
-operate permissions.
+operate permissions. Phase 26 lazy-loads the Three.js renderer so 2D graph sessions do not eagerly load the 3D mode,
+and keeps browser QA artifacts cleaned by the root release-hardening gate.
 
 Failure modes: graph rendering performance regressions, stale API contracts, auth adapter mismatch, provenance UI
 omissions, locally-invented AI graph changes, missing citations, and compact-control text overflow.

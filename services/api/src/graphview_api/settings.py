@@ -3,6 +3,8 @@ from functools import lru_cache
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from graphview_api.action_policy import DEFAULT_SAFE_ACTION_TYPES
+
 
 class Settings(BaseSettings):
     environment: str = Field(default="local", validation_alias=AliasChoices("GRAPHVIEW_ENVIRONMENT", "GRAPHVIEW_ENV"))
@@ -26,6 +28,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_model: str = "gemini-3.1-pro"
+    safe_action_types: str = ",".join(DEFAULT_SAFE_ACTION_TYPES)
 
     model_config = SettingsConfigDict(
         env_file=".env",

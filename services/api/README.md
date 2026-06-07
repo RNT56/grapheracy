@@ -25,7 +25,7 @@ Commands:
 
 Environment variables: `POSTGRES_*`, `MINIO_*`, `OIDC_*`, `GRAPHVIEW_API_BASE_URL`, `GRAPHVIEW_ENV`,
 `GRAPHVIEW_SECRET_KEY`, `GRAPHVIEW_LLM_*`, `GRAPHVIEW_AUTO_COMMIT_THRESHOLD`, `GRAPHVIEW_OPENAI_API_KEY`,
-`GRAPHVIEW_OPENAI_BASE_URL`, `GRAPHVIEW_OPENAI_MODEL`, `GRAPHVIEW_ANTHROPIC_API_KEY`,
+`GRAPHVIEW_SAFE_ACTION_TYPES`, `GRAPHVIEW_OPENAI_BASE_URL`, `GRAPHVIEW_OPENAI_MODEL`, `GRAPHVIEW_ANTHROPIC_API_KEY`,
 `GRAPHVIEW_ANTHROPIC_BASE_URL`, `GRAPHVIEW_ANTHROPIC_MODEL`, `GRAPHVIEW_GEMINI_API_KEY`,
 `GRAPHVIEW_GEMINI_BASE_URL`, and `GRAPHVIEW_GEMINI_MODEL`.
 
@@ -138,7 +138,9 @@ is the only endpoint that applies an agent proposal.
 Phase 25 adds the digital nervous system loop: persisted signals, observations, alerts, Attention items, owners, routing
 policies, decision records, review-gated action proposals, safe action runs, outcomes, feedback events, activity replay,
 and backup/restore coverage. Action payloads are redacted in API responses and restored bundles do not replay side
-effects.
+effects. Phase 26 makes the safe action execution allowlist configurable, scopes source freshness actions to the
+proposal project, adds activity stream anti-buffering headers, and validates migration continuity through the activity
+and digital nervous system tables.
 
 The static `openapi.yaml` is generated from the FastAPI app. When request or response models change, update
 `schemas.py`, run the API tests, regenerate `openapi.yaml`, and update `docs/09-data-schema.md` if persistence or public

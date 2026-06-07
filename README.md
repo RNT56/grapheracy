@@ -3,11 +3,11 @@
 Graphview is an internal knowledge graph product for ingesting mixed sources, extracting and reviewing concepts,
 preserving provenance, and exploring relationships in an interactive graph.
 
-The repository is in Phase 25: the digital nervous system loop on top of AI-native planning, graph Q&A, scoped research,
-provider registry hardening, and connector-backed graph building for uploads, URLs, repositories, Google Workspace, and
-Notion. Planning Mode is a separate workspace, while continued research, graph questions, and graph-centered Attention
-operate through the existing source, proposal, review, provenance, lineage, and activity flows. The standalone prototype
-is preserved as UX evidence at
+The repository is in Phase 26: release hardening and performance split on top of the digital nervous system loop,
+AI-native planning, graph Q&A, scoped research, provider registry hardening, and connector-backed graph building for
+uploads, URLs, repositories, Google Workspace, and Notion. Planning Mode is a separate workspace, while continued
+research, graph questions, and graph-centered Attention operate through the existing source, proposal, review,
+provenance, lineage, and activity flows. The standalone prototype is preserved as UX evidence at
 `prototypes/knowledge-graph-explorer.html`; it is not production code.
 
 Phase 22 remains the historical release-readiness baseline for the current release script.
@@ -44,7 +44,7 @@ Required for local checks:
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase25:check
+pnpm run phase26:check
 ```
 
 Phase 4 provides runnable app, API, and worker scaffolds plus source CRUD, proposal review commits, provenance, search,
@@ -80,7 +80,8 @@ sources/chunks/proposals, citation drawers, and review-gated AI action proposals
 Phase 24 adds the living graph UI, activity overlays, tethered explanatory tooltips, reduced-motion behavior, and 2D/3D
 renderer parity. Phase 25 adds persisted signals, observations, alerts, Attention items, owners, routing policies,
 decision records, gated action proposals/runs, outcomes, feedback events, backup/restore coverage, and the web Attention
-mode for the digital nervous system loop.
+mode for the digital nervous system loop. Phase 26 lazy-loads the 3D renderer, hardens action execution policy,
+validates migration continuity, tightens activity stream delivery, and cleans browser QA artifacts.
 
 ```sh
 pnpm --filter @graphview/web dev

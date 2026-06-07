@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import type { GraphVisualStatus } from "@graphview/shared-types";
 
@@ -47,16 +47,29 @@ const NODE_COLORS: Record<string, number> = {
 
 export function ThreeGraphScene({ nodes, edges, selectedNodeId, reducedMotion, onHoverObject, onSelectNode }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [rendererUnavailable, setRendererUnavailable] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    setRendererUnavailable(false);
+
+    if (!supportsWebGL()) {
+      setRendererUnavailable(true);
+      return;
+    }
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x080a0e);
     const camera = new THREE.PerspectiveCamera(48, 1, 1, 2400);
     camera.position.set(0, 0, 720);
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    let renderer: THREE.WebGLRenderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    } catch {
+      setRendererUnavailable(true);
+      return;
+    }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.domElement.className = "three-graph-canvas";
     container.appendChild(renderer.domElement);
@@ -202,7 +215,20 @@ export function ThreeGraphScene({ nodes, edges, selectedNodeId, reducedMotion, o
     };
   }, [edges, nodes, onHoverObject, onSelectNode, reducedMotion, selectedNodeId]);
 
+  if (rendererUnavailable) {
+    return <div className="three-graph-unavailable" role="status" aria-label="3D graph unavailable" />;
+  }
+
   return <div className="three-graph-scene" data-renderer="three" ref={containerRef} />;
+}
+
+function supportsWebGL() {
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(window.WebGLRenderingContext && (canvas.getContext("webgl2") || canvas.getContext("webgl")));
+  } catch {
+    return false;
+  }
 }
 
 function colorForNode(node: ThreeGraphNode) {

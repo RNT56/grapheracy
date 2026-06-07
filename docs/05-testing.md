@@ -194,6 +194,18 @@ presence, and the product-first web shell.
 - Browser checks continue to run the Phase 24 nonblank 2D/3D graph and tooltip URL coverage so the new activity states
   do not regress the primary graph workspace.
 
+## Phase 26 Checks
+
+- Expected command: `pnpm run phase26:check`.
+- Web build checks must show the 3D renderer split into a lazy-loaded chunk so default 2D sessions do not eagerly load
+  Three.js.
+- API tests cover configurable safe-action allowlists, project-scoped source mutation execution, graph activity stream
+  anti-buffering headers, and linear Alembic migration metadata through Phase 24 and Phase 25 tables.
+- Browser checks continue to run desktop and mobile nonblank graph rendering and tooltip URL coverage, with Playwright
+  artifacts cleaned before and after the gate.
+- Pytest warning filters suppress only the known external Starlette TestClient deprecation so new warnings remain
+  visible in local checks.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.

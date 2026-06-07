@@ -11,6 +11,7 @@
   },
   "scripts": {
     "setup": "pnpm install --frozen-lockfile",
+    "clean:artifacts": "rm -rf apps/web/test-results apps/web/playwright-report",
     "lint": "node scripts/run-local-checks.mjs lint:docs lint:metadata",
     "lint:docs": "node scripts/run-local-checks.mjs doc-links doc-freshness",
     "lint:metadata": "node scripts/check-workspace-metadata.mjs",
@@ -49,6 +50,7 @@
     "phase22:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build",
     "phase23:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build",
     "phase24:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser",
-    "phase25:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser"
+    "phase25:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser",
+    "phase26:check": "pnpm run clean:artifacts && node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser && pnpm run clean:artifacts"
   }
 }

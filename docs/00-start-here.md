@@ -5,8 +5,8 @@ personal knowledge workflows.
 
 ## Current Phase
 
-Phase 22 adds AI-native planning, graph Q&A, scoped research, and provider registry hardening on top of the full
-Knowledge Graph Builder workspace and Phase 17 connector-backed graph building.
+Phase 26 adds release hardening, lazy 3D graph loading, action-policy configuration, migration continuity checks, and
+browser QA artifact cleanup on top of the Phase 25 digital nervous system loop.
 The old prototype is preserved at `../prototypes/knowledge-graph-explorer.html` as UX evidence only.
 
 ## Read Order

@@ -43,10 +43,13 @@ versioned release is cut. Before release consolidation, multi-worker changes lan
 - Phase 25 digital nervous system loop with persisted signals, observations, alerts, Attention items, owners, routing
   policies, decision records, gated action proposals/runs, outcomes, feedback events, activity replay, backup/restore,
   and a graph-centered Attention mode in the web workspace.
+- Phase 26 release hardening with lazy-loaded 3D graph rendering, activity stream anti-buffering, action-policy
+  configuration, migration continuity checks, and browser QA artifact cleanup.
 
 ### Changed
 
 - Preserved the standalone prototype as reference material at `prototypes/knowledge-graph-explorer.html`.
+- Split the Three.js renderer out of the default web bundle so 2D graph sessions do not eagerly load the 3D renderer.
 
 ### Security
 
@@ -56,3 +59,4 @@ versioned release is cut. Before release consolidation, multi-worker changes lan
   mutation requirements.
 - Added Phase 25 safe-action gates, operate/review permission checks, redacted action payloads, and no side-effect replay
   on restore for persisted nervous-system records.
+- Hardened safe action execution with a configurable allowlist and project-scoped source freshness mutations.

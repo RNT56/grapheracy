@@ -841,6 +841,40 @@ button:disabled {
   touch-action: none;
 }
 
+.three-graph-loading,
+.three-graph-unavailable {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(143, 226, 206, 0.2), transparent 34%),
+    rgba(8, 10, 14, 0.92);
+}
+
+.three-graph-loading::before {
+  content: "";
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(143, 226, 206, 0.34);
+  border-top-color: rgba(239, 245, 251, 0.82);
+  border-radius: 999px;
+  animation: graphLoader 720ms linear infinite;
+}
+
+.three-graph-unavailable::before {
+  content: "3D unavailable";
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: rgba(10, 13, 19, 0.76);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 620;
+  padding: 9px 12px;
+}
+
 .graph-canvas-wrap.can-pan .graph-canvas {
   cursor: grab;
 }
@@ -2368,6 +2402,15 @@ button:disabled {
   }
   to {
     stroke-dashoffset: -60;
+  }
+}
+
+@keyframes graphLoader {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
   }
 }
 

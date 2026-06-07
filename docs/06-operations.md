@@ -137,6 +137,13 @@ The API exposes AI V1 endpoints for planning, read-only graph Q&A, and scoped re
 Agent runs record provider, model, trace ID, status, summaries, citations, and action proposal state for audit. External
 provider use is configured through environment-backed settings; local development can use `graphview-local`.
 
+## Digital Nervous System Actions
+
+Phase 26 keeps action execution gated by approved action proposals, operate permission, and a configurable safe-action
+allowlist. `GRAPHVIEW_SAFE_ACTION_TYPES` accepts a comma-separated list of executable action types. Source freshness
+actions only mutate sources in the proposal's project; missing or cross-project source IDs produce failed action runs
+instead of silent mutation.
+
 ## Backup And Restore
 
 The API exposes full graph-state backup and restore endpoints for the active project:
@@ -175,6 +182,7 @@ The app services run from the local workspace for development. Production image 
 | `GRAPHVIEW_SECRET_KEY` | api | `local-dev-graphview-secret` | Yes outside local | Local reversible protection for connector token JSON. Production should replace this with KMS-backed secret handling. |
 | `GRAPHVIEW_LLM_*` | api | disabled OpenAI-compatible defaults | API key yes | Provider-agnostic LLM extraction defaults. Project and connector settings can override these defaults. |
 | `GRAPHVIEW_AUTO_COMMIT_THRESHOLD` | api | `0.92` | No | Default confidence threshold for system auto-commit decisions. |
+| `GRAPHVIEW_SAFE_ACTION_TYPES` | api | Phase 25 safe action list | No | Comma-separated allowlist for approved action proposal execution. |
 | `GRAPHVIEW_AI_DEFAULT_PROVIDER` | api | `graphview-local` | No | Default agent provider when a request does not name one. |
 | `GRAPHVIEW_OPENAI_*` | api | OpenAI Responses defaults | API key yes | OpenAI agent provider configuration. |
 | `GRAPHVIEW_ANTHROPIC_*` | api | Claude Messages defaults | API key yes | Anthropic agent provider configuration. |
@@ -183,7 +191,7 @@ The app services run from the local workspace for development. Production image 
 ## Release Process
 
 1. Capture and verify a `GET /backup` bundle from the target environment.
-2. Run `pnpm run phase25:check`, or `pnpm run phase24:check` for the previous living graph gate.
+2. Run `pnpm run phase26:check`, or `pnpm run phase25:check` for the previous digital nervous system gate.
    The historical release-readiness smoke gate remains `pnpm run phase22:check` until the release script is advanced.
 3. Run `pnpm run release:check`.
 4. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.

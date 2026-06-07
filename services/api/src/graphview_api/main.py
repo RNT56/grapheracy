@@ -127,6 +127,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         create_app_engine(settings.database_url),
         secret_key=settings.secret_key,
         auto_commit_threshold=settings.auto_commit_threshold,
+        safe_action_types=settings.safe_action_types,
     )
     repository.initialize()
     app.state.repository = repository
@@ -272,7 +273,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return StreamingResponse(
             event_stream(),
             media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache"},
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
 
     @app.get("/signals")

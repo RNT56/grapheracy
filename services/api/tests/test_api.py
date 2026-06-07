@@ -1,11 +1,14 @@
+import importlib.util
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from graphview_api.main import create_app
 from graphview_api.settings import Settings
 
 
-def make_client() -> TestClient:
-    return TestClient(create_app(Settings(database_url="sqlite://")))
+def make_client(settings: Settings | None = None) -> TestClient:
+    return TestClient(create_app(settings or Settings(database_url="sqlite://")))
 
 
 ADMIN_HEADERS = {"X-Graphview-User": "maintainer"}
@@ -27,7 +30,7 @@ def test_version() -> None:
     response = client.get("/version")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "0.23.0"
+    assert response.json()["version"] == "0.24.0"
 
 
 def test_local_auth_rejects_unknown_user() -> None:
@@ -758,12 +761,100 @@ def test_graph_activity_stream_frames_heartbeat_and_bounded_events() -> None:
     with client.stream("GET", "/graph/activity/stream", params={"limit": 2}, headers=READER_HEADERS) as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
+        assert response.headers["cache-control"] == "no-cache"
+        assert response.headers["x-accel-buffering"] == "no"
         payload = "".join(response.iter_text())
 
     assert payload.startswith(": heartbeat\n\n")
     assert "event: graph.activity\n" in payload
     assert "data: " in payload
     assert payload.count("event: graph.activity") <= 2
+
+
+def test_phase26_action_policy_is_configurable_and_source_actions_are_scoped() -> None:
+    settings = Settings(database_url="sqlite://", safe_action_types="create_notification")
+    client = make_client(settings)
+    source = client.post(
+        "/sources",
+        headers=ADMIN_HEADERS,
+        json={"kind": "url", "title": "Scoped source", "uri": "https://example.invalid/scoped"},
+    ).json()
+    stale_proposal = client.post(
+        "/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "mark_source_stale",
+            "title": "Mark scoped source stale",
+            "summary": "Should be denied by the configured allowlist.",
+            "payload": {"source_id": source["id"]},
+        },
+    ).json()
+    approved = client.post(
+        f"/action-proposals/{stale_proposal['id']}/approve",
+        headers=ADMIN_HEADERS,
+        json={"rationale": "Approved but not allowlisted for execution."},
+    )
+    assert approved.status_code == 200
+
+    denied_run = client.post(
+        "/action-runs",
+        headers=ADMIN_HEADERS,
+        json={"action_proposal_id": stale_proposal["id"]},
+    )
+    assert denied_run.status_code == 409
+    assert "allowlist" in denied_run.json()["detail"]
+
+    default_client = make_client()
+    missing_source_proposal = default_client.post(
+        "/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "mark_source_stale",
+            "title": "Mark missing source stale",
+            "summary": "Should fail without mutating any source.",
+            "payload": {"source_id": "source-missing-phase26"},
+        },
+    ).json()
+    assert default_client.post(
+        f"/action-proposals/{missing_source_proposal['id']}/approve",
+        headers=ADMIN_HEADERS,
+        json={"rationale": "Approved missing source execution test."},
+    ).status_code == 200
+
+    failed_run = default_client.post(
+        "/action-runs",
+        headers=ADMIN_HEADERS,
+        json={"action_proposal_id": missing_source_proposal["id"]},
+    )
+    assert failed_run.status_code == 201
+    assert failed_run.json()["status"] == "failed"
+    assert failed_run.json()["error_code"] == "source_not_found"
+
+
+def test_phase26_migrations_are_linear_through_activity_and_nervous_system_tables() -> None:
+    migration_dir = Path(__file__).parents[1] / "migrations" / "versions"
+    revisions: dict[str, str | None] = {}
+
+    for path in sorted(migration_dir.glob("*.py")):
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        revisions[module.revision] = module.down_revision
+
+    assert len(revisions) == len(list(migration_dir.glob("*.py")))
+    assert list(revisions.values()).count(None) == 1
+    assert revisions["20260605_0008"] == "20260605_0007"
+    assert revisions["20260606_0009"] == "20260605_0008"
+
+    seen: set[str] = set()
+    current = "20260606_0009"
+    while current is not None:
+        assert current not in seen
+        seen.add(current)
+        current = revisions[current]
+
+    assert seen == set(revisions)
 
 
 def test_phase25_digital_nervous_system_routes_executes_observes_and_learns() -> None:
