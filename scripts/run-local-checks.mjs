@@ -9,6 +9,7 @@ const checks = {
   "security:local": ["node", ["scripts/check-security-policy.mjs"]],
   "security:licenses": ["node", ["scripts/check-license-policy.mjs"]],
   "changelog:check": ["node", ["scripts/check-changelog.mjs"]],
+  "release:check": ["node", ["scripts/check-release-readiness.mjs"]],
   typecheck: ["node", ["scripts/run-workspace-scripts.mjs", "typecheck"]],
   test: ["node", ["scripts/run-workspace-scripts.mjs", "test"]]
 };

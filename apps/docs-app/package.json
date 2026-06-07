@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "node -e \"console.log('docs-app typecheck planned for Phase 2')\"",
-    "test": "node -e \"console.log('docs-app tests planned for Phase 2')\""
+    "typecheck": "node scripts/check-docs-app.mjs",
+    "test": "node scripts/check-docs-app.mjs"
   }
 }

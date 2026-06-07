@@ -1,6 +1,6 @@
 # Design System
 
-Purpose: future design tokens and shared UI primitives for Graphview apps.
+Purpose: design tokens and compact workspace UI constraints for Graphview apps.
 
 Owner: frontend worker.
 

@@ -3,8 +3,14 @@
 Graphview is an internal knowledge graph product for ingesting mixed sources, extracting and reviewing concepts,
 preserving provenance, and exploring relationships in an interactive graph.
 
-The repository is in Phase 4: deterministic ingestion workers and backend-triggered source processing. The standalone
-prototype is preserved as UX evidence at `prototypes/knowledge-graph-explorer.html`; it is not production code.
+The repository is in Phase 25: the digital nervous system loop on top of AI-native planning, graph Q&A, scoped research,
+provider registry hardening, and connector-backed graph building for uploads, URLs, repositories, Google Workspace, and
+Notion. Planning Mode is a separate workspace, while continued research, graph questions, and graph-centered Attention
+operate through the existing source, proposal, review, provenance, lineage, and activity flows. The standalone prototype
+is preserved as UX evidence at
+`prototypes/knowledge-graph-explorer.html`; it is not production code.
+
+Phase 22 remains the historical release-readiness baseline for the current release script.
 
 ## Start Here
 
@@ -18,6 +24,10 @@ prototype is preserved as UX evidence at `prototypes/knowledge-graph-explorer.ht
 - Operations: `docs/06-operations.md`
 - Agent workflows: `docs/07-agent-workflows.md`
 - Roadmap: `docs/08-roadmap.md`
+- Data schema: `docs/09-data-schema.md`
+- User journeys and value map: `docs/10-user-journeys-and-value-map.md`
+- Living graph UI vision and upgrade plan: `docs/11-living-graph-ui-vision-and-upgrade-plan.md`
+- Digital nervous system Phase 25 plan: `docs/12-digital-nervous-system-phase25-plan.md`
 - Changelog: `CHANGELOG.md`
 - Security policy: `SECURITY.md`
 
@@ -34,11 +44,43 @@ Required for local checks:
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase4:check
+pnpm run phase25:check
 ```
 
 Phase 4 provides runnable app, API, and worker scaffolds plus source CRUD, proposal review commits, provenance, search,
 import/export, text/markdown/URL/PDF ingestion, deterministic local embeddings, and reviewable proposal generation.
+Phase 5 adds bounded large-graph rendering, role-enforced API actions, readiness and metrics endpoints, full
+backup/restore, and release readiness checks.
+Phase 6 adds mode discovery, engineering repository ingestion for code symbols and dependencies, and ops document map
+ingestion for policies, processes, vendors, incidents, projects, ownership, and review metadata.
+Phase 7 adds deterministic semantic edge proposals, endpoint-node commit guards, and relationship visibility in the web
+review queue.
+Phase 8 adds lineage trace endpoints and web summaries that connect reviewed graph items back to source, ingestion run,
+proposal, review decision, and provenance.
+Phase 9 adds graph insight diagnostics for counts, review progress, top connected nodes, orphan edges, and provenance
+coverage.
+Phase 10 adds focused graph neighborhoods for reviewed nodes, with bounded API responses and web summaries for immediate
+context around high-signal nodes.
+Phase 11 adds bounded shortest paths between reviewed nodes, with deterministic API and graph-core traversal plus a web
+summary for graph connections.
+Phase 12 adds a prioritized review worklist that separates ready proposals from blocked relationship proposals and
+surfaces the next review action.
+Phase 13 adds a review dashboard that summarizes proposal volume, pending readiness, decision mix, reviewer activity,
+and acceptance/commit rates.
+Phase 14 adds a review activity feed that shows recent decisions with related proposal and source context.
+Phase 15 adds source review coverage that shows which sources still have pending proposal work.
+Phase 16 replaces the compact shell with a full Knowledge Graph Builder workspace: floating outline, graph stage,
+inspector, ingest controls, review operations, and a prototype-style layout dock. The dock now drives Force, Radial,
+Arc, 2D, 3D, Contents, Fit, and graph search states, with collapsible outline and inspector panels.
+Phase 17 adds connector setup, manual sync/resync, source chunks, topic hierarchy, inherited LLM extraction settings,
+and confidence-threshold auto-commit with provenance.
+Phases 18-22 add durable planning and agent records, provider catalog support for OpenAI, Anthropic, Gemini, and the
+local deterministic provider, a polished Planning Mode workspace, embedded graph Q&A, scoped research that creates
+sources/chunks/proposals, citation drawers, and review-gated AI action proposals.
+Phase 24 adds the living graph UI, activity overlays, tethered explanatory tooltips, reduced-motion behavior, and 2D/3D
+renderer parity. Phase 25 adds persisted signals, observations, alerts, Attention items, owners, routing policies,
+decision records, gated action proposals/runs, outcomes, feedback events, backup/restore coverage, and the web Attention
+mode for the digital nervous system loop.
 
 ```sh
 pnpm --filter @graphview/web dev
@@ -50,7 +92,7 @@ pnpm --filter @graphview/worker-contract dev
 
 - `apps/web`: React/Vite product UI shell.
 - `apps/docs-app`: future docs app consuming repo markdown.
-- `services/api`: FastAPI service and OpenAPI contract.
+- `services/api`: FastAPI service and generated OpenAPI contract.
 - `services/worker`: ingestion worker contract and deterministic ingestion primitives.
 - `packages/shared-types`: shared public TypeScript contracts.
 - `packages/graph-core`: graph model and rendering abstraction boundary.

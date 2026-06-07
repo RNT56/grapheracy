@@ -62,7 +62,24 @@ for (const file of subsystemDocs) {
 }
 
 const roadmap = await read("docs/08-roadmap.md");
-for (const phase of ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5", "Phase 6"]) {
+for (const phase of [
+  "Phase 1",
+  "Phase 2",
+  "Phase 3",
+  "Phase 4",
+  "Phase 5",
+  "Phase 6",
+  "Phase 7",
+  "Phase 8",
+  "Phase 9",
+  "Phase 10",
+  "Phase 11",
+  "Phase 12",
+  "Phase 13",
+  "Phase 14",
+  "Phase 15",
+  "Phase 16"
+]) {
   if (!roadmap.includes(phase)) failures.push(`roadmap missing ${phase}`);
 }
 

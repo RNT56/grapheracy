@@ -5,9 +5,9 @@ personal knowledge workflows.
 
 ## Current Phase
 
-Phase 4 provides deterministic ingestion scaffolding on top of the runnable web, API, worker, persistence, proposal
-review, provenance, search, import, and export workflows. The old prototype is preserved at
-`../prototypes/knowledge-graph-explorer.html` as UX evidence only.
+Phase 22 adds AI-native planning, graph Q&A, scoped research, and provider registry hardening on top of the full
+Knowledge Graph Builder workspace and Phase 17 connector-backed graph building.
+The old prototype is preserved at `../prototypes/knowledge-graph-explorer.html` as UX evidence only.
 
 ## Read Order
 
@@ -21,7 +21,11 @@ review, provenance, search, import, and export workflows. The old prototype is p
 8. `06-operations.md`
 9. `07-agent-workflows.md`
 10. `08-roadmap.md`
-11. `../CHANGELOG.md`
+11. `09-data-schema.md`
+12. `10-user-journeys-and-value-map.md`
+13. `11-living-graph-ui-vision-and-upgrade-plan.md`
+14. `12-digital-nervous-system-phase25-plan.md`
+15. `../CHANGELOG.md`
 
 ## Subsystem Documentation Standard
 
@@ -42,5 +46,8 @@ Every new subsystem must document:
 - CI skeleton: `../.github/workflows/`.
 - Changelog process: `../CHANGELOG.md` and `changelog/README.md`.
 - Security policy: `../SECURITY.md` and `03-security.md`.
-- Architecture and contracts: `02-architecture.md`, `../packages/shared-types/src/index.ts`,
+- User journey and value map: `10-user-journeys-and-value-map.md`.
+- Living graph UI vision and upgrade plan: `11-living-graph-ui-vision-and-upgrade-plan.md`.
+- Digital nervous system Phase 25 plan: `12-digital-nervous-system-phase25-plan.md`.
+- Architecture and contracts: `02-architecture.md`, `09-data-schema.md`, `../packages/shared-types/src/index.ts`,
   `../services/api/openapi.yaml`, and `../services/worker/worker-contract.md`.

@@ -57,6 +57,35 @@ before it is allowed.
   deterministic local heuristics and hash embeddings until secrets, vendor risk, data retention, and cost controls are
   reviewed.
 
+## Phase 5 Access Control Notes
+
+- Local seeded users are `reader`, `researcher`, and `maintainer`.
+- Reader access can read graph data and readiness state.
+- Researcher access can create sources, ingestion runs, proposals, and review decisions.
+- Maintainer access adds destructive and operator actions: source deletion, import/export, backup/restore, and metrics.
+- Phase 5 does not add production OIDC. The local role boundary is a testable adapter shape for the internal SSO work.
+
+## Phase 24 Dependency Approval Notes
+
+Phase 24 introduces browser and graphics QA needs for the living graph UI. Package/catalog and lockfile edits remain a
+coordinator-owned change, but the dependency approval record is:
+
+- `three`: runtime candidate for a true 3D renderer boundary if the current SVG projection cannot support Phase 24
+  hit-testing, orbit, depth-aware labels, tooltip projection, and tethers. It is mature, widely used, MIT licensed, and
+  does not require install scripts or native builds. The implementation should keep graph semantics renderer-agnostic so
+  Three.js can be isolated or removed if SVG remains sufficient.
+- `@types/three`: development-only TypeScript types for `three`. It has no runtime footprint and should stay scoped to
+  the web package.
+- `@playwright/test`: development-only browser automation for nonblank 2D/3D graph rendering, tooltip/tether behavior,
+  URL handling, reduced-motion checks, and mobile smoke coverage. It downloads browser binaries through Playwright's
+  normal installer outside package lifecycle scripts; CI should cache browsers and document any install step separately.
+- `pngjs`: development-only PNG inspection for screenshot pixel checks. It keeps nonblank render assertions local and
+  deterministic without adding native image-processing dependencies.
+
+Approval is conditional on the coordinator reviewing `pnpm-workspace.yaml` and `pnpm-lock.yaml`, confirming no package
+lifecycle allowlist expansion, and recording moderate `pnpm audit`, OSV, signature, and license results before Phase 24
+is released.
+
 ## Required Gates
 
 - JS audit: `pnpm audit --audit-level=moderate`.
@@ -78,6 +107,19 @@ scanner gates are wired in CI and require the tools installed there.
 - Production secrets must live in external secret stores.
 - Never bake secrets into images, fixtures, logs, docs, or incident notes.
 
+## AI Provider Secrets And Review Gates
+
+- Configure AI credentials through environment-backed settings such as `GRAPHVIEW_OPENAI_API_KEY`,
+  `GRAPHVIEW_ANTHROPIC_API_KEY`, and `GRAPHVIEW_GEMINI_API_KEY`.
+- Provider catalog responses must expose only configured/enabled state, model IDs, and capabilities; never raw API keys,
+  connector tokens, encrypted token JSON, or prompt payloads containing private content.
+- Agent runs store provider, model, trace ID, summaries, citations, confidence, and status for audit. Avoid logging full
+  prompts when they may include private source text or user secrets.
+- Graph query should prefer stored Graphview graph, source chunk, lineage, neighborhood, and path context over external
+  tools for private connector content unless an operator explicitly configures provider use.
+- AI research may create sources, source chunks, ingestion runs, embeddings, proposals, research tasks, and action
+  proposals. Reviewed nodes and edges must still flow through the existing review decision path.
+
 ## Containers
 
 - Run as non-root users.
@@ -93,3 +135,5 @@ scanner gates are wired in CI and require the tools installed there.
 - Local-only secrets copied into docs or image layers.
 - CI security tools missing or silently skipped.
 - Allowlisted lifecycle scripts expanding without review.
+- Operator-only backup, restore, export, or metrics routes becoming readable by non-maintainer users.
+- AI provider, run, or catalog routes returning secrets or allowing reviewed graph writes without proposal review.
