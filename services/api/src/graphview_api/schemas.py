@@ -182,6 +182,32 @@ AgentToolKind = Literal[
     "graph_layout",
 ]
 AgentToolStatus = Literal["pending_review", "running", "succeeded", "failed", "blocked"]
+CaptureAuthority = Literal["gateway", "adapter_reported", "passive_reconciled"]
+RuntimeKind = Literal["codex", "claude-code", "cursor", "vscode", "mcp", "openai-compatible", "generic"]
+AgentContextClientStatus = Literal["active", "revoked"]
+AgentContextSessionStatus = Literal["running", "completed", "failed", "cancelled"]
+AgentContextEventKind = Literal[
+    "session_started",
+    "heartbeat",
+    "file_opened",
+    "file_read",
+    "selection_changed",
+    "search_performed",
+    "shell_command",
+    "prompt_built",
+    "model_request",
+    "model_response",
+    "edit_applied",
+    "diff_observed",
+    "test_run",
+    "commit_observed",
+    "session_ended",
+]
+AgentContextEventStatus = Literal["accepted", "duplicate", "rejected"]
+AgentContextArtifactKind = Literal["file", "selection", "search_result", "shell", "prompt", "model", "diff", "test", "commit", "editor", "other"]
+AgentContextContentKind = Literal["text", "binary", "metadata"]
+AgentContextRedactionStatus = Literal["redacted", "not_required", "metadata_only"]
+AgentContextEncryptionStatus = Literal["encrypted", "metadata_only"]
 SignalKind = Literal[
     "source_changed",
     "source_stale",
@@ -1114,6 +1140,11 @@ class ProviderDescriptorOut(BaseModel):
     models: list[ProviderModelDescriptorOut] = Field(default_factory=list)
 
 
+class ProviderCredentialUpdate(BaseModel):
+    api_key: str = Field(min_length=1, max_length=4096)
+    make_default: bool = True
+
+
 class AgentCitationOut(BaseModel):
     id: str
     label: str
@@ -1344,6 +1375,211 @@ class GraphResearchOut(BaseModel):
     proposals: list[ProposalOut] = Field(default_factory=list)
 
 
+class AgentContextClientCreate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=240)
+    runtime_kind: RuntimeKind = "generic"
+    scopes: list[str] = Field(default_factory=lambda: ["context:capture"])
+    settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContextClientOut(BaseModel):
+    id: str
+    project_id: str
+    display_name: str
+    runtime_kind: RuntimeKind
+    status: AgentContextClientStatus
+    created_by: str
+    scopes: list[str] = Field(default_factory=list)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+    last_seen_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class AgentContextClientCreateOut(BaseModel):
+    client: AgentContextClientOut
+    token: str
+
+
+class AgentContextSessionCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=240)
+    runtime_kind: RuntimeKind | None = None
+    authority: CaptureAuthority = "gateway"
+    workspace_root: str | None = None
+    repository_uri: str | None = None
+    branch: str | None = None
+    commit_sha: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime | None = None
+
+
+class AgentContextSessionUpdate(BaseModel):
+    status: AgentContextSessionStatus | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=240)
+    branch: str | None = None
+    commit_sha: str | None = None
+    metadata: dict[str, Any] | None = None
+    ended_at: datetime | None = None
+
+
+class AgentContextSessionOut(BaseModel):
+    id: str
+    project_id: str
+    client_id: str
+    runtime_kind: RuntimeKind
+    authority: CaptureAuthority
+    status: AgentContextSessionStatus
+    title: str
+    workspace_root: str | None = None
+    repository_uri: str | None = None
+    branch: str | None = None
+    commit_sha: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    started_at: datetime
+    ended_at: datetime | None = None
+    updated_at: datetime
+
+
+class AgentContextArtifactCreate(BaseModel):
+    kind: AgentContextArtifactKind = "other"
+    uri: str | None = None
+    path: str | None = None
+    title: str | None = Field(default=None, max_length=240)
+    content_type: str = "text/plain"
+    checksum: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContextArtifactOut(BaseModel):
+    id: str
+    project_id: str
+    session_id: str
+    kind: AgentContextArtifactKind
+    uri: str | None = None
+    path: str | None = None
+    title: str
+    content_type: str
+    checksum: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentContextBlobCreate(BaseModel):
+    content_kind: AgentContextContentKind = "text"
+    media_type: str = "text/plain"
+    text: str | None = None
+    byte_count: int | None = Field(default=None, ge=0)
+    token_count: int | None = Field(default=None, ge=0)
+    checksum: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContextBlobOut(BaseModel):
+    id: str
+    project_id: str
+    session_id: str
+    artifact_id: str | None = None
+    content_kind: AgentContextContentKind
+    media_type: str
+    redaction_status: AgentContextRedactionStatus
+    encryption_status: AgentContextEncryptionStatus
+    checksum: str
+    byte_count: int
+    token_count: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+    expires_at: datetime | None = None
+
+
+class AgentContextEventCreate(BaseModel):
+    client_event_id: str = Field(min_length=1, max_length=160)
+    sequence: int = Field(ge=0)
+    event_kind: AgentContextEventKind
+    authority: CaptureAuthority | None = None
+    summary: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    object_refs: list[GraphObjectRefOut] = Field(default_factory=list)
+    artifact: AgentContextArtifactCreate | None = None
+    content: AgentContextBlobCreate | None = None
+    occurred_at: datetime | None = None
+
+
+class AgentContextEventOut(BaseModel):
+    id: str
+    project_id: str
+    session_id: str
+    client_event_id: str
+    sequence: int
+    event_kind: AgentContextEventKind
+    authority: CaptureAuthority
+    status: AgentContextEventStatus
+    summary: str
+    checksum: str
+    artifact_id: str | None = None
+    blob_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    object_refs: list[GraphObjectRefOut] = Field(default_factory=list)
+    occurred_at: datetime
+    received_at: datetime
+
+
+class AgentContextEventBatchCreate(BaseModel):
+    session_id: str
+    events: list[AgentContextEventCreate] = Field(min_length=1, max_length=100)
+
+
+class AgentContextEventBatchOut(BaseModel):
+    session: AgentContextSessionOut
+    accepted_count: int
+    duplicate_count: int
+    rejected_count: int = 0
+    events: list[AgentContextEventOut] = Field(default_factory=list)
+
+
+class AgentContextGraphNodeOut(BaseModel):
+    id: str
+    kind: str
+    label: str
+    authority: CaptureAuthority | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContextGraphEdgeOut(BaseModel):
+    id: str
+    source_id: str
+    target_id: str
+    relation: str
+    observed: bool = True
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentContextGraphOut(BaseModel):
+    session: AgentContextSessionOut
+    nodes: list[AgentContextGraphNodeOut] = Field(default_factory=list)
+    edges: list[AgentContextGraphEdgeOut] = Field(default_factory=list)
+    artifacts: list[AgentContextArtifactOut] = Field(default_factory=list)
+    events: list[AgentContextEventOut] = Field(default_factory=list)
+
+
+class AgentContextBlobContentOut(BaseModel):
+    blob: AgentContextBlobOut
+    text: str | None = None
+
+
+class AgentContextBlobBackupContentOut(BaseModel):
+    blob_id: str
+    encrypted_content: str
+    exported_at: datetime
+
+
+class AgentContextRetentionOut(BaseModel):
+    purged_blob_count: int
+    retained_blob_count: int
+    generated_at: datetime
+
+
 class AgentActionApprovalCreate(BaseModel):
     action_proposal_id: str
     decision: Literal["approve", "reject"]
@@ -1471,6 +1707,12 @@ class ExportBundle(BaseModel):
     action_runs: list[ActionRunOut] = Field(default_factory=list)
     outcomes: list[OutcomeOut] = Field(default_factory=list)
     feedback_events: list[FeedbackEventOut] = Field(default_factory=list)
+    agent_context_clients: list[AgentContextClientOut] = Field(default_factory=list)
+    agent_context_sessions: list[AgentContextSessionOut] = Field(default_factory=list)
+    agent_context_artifacts: list[AgentContextArtifactOut] = Field(default_factory=list)
+    agent_context_blobs: list[AgentContextBlobOut] = Field(default_factory=list)
+    agent_context_blob_contents: list[AgentContextBlobBackupContentOut] = Field(default_factory=list)
+    agent_context_events: list[AgentContextEventOut] = Field(default_factory=list)
 
 
 class BackupMetadataOut(BaseModel):
@@ -1482,6 +1724,8 @@ class BackupMetadataOut(BaseModel):
     node_count: int
     edge_count: int
     proposal_count: int
+    agent_context_session_count: int = 0
+    agent_context_content_blob_count: int = 0
 
 
 class BackupBundle(BaseModel):

@@ -97,6 +97,26 @@ interface DragState {
   y: number;
 }
 
+interface TooltipAnchor {
+  x: number;
+  y: number;
+  placement: "right" | "left" | "top" | "bottom";
+}
+
+interface TooltipSourcePoint {
+  nodeId: ContentNode["id"];
+  sx: number;
+  sy: number;
+  radius: number;
+}
+
+interface ThreeActiveNodePosition {
+  nodeId: string;
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
 const VIEWBOX = { width: 900, height: 640 };
 const DEFAULT_CAMERA: CameraState = { panX: 0, panY: 0, zoom: 1, yaw: -0.58, pitch: 0.58 };
 const NODE_KIND_ORDER = NODE_KIND_DEFINITIONS.map((definition) => definition.id);
@@ -123,6 +143,7 @@ export function GraphCanvas({
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | undefined>();
   const [keyboardFocusObjectId, setKeyboardFocusObjectId] = useState<string | undefined>();
+  const [threeActiveNodePosition, setThreeActiveNodePosition] = useState<ThreeActiveNodePosition | undefined>();
   const dragRef = useRef<DragState | null>(null);
   const renderBudget = useMemo(() => planGraphRender({ nodes, edges }), [edges, nodes]);
   const animationBudget = useMemo(
@@ -184,6 +205,29 @@ export function GraphCanvas({
     () => view.nodes.find((node) => node.node.id === hoveredObjectId) ?? view.nodes.find((node) => node.node.id === selectedNodeId),
     [hoveredObjectId, selectedNodeId, view.nodes]
   );
+  const activeTooltipPoint = useMemo<TooltipSourcePoint | undefined>(() => {
+    if (!activeTooltipNode) return undefined;
+    if (use3d) {
+      if (
+        threeActiveNodePosition?.visible &&
+        threeActiveNodePosition.nodeId === activeTooltipNode.node.id
+      ) {
+        return {
+          nodeId: activeTooltipNode.node.id,
+          sx: threeActiveNodePosition.x,
+          sy: threeActiveNodePosition.y,
+          radius: activeTooltipNode.radius * activeTooltipNode.scale
+        };
+      }
+      return undefined;
+    }
+    return {
+      nodeId: activeTooltipNode.node.id,
+      sx: activeTooltipNode.sx,
+      sy: activeTooltipNode.sy,
+      radius: activeTooltipNode.radius * activeTooltipNode.scale
+    };
+  }, [activeTooltipNode, threeActiveNodePosition, use3d]);
   const tooltip = useMemo(
     () =>
       activeTooltipNode
@@ -199,13 +243,22 @@ export function GraphCanvas({
     [activeTooltipNode, citations, edges, nodes, sources, visualStateById]
   );
   const tooltipTether = useMemo(() => {
-    if (!activeTooltipNode) return undefined;
+    if (!activeTooltipNode || !activeTooltipPoint) return undefined;
+    const anchor = tooltipAnchorForPoint(activeTooltipPoint, view.nodes);
     return buildGraphTetherPlan(
-      { object: { kind: "node", id: activeTooltipNode.node.id, label: activeTooltipNode.node.label }, x: activeTooltipNode.sx, y: activeTooltipNode.sy, z: activeTooltipNode.z },
-      { object: { kind: "graph", id: "tooltip", label: "Tooltip" }, x: clamp(activeTooltipNode.sx + 112, 122, VIEWBOX.width - 162), y: clamp(activeTooltipNode.sy - 80, 92, VIEWBOX.height - 120) },
+      { object: { kind: "node", id: activeTooltipNode.node.id, label: activeTooltipNode.node.label }, x: activeTooltipPoint.sx, y: activeTooltipPoint.sy, z: activeTooltipNode.z },
+      { object: { kind: "graph", id: "tooltip", label: "Tooltip" }, x: anchor.x, y: anchor.y },
       tooltip?.statuses[0] ?? "related"
     );
-  }, [activeTooltipNode, tooltip]);
+  }, [activeTooltipNode, activeTooltipPoint, tooltip, view.nodes]);
+  const tooltipAnchor = useMemo(
+    () => (activeTooltipPoint ? tooltipAnchorForPoint(activeTooltipPoint, view.nodes) : undefined),
+    [activeTooltipPoint, view.nodes]
+  );
+
+  useEffect(() => {
+    if (!use3d) setThreeActiveNodePosition(undefined);
+  }, [use3d]);
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
     event.preventDefault();
@@ -232,7 +285,15 @@ export function GraphCanvas({
 
   const handlePointerMove = (event: PointerEvent<SVGSVGElement>) => {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      if (!use3d) {
+        const cursor = svgPoint(event);
+        const worldX = (cursor.x - camera.panX) / camera.zoom;
+        const worldY = (cursor.y - camera.panY) / camera.zoom;
+        setHoveredObjectId(nearestViewNodeAt(view.nodes, worldX, worldY)?.node.id);
+      }
+      return;
+    }
     const deltaX = event.clientX - drag.x;
     const deltaY = event.clientY - drag.y;
     dragRef.current = { ...drag, x: event.clientX, y: event.clientY };
@@ -287,9 +348,11 @@ export function GraphCanvas({
               statuses: viewEdge.statuses
             }))}
             selectedNodeId={selectedNodeId}
+            activeNodeId={activeTooltipNode?.node.id}
             reducedMotion={animationBudget.tier !== "full_motion"}
             onHoverObject={setHoveredObjectId}
             onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
+            onActiveNodePosition={setThreeActiveNodePosition}
           />
         </Suspense>
       )}
@@ -403,17 +466,17 @@ export function GraphCanvas({
                     }
                   }}
                   onBlur={() => setKeyboardFocusObjectId(undefined)}
-                  onMouseEnter={() => setHoveredObjectId(viewNode.node.id)}
+                  onPointerEnter={() => setHoveredObjectId(viewNode.node.id)}
                   role="button"
                   tabIndex={0}
                   transform={`translate(${viewNode.sx.toFixed(1)} ${viewNode.sy.toFixed(1)}) scale(${viewNode.scale.toFixed(3)})`}
                 >
                   <rect
                     className="graph-node-hitbox"
-                    x={-(viewNode.radius + 14)}
-                    y={-18}
-                    width={Math.max(44, viewNode.labelVisible ? viewNode.radius + 190 : viewNode.radius * 2 + 28)}
-                    height="36"
+                    x={-(viewNode.radius + 12)}
+                    y={-(viewNode.radius + 12)}
+                    width={(viewNode.radius + 12) * 2}
+                    height={(viewNode.radius + 12) * 2}
                     rx="10"
                   />
                   <circle className="graph-node-halo" r={viewNode.radius + 8} />
@@ -441,11 +504,12 @@ export function GraphCanvas({
         </g>
       </svg>
 
-      {tooltip && tooltipTether && (
+      {tooltip && tooltipTether && tooltipAnchor && (
         <GraphTooltipLayer
           tooltip={tooltip}
           left={(tooltipTether.to.x / VIEWBOX.width) * 100}
           top={(tooltipTether.to.y / VIEWBOX.height) * 100}
+          placement={tooltipAnchor.placement}
         />
       )}
 
@@ -460,11 +524,22 @@ export function GraphCanvas({
   );
 }
 
-function GraphTooltipLayer({ tooltip, left, top }: { tooltip: GraphTooltipModel; left: number; top: number }) {
+function GraphTooltipLayer({
+  tooltip,
+  left,
+  top,
+  placement
+}: {
+  tooltip: GraphTooltipModel;
+  left: number;
+  top: number;
+  placement: TooltipAnchor["placement"];
+}) {
   return (
     <aside
       className={`graph-tooltip graph-object-tooltip ${tooltip.statuses.map((status) => `is-${status}`).join(" ")}`}
       style={{ left: `${left}%`, top: `${top}%` }}
+      data-placement={placement}
       aria-live="polite"
       data-testid="graph-tooltip"
     >
@@ -499,6 +574,94 @@ function GraphTooltipLayer({ tooltip, left, top }: { tooltip: GraphTooltipModel;
       )}
     </aside>
   );
+}
+
+function tooltipAnchorForPoint(point: TooltipSourcePoint, nodes: ViewNode[]): TooltipAnchor {
+  const tooltipWidth = 276;
+  const tooltipHeight = 178;
+  const edgePadding = 18;
+  const gap = Math.max(28, point.radius + 22);
+  const candidates = [
+    tooltipPlacementCandidate("right", point, tooltipWidth, tooltipHeight, gap, edgePadding),
+    tooltipPlacementCandidate("left", point, tooltipWidth, tooltipHeight, gap, edgePadding),
+    tooltipPlacementCandidate("top", point, tooltipWidth, tooltipHeight, gap, edgePadding),
+    tooltipPlacementCandidate("bottom", point, tooltipWidth, tooltipHeight, gap, edgePadding)
+  ];
+
+  return candidates
+    .map((candidate, index) => ({
+      ...candidate,
+      score: tooltipPlacementScore(candidate, point, nodes) + index * 0.8
+    }))
+    .sort((left, right) => left.score - right.score)[0];
+}
+
+function tooltipPlacementCandidate(
+  placement: TooltipAnchor["placement"],
+  point: TooltipSourcePoint,
+  width: number,
+  height: number,
+  gap: number,
+  edgePadding: number
+): TooltipAnchor & { box: { left: number; top: number; right: number; bottom: number }; score: number } {
+  let left = point.sx + gap + 8;
+  let top = point.sy - height / 2;
+
+  if (placement === "left") {
+    left = point.sx - gap - width - 8;
+    top = point.sy - height / 2;
+  } else if (placement === "top") {
+    left = point.sx - width / 2;
+    top = point.sy - gap - height - 8;
+  } else if (placement === "bottom") {
+    left = point.sx - width / 2;
+    top = point.sy + gap + 8;
+  }
+
+  left = clamp(left, edgePadding, VIEWBOX.width - width - edgePadding);
+  top = clamp(top, edgePadding, VIEWBOX.height - height - edgePadding);
+
+  let x = left - 8;
+  let y = top + height / 2;
+  if (placement === "left") {
+    x = left + width + 8;
+    y = top + height / 2;
+  } else if (placement === "top") {
+    x = left + width / 2;
+    y = top + height + 8;
+  } else if (placement === "bottom") {
+    x = left + width / 2;
+    y = top - 8;
+  }
+
+  return {
+    x,
+    y,
+    placement,
+    box: { left, top, right: left + width, bottom: top + height },
+    score: 0
+  };
+}
+
+function tooltipPlacementScore(
+  candidate: TooltipAnchor & { box: { left: number; top: number; right: number; bottom: number } },
+  point: TooltipSourcePoint,
+  nodes: ViewNode[]
+) {
+  const box = candidate.box;
+  let score = 0;
+  for (const node of nodes) {
+    const radius = Math.max(12, node.radius * node.scale + 8);
+    const inside =
+      node.sx + radius > box.left &&
+      node.sx - radius < box.right &&
+      node.sy + radius > box.top &&
+      node.sy - radius < box.bottom;
+    if (inside) score += node.node.id === point.nodeId ? 1200 : 420;
+  }
+  score += Math.abs(candidate.x - point.sx) * 0.08;
+  score += Math.abs(candidate.y - point.sy) * 0.12;
+  return score;
 }
 
 function buildNodeTooltip({
@@ -1118,12 +1281,30 @@ function project3d(pointX: number, pointY: number, pointZ: number, yaw: number, 
   };
 }
 
-function svgPoint(event: WheelEvent<SVGSVGElement>) {
+function svgPoint(event: WheelEvent<SVGSVGElement> | PointerEvent<SVGSVGElement>) {
   const rect = event.currentTarget.getBoundingClientRect();
   return {
     x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * VIEWBOX.width,
     y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * VIEWBOX.height
   };
+}
+
+function nearestViewNodeAt(nodes: ViewNode[], x: number, y: number) {
+  let nearest: ViewNode | undefined;
+  let nearestScore = Number.POSITIVE_INFINITY;
+  for (const node of nodes) {
+    const dx = x - node.sx;
+    const dy = y - node.sy;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const threshold = Math.max(13, node.radius * node.scale + 10);
+    if (distance > threshold) continue;
+    const score = distance - node.radius * node.scale;
+    if (score < nearestScore) {
+      nearest = node;
+      nearestScore = score;
+    }
+  }
+  return nearest;
 }
 
 function edgePath(source: ViewNode, target: ViewNode, edge: SemanticEdge, layout: GraphLayoutMode) {

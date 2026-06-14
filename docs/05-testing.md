@@ -206,6 +206,24 @@ presence, and the product-first web shell.
 - Pytest warning filters suppress only the known external Starlette TestClient deprecation so new warnings remain
   visible in local checks.
 
+## Phase 27 Checks
+
+- Expected command: `pnpm run phase27:check`.
+- Focused smoke command: `pnpm run phase27:smoke`. It starts a temporary local API and verifies capture-only token
+  normalization, gateway event capture, event checksums, redaction, content permissions, graph projection, and
+  `end-session` PATCH behavior.
+- API tests cover adapter token creation with capture-only scope normalization, session lifecycle, idempotent event
+  batches, event checksums, redaction and encrypted-at-rest blob storage, content read permissions, context graph
+  projection, SSE framing, retention purge with metadata preservation, default metadata-only backup, opt-in encrypted
+  content backup/restore, and linear migration continuity through the active context tables.
+- Gateway tests cover MCP-compatible tool manifests, file range capture, denied paths, secret redaction, batch event
+  shaping, and offline outbox retry.
+- VS Code/Cursor extension tests cover editor selection mapping as `passive_reconciled` telemetry plus offline outbox
+  replay behavior.
+- Web source tests cover the Active Context workspace, `/agent-context` routes, authority badges, shared context types,
+  and existing 2D/3D browser graph QA mocks.
+- Worker tests cover the context normalization, enrichment, and retention stage plan.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.

@@ -21,10 +21,11 @@
     "security:audit": "pnpm audit --audit-level=moderate",
     "security:signatures": "node scripts/check-npm-signatures.mjs",
     "security:osv": "osv-scanner scan source -r .",
-    "security:secrets": "gitleaks detect --source . --no-git",
+    "security:secrets": "node scripts/check-secrets.mjs",
     "security:licenses": "node scripts/check-license-policy.mjs",
     "changelog:check": "node scripts/check-changelog.mjs",
     "release:check": "node scripts/check-release-readiness.mjs",
+    "phase27:smoke": "node scripts/phase27-smoke.mjs",
     "docs:check": "node scripts/run-local-checks.mjs doc-links doc-freshness",
     "phase1:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test",
     "phase2:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test && pnpm --filter @graphview/web build",
@@ -51,6 +52,7 @@
     "phase23:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build",
     "phase24:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser",
     "phase25:check": "node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser",
-    "phase26:check": "pnpm run clean:artifacts && node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser && pnpm run clean:artifacts"
+    "phase26:check": "pnpm run clean:artifacts && node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser && pnpm run clean:artifacts",
+    "phase27:check": "pnpm run clean:artifacts && node scripts/run-local-checks.mjs lint security:local security:licenses changelog:check typecheck test release:check && pnpm run phase27:smoke && pnpm --filter @graphview/web build && pnpm --filter @graphview/web test:browser && pnpm run clean:artifacts"
   }
 }

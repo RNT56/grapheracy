@@ -61,6 +61,12 @@ test("shared contracts expose required public interfaces", async () => {
     "ActionRun",
     "Outcome",
     "FeedbackEvent",
+    "AgentContextClient",
+    "AgentContextSession",
+    "AgentContextArtifact",
+    "AgentContextBlob",
+    "AgentContextEvent",
+    "AgentContextGraph",
     "ProviderDescriptor",
     "ProviderModelDescriptor"
   ]) {
@@ -86,12 +92,19 @@ test("shared contracts expose required public interfaces", async () => {
   assert.match(source, /GraphActivityEventKind/);
   assert.match(source, /GraphActivityEventStatus/);
   assert.match(source, /GraphActivityEventId/);
-  for (const status of ["hover", "focus", "related", "dimmed", "scanning", "cited", "incoming", "candidate", "ready", "blocked", "accepted", "rejected", "edited", "deferred", "stale", "sensed", "routed", "assigned", "sla_at_risk", "action_proposed", "action_running", "outcome_waiting", "outcome_succeeded", "outcome_failed", "feedback_applied", "reopened"]) {
+  for (const status of ["hover", "focus", "related", "dimmed", "scanning", "cited", "incoming", "candidate", "ready", "blocked", "accepted", "rejected", "edited", "deferred", "stale", "sensed", "routed", "assigned", "sla_at_risk", "action_proposed", "action_running", "outcome_waiting", "outcome_succeeded", "outcome_failed", "feedback_applied", "reopened", "context_active", "context_authoritative", "context_reconciled", "context_redacted"]) {
     assert.match(source, new RegExp(`"${status}"`));
   }
-  for (const eventKind of ["agent_scan", "source_incoming", "proposal_candidate", "review_ready", "review_blocked", "review_accepted", "evidence_cited", "signal_sensed", "alert_routed", "attention_assigned", "decision_recorded", "action_proposed", "action_running", "outcome_succeeded", "outcome_failed", "feedback_applied", "attention_reopened"]) {
+  for (const eventKind of ["agent_scan", "source_incoming", "proposal_candidate", "review_ready", "review_blocked", "review_accepted", "evidence_cited", "signal_sensed", "alert_routed", "attention_assigned", "decision_recorded", "action_proposed", "action_running", "outcome_succeeded", "outcome_failed", "feedback_applied", "attention_reopened", "agent_context_started", "agent_context_event", "agent_context_ended"]) {
     assert.match(source, new RegExp(`"${eventKind}"`));
   }
+  for (const contextContract of ["CaptureAuthority", "RuntimeKind", "ContextEventKind", "AgentContextBlobId"]) {
+    assert.match(source, new RegExp(contextContract));
+  }
+  for (const value of ["gateway", "adapter_reported", "passive_reconciled", "codex", "claude-code", "cursor", "vscode", "file_read", "prompt_built", "model_response", "commit_observed", "metadata_only"]) {
+    assert.match(source, new RegExp(`"${value}"`));
+  }
+  assert.match(source, /checksum: string;/);
   for (const name of ["SignalKind", "NervousSystemSeverity", "AttentionStatus", "OwnerType", "RoutingPolicyId", "ActionSafetyLevel", "OutcomeStatus", "FeedbackKind"]) {
     assert.match(source, new RegExp(name));
   }

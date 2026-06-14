@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 import base64
 import hashlib
+import hmac
+import os
 import re
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import Engine, and_, delete, insert, or_, select, text, update
 
 from graphview_api import db
@@ -21,6 +25,10 @@ from graphview_api.schemas import (
     ActionProposalDecision,
     ActionRunCreate,
     AlertAssign,
+    AgentContextClientCreate,
+    AgentContextEventBatchCreate,
+    AgentContextSessionCreate,
+    AgentContextSessionUpdate,
     AttentionTransition,
     DecisionRecordCreate,
     FeedbackEventCreate,
@@ -86,6 +94,22 @@ RESEARCH_RELATIONS = {"supports", "contradicts", "causes", "mentions", "defines"
 GRAPH_LENSES = ("research", "engineering", "ops")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credentials"}
+AI_PROVIDER_IDS = {"openai", "anthropic", "gemini"}
+AI_PROVIDER_CREDENTIALS_KEY = "ai_provider_credentials"
+AI_DEFAULT_PROVIDER_KEY = "ai_default_provider"
+SENSITIVE_SETTINGS_KEYS = SENSITIVE_PAYLOAD_KEYS | {
+    "access_token",
+    "encrypted_api_key",
+    "llm_api_key",
+    "refresh_token",
+}
+AGENT_CONTEXT_CAPTURE_SCOPE = "context:capture"
+AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS = (".env", "id_rsa", "id_ed25519", ".pem", ".p12")
+AGENT_CONTEXT_SECRET_PATTERNS = [
+    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*([^\s'\"`]+)"),
+    re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]{12,}"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
+]
 
 
 def now() -> datetime:
@@ -128,11 +152,15 @@ class GraphRepository:
         secret_key: str = "local-dev-graphview-secret",
         auto_commit_threshold: float = 0.92,
         safe_action_types: list[str] | tuple[str, ...] | set[str] | frozenset[str] | str | None = None,
+        agent_context_max_blob_bytes: int = 512_000,
+        agent_context_retention_days: int = 30,
     ):
         self.engine = engine
         self.secret_key = secret_key
         self.auto_commit_threshold = auto_commit_threshold
         self.safe_action_types = normalize_safe_action_types(safe_action_types)
+        self.agent_context_max_blob_bytes = max(0, agent_context_max_blob_bytes)
+        self.agent_context_retention_days = max(1, agent_context_retention_days)
 
     def initialize(self) -> None:
         db.metadata.create_all(self.engine)
@@ -714,18 +742,113 @@ class GraphRepository:
             ).mappings().one()
             return self._settings_from_row(row)
 
+    def graph_settings_with_secrets(self) -> dict:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.graph_settings).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+            ).mappings().one()
+            return self._settings_from_row(row, redact=False)
+
     def update_graph_settings(self, payload: GraphSettingsUpdate) -> dict:
         values = payload.model_dump(exclude_unset=True)
-        if "settings" in values:
-            values["settings_json"] = dump_json(values.pop("settings") or {})
         if not values:
             return self.graph_settings()
         values["updated_at"] = now()
         with self.engine.begin() as conn:
+            if "settings" in values:
+                settings_payload = values.pop("settings") or {}
+                row = conn.execute(
+                    select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+                ).mappings().one()
+                merged_settings = load_json(row["settings_json"], {})
+                for key, value in settings_payload.items():
+                    if value is None:
+                        merged_settings.pop(key, None)
+                    else:
+                        merged_settings[key] = value
+                values["settings_json"] = dump_json(merged_settings)
             conn.execute(
                 update(db.graph_settings)
                 .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
                 .values(**values)
+            )
+        return self.graph_settings()
+
+    def ai_provider_api_keys(self) -> dict[str, str]:
+        settings_doc = self.graph_settings_with_secrets()["settings"]
+        credentials = settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY)
+        if not isinstance(credentials, dict):
+            return {}
+        api_keys: dict[str, str] = {}
+        for provider_id, credential in credentials.items():
+            if provider_id not in AI_PROVIDER_IDS or not isinstance(credential, dict):
+                continue
+            encrypted_api_key = credential.get("encrypted_api_key")
+            if not encrypted_api_key:
+                continue
+            try:
+                decrypted = self._decrypt_json(str(encrypted_api_key))
+            except Exception:
+                continue
+            api_key = decrypted.get("api_key")
+            if isinstance(api_key, str) and api_key:
+                api_keys[provider_id] = api_key
+        return api_keys
+
+    def ai_default_provider(self) -> str | None:
+        provider_id = self.graph_settings_with_secrets()["settings"].get(AI_DEFAULT_PROVIDER_KEY)
+        if provider_id == "graphview-local" or provider_id in AI_PROVIDER_IDS:
+            return str(provider_id)
+        return None
+
+    def upsert_ai_provider_api_key(self, provider_id: str, api_key: str, *, make_default: bool = True) -> dict:
+        if provider_id not in AI_PROVIDER_IDS:
+            raise ValueError(f"Provider {provider_id} does not accept user API keys")
+        cleaned_key = api_key.strip()
+        if not cleaned_key:
+            raise ValueError("API key is required")
+        timestamp = now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+            ).mappings().one()
+            settings_doc = load_json(row["settings_json"], {})
+            credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
+            credentials[provider_id] = {
+                "encrypted_api_key": self._encrypt_json({"api_key": cleaned_key}),
+                "updated_at": timestamp.isoformat(),
+            }
+            settings_doc[AI_PROVIDER_CREDENTIALS_KEY] = credentials
+            if make_default:
+                settings_doc[AI_DEFAULT_PROVIDER_KEY] = provider_id
+            conn.execute(
+                update(db.graph_settings)
+                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+                .values(settings_json=dump_json(settings_doc), updated_at=timestamp)
+            )
+        return self.graph_settings()
+
+    def delete_ai_provider_api_key(self, provider_id: str) -> dict:
+        if provider_id not in AI_PROVIDER_IDS:
+            raise ValueError(f"Provider {provider_id} does not accept user API keys")
+        timestamp = now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+            ).mappings().one()
+            settings_doc = load_json(row["settings_json"], {})
+            credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
+            credentials.pop(provider_id, None)
+            if credentials:
+                settings_doc[AI_PROVIDER_CREDENTIALS_KEY] = credentials
+            else:
+                settings_doc.pop(AI_PROVIDER_CREDENTIALS_KEY, None)
+            if settings_doc.get(AI_DEFAULT_PROVIDER_KEY) == provider_id:
+                settings_doc[AI_DEFAULT_PROVIDER_KEY] = "graphview-local"
+            conn.execute(
+                update(db.graph_settings)
+                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+                .values(settings_json=dump_json(settings_doc), updated_at=timestamp)
             )
         return self.graph_settings()
 
@@ -2692,6 +2815,494 @@ class GraphRepository:
         with self.engine.begin() as conn:
             return [self._feedback_event_from_row(row) for row in conn.execute(stmt).mappings()]
 
+    def create_agent_context_client(self, payload: AgentContextClientCreate, *, actor_id: str) -> dict:
+        timestamp = now()
+        token = f"gvctx_{secrets.token_urlsafe(32)}"
+        scopes = [AGENT_CONTEXT_CAPTURE_SCOPE]
+        client_row = {
+            "id": new_id("ctxclient"),
+            "project_id": DEFAULT_PROJECT_ID,
+            "display_name": payload.display_name,
+            "runtime_kind": payload.runtime_kind,
+            "status": "active",
+            "created_by": actor_id,
+            "token_hash": self._agent_context_token_hash(token),
+            "scopes_json": dump_json(scopes),
+            "settings_json": dump_json(payload.settings),
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "last_seen_at": None,
+            "revoked_at": None,
+        }
+        with self.engine.begin() as conn:
+            conn.execute(insert(db.agent_context_clients).values(**client_row))
+            self._record_activity_event(
+                conn,
+                project_id=DEFAULT_PROJECT_ID,
+                event_type="agent_context.client_created",
+                actor_id=actor_id,
+                summary=f"Created active context connector {payload.display_name}.",
+                object_refs=[self._activity_ref("agent_context_client", client_row["id"], payload.display_name)],
+                payload={"client_id": client_row["id"], "runtime_kind": payload.runtime_kind},
+                lenses=[],
+                timestamp=timestamp,
+            )
+        return {"client": self._agent_context_client_from_row(client_row), "token": token}
+
+    def authenticate_agent_context_token(self, token: str) -> dict | None:
+        if not token.startswith("gvctx_"):
+            return None
+        token_hash = self._agent_context_token_hash(token)
+        timestamp = now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.agent_context_clients).where(
+                    and_(
+                        db.agent_context_clients.c.token_hash == token_hash,
+                        db.agent_context_clients.c.status == "active",
+                        db.agent_context_clients.c.revoked_at.is_(None),
+                    )
+                )
+            ).mappings().first()
+            if row is None:
+                return None
+            conn.execute(
+                update(db.agent_context_clients)
+                .where(db.agent_context_clients.c.id == row["id"])
+                .values(last_seen_at=timestamp, updated_at=timestamp)
+            )
+            client = self._agent_context_client_from_row(row)
+            client["last_seen_at"] = timestamp
+            return client
+
+    def list_agent_context_clients(self) -> list[dict]:
+        with self.engine.begin() as conn:
+            return [
+                self._agent_context_client_from_row(row)
+                for row in conn.execute(
+                    select(db.agent_context_clients)
+                    .where(db.agent_context_clients.c.project_id == DEFAULT_PROJECT_ID)
+                    .order_by(db.agent_context_clients.c.created_at.desc(), db.agent_context_clients.c.id.desc())
+                ).mappings()
+            ]
+
+    def create_agent_context_session(self, payload: AgentContextSessionCreate, *, client: dict) -> dict:
+        timestamp = now()
+        started_at = payload.started_at or timestamp
+        session_row = {
+            "id": new_id("ctxsession"),
+            "project_id": client["project_id"],
+            "client_id": client["id"],
+            "runtime_kind": payload.runtime_kind or client["runtime_kind"],
+            "authority": payload.authority,
+            "status": "running",
+            "title": payload.title,
+            "workspace_root": self._safe_context_path(payload.workspace_root),
+            "repository_uri": payload.repository_uri,
+            "branch": payload.branch,
+            "commit_sha": payload.commit_sha,
+            "metadata_json": dump_json(self._redact_payload(payload.metadata)),
+            "started_at": started_at,
+            "ended_at": None,
+            "updated_at": timestamp,
+        }
+        with self.engine.begin() as conn:
+            conn.execute(insert(db.agent_context_sessions).values(**session_row))
+            self._record_activity_event(
+                conn,
+                project_id=session_row["project_id"],
+                event_type="agent_context.session_started",
+                actor_id=client["id"],
+                summary=f"Started active context session {payload.title}.",
+                object_refs=[
+                    self._activity_ref("agent_context_session", session_row["id"], payload.title),
+                    self._activity_ref("agent_context_client", client["id"], client["display_name"]),
+                ],
+                payload={
+                    "session_id": session_row["id"],
+                    "client_id": client["id"],
+                    "runtime_kind": session_row["runtime_kind"],
+                    "authority": session_row["authority"],
+                },
+                lenses=[],
+                timestamp=timestamp,
+            )
+        return self._agent_context_session_from_row(session_row)
+
+    def update_agent_context_session(self, session_id: str, payload: AgentContextSessionUpdate, *, client: dict) -> dict:
+        timestamp = now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.agent_context_sessions).where(db.agent_context_sessions.c.id == session_id)
+            ).mappings().first()
+            if row is None or row["client_id"] != client["id"]:
+                raise KeyError(session_id)
+            values: dict[str, object] = {"updated_at": timestamp}
+            if payload.status is not None:
+                values["status"] = payload.status
+            if payload.title is not None:
+                values["title"] = payload.title
+            if payload.branch is not None:
+                values["branch"] = payload.branch
+            if payload.commit_sha is not None:
+                values["commit_sha"] = payload.commit_sha
+            if payload.metadata is not None:
+                current_metadata = load_json(row["metadata_json"], {})
+                current_metadata.update(self._redact_payload(payload.metadata))
+                values["metadata_json"] = dump_json(current_metadata)
+            if payload.ended_at is not None:
+                values["ended_at"] = payload.ended_at
+            if payload.status in {"completed", "failed", "cancelled"} and "ended_at" not in values:
+                values["ended_at"] = timestamp
+            conn.execute(update(db.agent_context_sessions).where(db.agent_context_sessions.c.id == session_id).values(**values))
+            updated = conn.execute(
+                select(db.agent_context_sessions).where(db.agent_context_sessions.c.id == session_id)
+            ).mappings().one()
+            if values.get("status") in {"completed", "failed", "cancelled"}:
+                self._record_activity_event(
+                    conn,
+                    project_id=row["project_id"],
+                    event_type=f"agent_context.session_{values['status']}",
+                    actor_id=client["id"],
+                    summary=f"Marked active context session {values['status']}.",
+                    object_refs=[self._activity_ref("agent_context_session", session_id, values.get("title") or row["title"])],
+                    payload={"session_id": session_id, "status": values["status"]},
+                    lenses=[],
+                    timestamp=timestamp,
+                )
+            return self._agent_context_session_from_row(updated)
+
+    def list_agent_context_sessions(self, *, limit: int = 50) -> list[dict]:
+        normalized_limit = min(100, max(1, limit))
+        with self.engine.begin() as conn:
+            return [
+                self._agent_context_session_from_row(row)
+                for row in conn.execute(
+                    select(db.agent_context_sessions)
+                    .where(db.agent_context_sessions.c.project_id == DEFAULT_PROJECT_ID)
+                    .order_by(db.agent_context_sessions.c.updated_at.desc(), db.agent_context_sessions.c.id.desc())
+                    .limit(normalized_limit)
+                ).mappings()
+            ]
+
+    def get_agent_context_session(self, session_id: str) -> dict | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.agent_context_sessions).where(db.agent_context_sessions.c.id == session_id)
+            ).mappings().first()
+            return self._agent_context_session_from_row(row) if row else None
+
+    def ingest_agent_context_events(self, payload: AgentContextEventBatchCreate, *, client: dict) -> dict:
+        timestamp = now()
+        accepted: list[dict] = []
+        duplicate_count = 0
+        with self.engine.begin() as conn:
+            session_row = conn.execute(
+                select(db.agent_context_sessions).where(db.agent_context_sessions.c.id == payload.session_id)
+            ).mappings().first()
+            if session_row is None or session_row["client_id"] != client["id"]:
+                raise KeyError(payload.session_id)
+            session = self._agent_context_session_from_row(session_row)
+            for event_payload in payload.events:
+                existing = conn.execute(
+                    select(db.agent_context_events.c.id).where(
+                        or_(
+                            and_(
+                                db.agent_context_events.c.session_id == payload.session_id,
+                                db.agent_context_events.c.client_event_id == event_payload.client_event_id,
+                            ),
+                            and_(
+                                db.agent_context_events.c.session_id == payload.session_id,
+                                db.agent_context_events.c.sequence == event_payload.sequence,
+                            ),
+                        )
+                    )
+                ).first()
+                if existing:
+                    duplicate_count += 1
+                    continue
+
+                artifact_row = None
+                blob_row = None
+                if event_payload.artifact is not None:
+                    self._validate_agent_context_path_policy(event_payload.artifact.path, session=session, client=client)
+                    self._validate_agent_context_path_policy(event_payload.artifact.uri, session=session, client=client)
+                    artifact_row = self._agent_context_artifact_row(
+                        project_id=session_row["project_id"],
+                        session_id=payload.session_id,
+                        payload=event_payload.artifact,
+                        timestamp=timestamp,
+                    )
+                    conn.execute(insert(db.agent_context_artifacts).values(**artifact_row))
+                if event_payload.content is not None:
+                    blob_row = self._agent_context_blob_row(
+                        project_id=session_row["project_id"],
+                        session_id=payload.session_id,
+                        artifact_id=artifact_row["id"] if artifact_row else None,
+                        payload=event_payload.content,
+                        timestamp=timestamp,
+                    )
+                    conn.execute(insert(db.agent_context_blobs).values(**blob_row))
+
+                authority = event_payload.authority or session_row["authority"]
+                summary = event_payload.summary or self._agent_context_event_summary(event_payload.event_kind, artifact_row)
+                redacted_payload = self._redact_payload(event_payload.payload)
+                object_refs = [ref.model_dump(exclude_none=True) for ref in event_payload.object_refs]
+                occurred_at = event_payload.occurred_at or timestamp
+                checksum = hashlib.sha256(
+                    dump_json(
+                        {
+                            "artifact_id": artifact_row["id"] if artifact_row else None,
+                            "authority": authority,
+                            "blob_id": blob_row["id"] if blob_row else None,
+                            "client_event_id": event_payload.client_event_id,
+                            "event_kind": event_payload.event_kind,
+                            "object_refs": object_refs,
+                            "occurred_at": occurred_at,
+                            "payload": redacted_payload,
+                            "sequence": event_payload.sequence,
+                            "session_id": payload.session_id,
+                            "summary": summary,
+                        }
+                    ).encode("utf-8")
+                ).hexdigest()
+                event_row = {
+                    "id": new_id("ctxevent"),
+                    "project_id": session_row["project_id"],
+                    "session_id": payload.session_id,
+                    "client_event_id": event_payload.client_event_id,
+                    "sequence": event_payload.sequence,
+                    "event_kind": event_payload.event_kind,
+                    "authority": authority,
+                    "status": "accepted",
+                    "summary": summary,
+                    "checksum": checksum,
+                    "artifact_id": artifact_row["id"] if artifact_row else None,
+                    "blob_id": blob_row["id"] if blob_row else None,
+                    "payload_json": dump_json(redacted_payload),
+                    "object_refs_json": dump_json(object_refs),
+                    "occurred_at": occurred_at,
+                    "received_at": timestamp,
+                }
+                conn.execute(insert(db.agent_context_events).values(**event_row))
+                self._record_activity_event(
+                    conn,
+                    project_id=session_row["project_id"],
+                    event_type=f"agent_context.{event_payload.event_kind}",
+                    actor_id=client["id"],
+                    summary=summary,
+                    object_refs=[
+                        self._activity_ref("agent_context_session", payload.session_id, session_row["title"]),
+                        self._activity_ref("agent_context_event", event_row["id"], event_payload.event_kind),
+                        *(
+                            [self._activity_ref("agent_context_artifact", artifact_row["id"], artifact_row["title"])]
+                            if artifact_row
+                            else []
+                        ),
+                    ],
+                    payload={
+                        "session_id": payload.session_id,
+                        "event_id": event_row["id"],
+                        "client_event_id": event_payload.client_event_id,
+                        "event_kind": event_payload.event_kind,
+                        "authority": authority,
+                        "artifact_id": artifact_row["id"] if artifact_row else None,
+                        "blob_id": blob_row["id"] if blob_row else None,
+                    },
+                    lenses=[],
+                    timestamp=timestamp,
+                )
+                accepted.append(self._agent_context_event_from_row(event_row))
+
+            conn.execute(
+                update(db.agent_context_sessions)
+                .where(db.agent_context_sessions.c.id == payload.session_id)
+                .values(updated_at=timestamp)
+            )
+        return {
+            "session": session,
+            "accepted_count": len(accepted),
+            "duplicate_count": duplicate_count,
+            "rejected_count": 0,
+            "events": accepted,
+        }
+
+    def list_agent_context_events(self, session_id: str, *, limit: int = 100, since_sequence: int | None = None) -> list[dict]:
+        normalized_limit = min(500, max(1, limit))
+        stmt = (
+            select(db.agent_context_events)
+            .where(db.agent_context_events.c.session_id == session_id)
+            .order_by(db.agent_context_events.c.sequence.asc(), db.agent_context_events.c.id.asc())
+            .limit(normalized_limit)
+        )
+        if since_sequence is not None:
+            stmt = stmt.where(db.agent_context_events.c.sequence > since_sequence)
+        with self.engine.begin() as conn:
+            return [self._agent_context_event_from_row(row) for row in conn.execute(stmt).mappings()]
+
+    def agent_context_graph(self, session_id: str) -> dict:
+        with self.engine.begin() as conn:
+            session_row = conn.execute(
+                select(db.agent_context_sessions).where(db.agent_context_sessions.c.id == session_id)
+            ).mappings().first()
+            if session_row is None:
+                raise KeyError(session_id)
+            session = self._agent_context_session_from_row(session_row)
+            artifacts = [
+                self._agent_context_artifact_from_row(row)
+                for row in conn.execute(
+                    select(db.agent_context_artifacts)
+                    .where(db.agent_context_artifacts.c.session_id == session_id)
+                    .order_by(db.agent_context_artifacts.c.created_at.asc(), db.agent_context_artifacts.c.id.asc())
+                ).mappings()
+            ]
+            events = [
+                self._agent_context_event_from_row(row)
+                for row in conn.execute(
+                    select(db.agent_context_events)
+                    .where(db.agent_context_events.c.session_id == session_id)
+                    .order_by(db.agent_context_events.c.sequence.asc(), db.agent_context_events.c.id.asc())
+                ).mappings()
+            ]
+
+        nodes = [
+            {
+                "id": session["id"],
+                "kind": "session",
+                "label": session["title"],
+                "authority": session["authority"],
+                "metadata": {
+                    "runtime_kind": session["runtime_kind"],
+                    "status": session["status"],
+                    "repository_uri": session.get("repository_uri"),
+                    "branch": session.get("branch"),
+                },
+            }
+        ]
+        nodes.extend(
+            {
+                "id": artifact["id"],
+                "kind": artifact["kind"],
+                "label": artifact["title"],
+                "authority": None,
+                "metadata": {
+                    "path": artifact.get("path"),
+                    "uri": artifact.get("uri"),
+                    "content_type": artifact["content_type"],
+                    "checksum": artifact.get("checksum"),
+                },
+            }
+            for artifact in artifacts
+        )
+        nodes.extend(
+            {
+                "id": event["id"],
+                "kind": "event",
+                "label": event["event_kind"].replace("_", " "),
+                "authority": event["authority"],
+                "metadata": {"sequence": event["sequence"], "summary": event["summary"]},
+            }
+            for event in events
+        )
+        edges = []
+        for event in events:
+            edges.append(
+                {
+                    "id": f"ctxedge-{session_id}-{event['id']}",
+                    "source_id": session_id,
+                    "target_id": event["id"],
+                    "relation": "contains",
+                    "observed": True,
+                    "metadata": {"event_kind": event["event_kind"], "authority": event["authority"]},
+                }
+            )
+            if event.get("artifact_id"):
+                edges.append(
+                    {
+                        "id": f"ctxedge-{event['id']}-{event['artifact_id']}",
+                        "source_id": event["id"],
+                        "target_id": event["artifact_id"],
+                        "relation": self._agent_context_relation_for_event(event["event_kind"]),
+                        "observed": event["authority"] != "passive_reconciled",
+                        "metadata": {"event_kind": event["event_kind"], "authority": event["authority"]},
+                    }
+                )
+        return {"session": session, "nodes": nodes, "edges": edges, "artifacts": artifacts, "events": events}
+
+    def agent_context_blob_content(self, blob_id: str) -> dict | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(select(db.agent_context_blobs).where(db.agent_context_blobs.c.id == blob_id)).mappings().first()
+            if row is None:
+                return None
+            blob = self._agent_context_blob_from_row(row)
+            text_content = None
+            if row["encrypted_content"]:
+                text_content = self._decrypt_agent_context_text(row["encrypted_content"])
+            return {"blob": blob, "text": text_content}
+
+    def agent_context_artifact_content(self, artifact_id: str) -> dict | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.agent_context_blobs)
+                .where(db.agent_context_blobs.c.artifact_id == artifact_id)
+                .order_by(db.agent_context_blobs.c.created_at.desc(), db.agent_context_blobs.c.id.desc())
+            ).mappings().first()
+            if row is None:
+                return None
+            blob = self._agent_context_blob_from_row(row)
+            text_content = self._decrypt_agent_context_text(row["encrypted_content"]) if row["encrypted_content"] else None
+            return {"blob": blob, "text": text_content}
+
+    def run_agent_context_retention(self) -> dict:
+        timestamp = now()
+        with self.engine.begin() as conn:
+            expired_rows = list(
+                conn.execute(
+                    select(
+                        db.agent_context_blobs.c.id,
+                        db.agent_context_blobs.c.metadata_json,
+                        db.agent_context_blobs.c.redaction_status,
+                    ).where(
+                        and_(
+                            db.agent_context_blobs.c.project_id == DEFAULT_PROJECT_ID,
+                            db.agent_context_blobs.c.expires_at.is_not(None),
+                            db.agent_context_blobs.c.expires_at <= timestamp,
+                            db.agent_context_blobs.c.encrypted_content.is_not(None),
+                        )
+                    )
+                ).mappings()
+            )
+            expired_ids = [row["id"] for row in expired_rows]
+            for row in expired_rows:
+                metadata = load_json(row["metadata_json"], {})
+                metadata["retention_purged_at"] = timestamp.isoformat()
+                metadata["previous_redaction_status"] = row["redaction_status"]
+                conn.execute(
+                    update(db.agent_context_blobs)
+                    .where(db.agent_context_blobs.c.id == row["id"])
+                    .values(
+                        encrypted_content=None,
+                        redaction_status="metadata_only",
+                        encryption_status="metadata_only",
+                        metadata_json=dump_json(metadata),
+                    )
+                )
+            retained_count = conn.execute(
+                select(db.agent_context_blobs.c.id).where(db.agent_context_blobs.c.project_id == DEFAULT_PROJECT_ID)
+            ).all()
+            self._record_activity_event(
+                conn,
+                project_id=DEFAULT_PROJECT_ID,
+                event_type="agent_context.retention_run",
+                actor_id="system-retention",
+                summary=f"Purged {len(expired_ids)} expired active context blobs.",
+                object_refs=[],
+                payload={"purged_blob_count": len(expired_ids), "retained_blob_count": len(retained_count)},
+                lenses=[],
+                timestamp=timestamp,
+            )
+        return {"purged_blob_count": len(expired_ids), "retained_blob_count": len(retained_count), "generated_at": timestamp}
+
     def list_graph_activity_events(
         self,
         *,
@@ -3640,7 +4251,140 @@ class GraphRepository:
             return redacted
         if isinstance(value, list):
             return [self._redact_payload(item) for item in value]
+        if isinstance(value, str):
+            return self._redact_context_text(value)
         return value
+
+    def _agent_context_token_hash(self, token: str) -> str:
+        return hmac.new(self.secret_key.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def _redact_context_text(self, value: str) -> str:
+        redacted = value
+        for pattern in AGENT_CONTEXT_SECRET_PATTERNS:
+            redacted = pattern.sub(lambda match: f"{match.group(1)}=[redacted]" if match.lastindex else "[redacted]", redacted)
+        return redacted
+
+    def _safe_context_path(self, value: str | None) -> str | None:
+        if not value:
+            return value
+        normalized = value.replace("\\", "/")
+        if any(pattern in normalized for pattern in AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS):
+            return "[redacted-path]"
+        return normalized
+
+    def _validate_agent_context_path_policy(self, value: str | None, *, session: dict, client: dict) -> None:
+        if not value:
+            return
+        normalized = value.replace("\\", "/")
+        normalized_lower = normalized.lower()
+        denied_patterns = [pattern.lower() for pattern in AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS]
+        settings = client.get("settings") or {}
+        configured_denied = settings.get("denied_path_fragments")
+        if isinstance(configured_denied, list):
+            denied_patterns.extend(str(pattern).lower() for pattern in configured_denied)
+        if any(pattern and pattern in normalized_lower for pattern in denied_patterns):
+            raise ValueError("Agent context path is denied by capture policy")
+
+        if not normalized.startswith("/"):
+            return
+        allowed_roots = [session.get("workspace_root")]
+        configured_roots = settings.get("workspace_roots")
+        if isinstance(configured_roots, list):
+            allowed_roots.extend(str(root) for root in configured_roots)
+        allowed_roots = [root.replace("\\", "/").rstrip("/") for root in allowed_roots if isinstance(root, str) and root]
+        if not allowed_roots:
+            return
+        candidate = os.path.normpath(normalized).replace("\\", "/")
+        for root in allowed_roots:
+            normalized_root = os.path.normpath(root).replace("\\", "/").rstrip("/")
+            if candidate == normalized_root or candidate.startswith(f"{normalized_root}/"):
+                return
+        raise ValueError("Agent context path is outside configured workspace roots")
+
+    def _agent_context_artifact_row(self, *, project_id: str, session_id: str, payload, timestamp: datetime) -> dict:
+        title = payload.title or payload.path or payload.uri or payload.kind.replace("_", " ").title()
+        metadata = self._redact_payload(payload.metadata)
+        path = self._safe_context_path(payload.path)
+        uri = self._safe_context_path(payload.uri)
+        return {
+            "id": new_id("ctxartifact"),
+            "project_id": project_id,
+            "session_id": session_id,
+            "kind": payload.kind,
+            "uri": uri,
+            "path": path,
+            "title": str(title)[:240],
+            "content_type": payload.content_type,
+            "checksum": payload.checksum,
+            "metadata_json": dump_json(metadata),
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+
+    def _agent_context_blob_row(self, *, project_id: str, session_id: str, artifact_id: str | None, payload, timestamp: datetime) -> dict:
+        raw_text = payload.text or ""
+        if payload.content_kind != "text":
+            raw_text = ""
+        redacted_text = self._redact_context_text(raw_text)
+        encoded = redacted_text.encode("utf-8")
+        within_limit = payload.content_kind == "text" and bool(raw_text) and len(encoded) <= self.agent_context_max_blob_bytes
+        checksum = payload.checksum or hashlib.sha256(encoded or str(payload.metadata).encode("utf-8")).hexdigest()
+        encrypted_content = self._encrypt_agent_context_text(redacted_text) if within_limit else None
+        byte_count = payload.byte_count if payload.byte_count is not None else len(encoded)
+        return {
+            "id": new_id("ctxblob"),
+            "project_id": project_id,
+            "session_id": session_id,
+            "artifact_id": artifact_id,
+            "content_kind": payload.content_kind,
+            "media_type": payload.media_type,
+            "redaction_status": "redacted" if within_limit and redacted_text != raw_text else ("metadata_only" if not within_limit else "not_required"),
+            "encryption_status": "encrypted" if encrypted_content else "metadata_only",
+            "checksum": checksum,
+            "byte_count": byte_count,
+            "token_count": payload.token_count,
+            "encrypted_content": encrypted_content,
+            "metadata_json": dump_json(self._redact_payload(payload.metadata)),
+            "created_at": timestamp,
+            "expires_at": timestamp + timedelta(days=self.agent_context_retention_days),
+        }
+
+    def _encrypt_agent_context_text(self, text_value: str) -> str:
+        encrypted = self._agent_context_fernet().encrypt(text_value.encode("utf-8")).decode("ascii")
+        return f"gvenc:fernet:v1:{encrypted}"
+
+    def _decrypt_agent_context_text(self, envelope_value: str) -> str:
+        if not envelope_value.startswith("gvenc:fernet:v1:"):
+            return ""
+        try:
+            encrypted_payload = envelope_value.removeprefix("gvenc:fernet:v1:").encode("ascii")
+            decrypted = self._agent_context_fernet().decrypt(encrypted_payload)
+        except InvalidToken:
+            raise ValueError("Invalid agent context blob envelope")
+        return decrypted.decode("utf-8")
+
+    def _agent_context_fernet(self) -> Fernet:
+        key = base64.urlsafe_b64encode(hashlib.sha256(self.secret_key.encode("utf-8")).digest())
+        return Fernet(key)
+
+    def _agent_context_event_summary(self, event_kind: str, artifact_row: dict | None) -> str:
+        label = artifact_row["title"] if artifact_row else "active context"
+        return f"Captured {event_kind.replace('_', ' ')} for {label}."
+
+    def _agent_context_relation_for_event(self, event_kind: str) -> str:
+        if event_kind in {"file_opened", "file_read", "selection_changed"}:
+            return "read"
+        if event_kind in {"edit_applied", "diff_observed"}:
+            return "modified"
+        if event_kind in {"prompt_built", "model_request", "model_response"}:
+            return "included_context"
+        if event_kind == "search_performed":
+            return "searched"
+        if event_kind in {"test_run", "shell_command"}:
+            return "executed"
+        if event_kind == "commit_observed":
+            return "committed"
+        return "observed"
 
     def _execute_safe_action(self, conn, proposal_row: dict, payload: dict, timestamp: datetime) -> tuple[str, str | None, str | None, str | None]:
         action_type = proposal_row["action_type"]
@@ -3987,12 +4731,13 @@ class GraphRepository:
                 nodes = [node for node in nodes if self._item_matches_sources(node, spec.source_ids)]
         return {"sources": sources, "nodes": nodes}
 
-    def export_bundle(self, graph_id: str | None = None) -> dict:
+    def export_bundle(self, graph_id: str | None = None, *, include_agent_context_content: bool = False) -> dict:
         spec = self._graph_view_spec(graph_id)
         project, nodes, edges = self.graph(graph_id)
         proposals = self.list_proposals(graph_id=graph_id)
         proposal_ids = {proposal["id"] for proposal in proposals}
         with self.engine.begin() as conn:
+            exported_at = now()
             source_ids = {source["id"] for source in self.list_sources(graph_id=graph_id)}
             return {
                 "project": project,
@@ -4132,10 +4877,57 @@ class GraphRepository:
                         select(db.feedback_events).where(db.feedback_events.c.project_id == spec.project_id)
                     ).mappings()
                 ],
+                "agent_context_clients": [
+                    self._agent_context_client_from_row(row)
+                    for row in conn.execute(
+                        select(db.agent_context_clients).where(db.agent_context_clients.c.project_id == spec.project_id)
+                    ).mappings()
+                ],
+                "agent_context_sessions": [
+                    self._agent_context_session_from_row(row)
+                    for row in conn.execute(
+                        select(db.agent_context_sessions).where(db.agent_context_sessions.c.project_id == spec.project_id)
+                    ).mappings()
+                ],
+                "agent_context_artifacts": [
+                    self._agent_context_artifact_from_row(row)
+                    for row in conn.execute(
+                        select(db.agent_context_artifacts).where(db.agent_context_artifacts.c.project_id == spec.project_id)
+                    ).mappings()
+                ],
+                "agent_context_blobs": [
+                    self._agent_context_blob_from_row(row)
+                    for row in conn.execute(
+                        select(db.agent_context_blobs).where(db.agent_context_blobs.c.project_id == spec.project_id)
+                    ).mappings()
+                ],
+                "agent_context_blob_contents": [
+                    {
+                        "blob_id": row["id"],
+                        "encrypted_content": row["encrypted_content"],
+                        "exported_at": exported_at,
+                    }
+                    for row in conn.execute(
+                        select(db.agent_context_blobs.c.id, db.agent_context_blobs.c.encrypted_content).where(
+                            and_(
+                                db.agent_context_blobs.c.project_id == spec.project_id,
+                                db.agent_context_blobs.c.encrypted_content.is_not(None),
+                            )
+                        )
+                    ).mappings()
+                ]
+                if include_agent_context_content
+                else [],
+                "agent_context_events": [
+                    self._agent_context_event_from_row(row)
+                    for row in conn.execute(
+                        select(db.agent_context_events).where(db.agent_context_events.c.project_id == spec.project_id)
+                    ).mappings()
+                ],
             }
 
-    def backup_bundle(self, actor_id: str) -> dict:
-        bundle = self.export_bundle()
+    def backup_bundle(self, actor_id: str, *, include_agent_context_content: bool = False) -> dict:
+        bundle = self.export_bundle(include_agent_context_content=include_agent_context_content)
         return {
             "metadata": {
                 "schema_version": 1,
@@ -4146,6 +4938,8 @@ class GraphRepository:
                 "node_count": len(bundle["nodes"]),
                 "edge_count": len(bundle["edges"]),
                 "proposal_count": len(bundle["proposals"]),
+                "agent_context_session_count": len(bundle.get("agent_context_sessions", [])),
+                "agent_context_content_blob_count": len(bundle.get("agent_context_blob_contents", [])),
             },
             "bundle": bundle,
         }
@@ -4154,6 +4948,11 @@ class GraphRepository:
         project_id = bundle.project.id
         with self.engine.begin() as conn:
             for table in [
+                db.agent_context_events,
+                db.agent_context_blobs,
+                db.agent_context_artifacts,
+                db.agent_context_sessions,
+                db.agent_context_clients,
                 db.feedback_events,
                 db.outcomes,
                 db.action_runs,
@@ -4655,6 +5454,109 @@ class GraphRepository:
                 }
                 for feedback in bundle.feedback_events
             ]
+            agent_context_clients = [
+                {
+                    "id": client.id,
+                    "project_id": client.project_id,
+                    "display_name": client.display_name,
+                    "runtime_kind": client.runtime_kind,
+                    "status": client.status,
+                    "created_by": client.created_by,
+                    "token_hash": f"restored:{client.id}",
+                    "scopes_json": dump_json(client.scopes),
+                    "settings_json": dump_json(client.settings),
+                    "created_at": client.created_at,
+                    "updated_at": client.updated_at,
+                    "last_seen_at": client.last_seen_at,
+                    "revoked_at": client.revoked_at,
+                }
+                for client in bundle.agent_context_clients
+            ]
+            agent_context_sessions = [
+                {
+                    "id": session.id,
+                    "project_id": session.project_id,
+                    "client_id": session.client_id,
+                    "runtime_kind": session.runtime_kind,
+                    "authority": session.authority,
+                    "status": session.status,
+                    "title": session.title,
+                    "workspace_root": session.workspace_root,
+                    "repository_uri": session.repository_uri,
+                    "branch": session.branch,
+                    "commit_sha": session.commit_sha,
+                    "metadata_json": dump_json(session.metadata),
+                    "started_at": session.started_at,
+                    "ended_at": session.ended_at,
+                    "updated_at": session.updated_at,
+                }
+                for session in bundle.agent_context_sessions
+            ]
+            agent_context_artifacts = [
+                {
+                    "id": artifact.id,
+                    "project_id": artifact.project_id,
+                    "session_id": artifact.session_id,
+                    "kind": artifact.kind,
+                    "uri": artifact.uri,
+                    "path": artifact.path,
+                    "title": artifact.title,
+                    "content_type": artifact.content_type,
+                    "checksum": artifact.checksum,
+                    "metadata_json": dump_json(artifact.metadata),
+                    "created_at": artifact.created_at,
+                    "updated_at": artifact.updated_at,
+                }
+                for artifact in bundle.agent_context_artifacts
+            ]
+            agent_context_blob_content_by_id = {
+                content.blob_id: content.encrypted_content for content in bundle.agent_context_blob_contents
+            }
+            agent_context_blobs = [
+                {
+                    "id": blob.id,
+                    "project_id": blob.project_id,
+                    "session_id": blob.session_id,
+                    "artifact_id": blob.artifact_id,
+                    "content_kind": blob.content_kind,
+                    "media_type": blob.media_type,
+                    "redaction_status": blob.redaction_status
+                    if agent_context_blob_content_by_id.get(blob.id)
+                    else "metadata_only",
+                    "encryption_status": blob.encryption_status
+                    if agent_context_blob_content_by_id.get(blob.id)
+                    else "metadata_only",
+                    "checksum": blob.checksum,
+                    "byte_count": blob.byte_count,
+                    "token_count": blob.token_count,
+                    "encrypted_content": agent_context_blob_content_by_id.get(blob.id),
+                    "metadata_json": dump_json(blob.metadata),
+                    "created_at": blob.created_at,
+                    "expires_at": blob.expires_at,
+                }
+                for blob in bundle.agent_context_blobs
+            ]
+            agent_context_events = [
+                {
+                    "id": event.id,
+                    "project_id": event.project_id,
+                    "session_id": event.session_id,
+                    "client_event_id": event.client_event_id,
+                    "sequence": event.sequence,
+                    "event_kind": event.event_kind,
+                    "authority": event.authority,
+                    "status": event.status,
+                    "summary": event.summary,
+                    "checksum": event.checksum,
+                    "artifact_id": event.artifact_id,
+                    "blob_id": event.blob_id,
+                    "payload_json": dump_json(event.payload),
+                    "object_refs_json": dump_json(event.object_refs),
+                    "occurred_at": event.occurred_at,
+                    "received_at": event.received_at,
+                }
+                for event in bundle.agent_context_events
+            ]
 
             for table, rows in [
                 (db.topics, topics),
@@ -4685,6 +5587,11 @@ class GraphRepository:
                 (db.action_runs, action_runs),
                 (db.outcomes, outcomes),
                 (db.feedback_events, feedback_events),
+                (db.agent_context_clients, agent_context_clients),
+                (db.agent_context_sessions, agent_context_sessions),
+                (db.agent_context_artifacts, agent_context_artifacts),
+                (db.agent_context_blobs, agent_context_blobs),
+                (db.agent_context_events, agent_context_events),
             ]:
                 if rows:
                     conn.execute(insert(table), rows)
@@ -5078,6 +5985,35 @@ class GraphRepository:
         data["proposed_value"] = load_json(data.pop("proposed_value_json"), None)
         return data
 
+    def _agent_context_client_from_row(self, row) -> dict:
+        data = dict(row)
+        data.pop("token_hash", None)
+        data["scopes"] = load_json(data.pop("scopes_json"), [])
+        data["settings"] = self._redact_payload(load_json(data.pop("settings_json"), {}))
+        return data
+
+    def _agent_context_session_from_row(self, row) -> dict:
+        data = dict(row)
+        data["metadata"] = load_json(data.pop("metadata_json"), {})
+        return data
+
+    def _agent_context_artifact_from_row(self, row) -> dict:
+        data = dict(row)
+        data["metadata"] = load_json(data.pop("metadata_json"), {})
+        return data
+
+    def _agent_context_blob_from_row(self, row) -> dict:
+        data = dict(row)
+        data.pop("encrypted_content", None)
+        data["metadata"] = load_json(data.pop("metadata_json"), {})
+        return data
+
+    def _agent_context_event_from_row(self, row) -> dict:
+        data = dict(row)
+        data["payload"] = load_json(data.pop("payload_json"), {})
+        data["object_refs"] = load_json(data.pop("object_refs_json"), [])
+        return data
+
     def _activity_event_from_row(self, row) -> dict:
         data = dict(row)
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
@@ -5085,10 +6021,33 @@ class GraphRepository:
         data["lenses"] = load_json(data.pop("lenses_json"), [])
         return data
 
-    def _settings_from_row(self, row) -> dict:
+    def _settings_from_row(self, row, *, redact: bool = True) -> dict:
         data = dict(row)
-        data["settings"] = load_json(data.pop("settings_json"), {})
+        settings = load_json(data.pop("settings_json"), {})
+        data["settings"] = self._redact_settings(settings) if redact else settings
         return data
+
+    def _redact_settings(self, value):
+        if isinstance(value, dict):
+            redacted = {}
+            for key, item in value.items():
+                key_lower = key.lower()
+                if key == AI_PROVIDER_CREDENTIALS_KEY and isinstance(item, dict):
+                    redacted[key] = {
+                        provider_id: {
+                            "configured": isinstance(credential, dict) and bool(credential.get("encrypted_api_key")),
+                            "updated_at": credential.get("updated_at") if isinstance(credential, dict) else None,
+                        }
+                        for provider_id, credential in item.items()
+                    }
+                elif key_lower in SENSITIVE_SETTINGS_KEYS:
+                    continue
+                else:
+                    redacted[key] = self._redact_settings(item)
+            return redacted
+        if isinstance(value, list):
+            return [self._redact_settings(item) for item in value]
+        return value
 
     def _connector_account_from_row(self, row) -> dict:
         data = dict(row)

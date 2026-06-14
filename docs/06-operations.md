@@ -128,6 +128,8 @@ Operational acceptance for Phase 24 should include:
 The API exposes AI V1 endpoints for planning, read-only graph Q&A, and scoped research:
 
 - `GET /providers` lists Graphview local, OpenAI, Anthropic, and Gemini descriptors without secret material.
+- `PATCH /providers/{provider_id}/credentials` lets operators save OpenAI, Anthropic, or Gemini API keys as
+  project-scoped encrypted settings; `DELETE /providers/{provider_id}/credentials` clears a browser-entered key.
 - `POST /planning-sessions` and `POST /planning-sessions/{session_id}/messages` persist Planning Mode conversation and
   graph build specs.
 - `POST /graph/query` answers questions using reviewed graph context and citations only.
@@ -135,7 +137,33 @@ The API exposes AI V1 endpoints for planning, read-only graph Q&A, and scoped re
 - `POST /agent-runs/{agent_run_id}/approve-action` is the review gate for AI-proposed side effects.
 
 Agent runs record provider, model, trace ID, status, summaries, citations, and action proposal state for audit. External
-provider use is configured through environment-backed settings; local development can use `graphview-local`.
+provider use can be configured through environment-backed settings or operator-entered project credentials; local
+provider use remains the default fallback.
+
+## Active Agent Context Connectors
+
+Phase 27 adds active context capture for external agents and editor adapters:
+
+- Acceptance command: `pnpm run phase27:check`.
+- `POST /agent-context/clients` creates a scoped adapter client and returns a one-time `gvctx_...` token to maintainers.
+- `POST /agent-context/sessions`, `PATCH /agent-context/sessions/{session_id}`, and
+  `POST /agent-context/events/batch` accept capture-only `gvctx_...` adapter bearer tokens and reject normal UI
+  credentials. Requested client scopes are normalized to `context:capture`.
+- Event batch responses include API-generated checksums over accepted, redacted event records.
+- `GET /agent-context/sessions`, `GET /agent-context/sessions/{session_id}/events`, and
+  `GET /agent-context/sessions/{session_id}/graph` expose reader-visible session metadata, timeline, and context graph
+  projection.
+- `GET /agent-context/artifacts/{artifact_id}/content` requires maintainer access and decrypts a redacted blob when it
+  still exists.
+- `GET /agent-context/sessions/{session_id}/stream` provides SSE-compatible replay for the active context workspace.
+- `POST /agent-context/retention/run` purges expired encrypted blobs while preserving audit metadata.
+- `GET /backup` exports active-context metadata by default. Add `include_agent_context_content=true` only when an
+  operator explicitly needs encrypted redacted context blobs in the backup bundle.
+
+Operators should run the agent gateway for authoritative file/search/shell/model context, install the VS Code/Cursor
+extension only for passive editor-state reconciliation, flush extension and gateway outboxes after retryable offline,
+rate-limit, conflict, or server failures, and keep retention windows short enough for private workspaces.
+Permanent 4xx responses are not retried.
 
 ## Digital Nervous System Actions
 
@@ -184,15 +212,17 @@ The app services run from the local workspace for development. Production image 
 | `GRAPHVIEW_AUTO_COMMIT_THRESHOLD` | api | `0.92` | No | Default confidence threshold for system auto-commit decisions. |
 | `GRAPHVIEW_SAFE_ACTION_TYPES` | api | Phase 25 safe action list | No | Comma-separated allowlist for approved action proposal execution. |
 | `GRAPHVIEW_AI_DEFAULT_PROVIDER` | api | `graphview-local` | No | Default agent provider when a request does not name one. |
-| `GRAPHVIEW_OPENAI_*` | api | OpenAI Responses defaults | API key yes | OpenAI agent provider configuration. |
-| `GRAPHVIEW_ANTHROPIC_*` | api | Claude Messages defaults | API key yes | Anthropic agent provider configuration. |
-| `GRAPHVIEW_GEMINI_*` | api | Gemini generate-content defaults | API key yes | Gemini agent provider configuration. |
+| `GRAPHVIEW_OPENAI_*` | api | OpenAI Responses defaults | API key yes | OpenAI agent provider configuration; operator-entered project keys can override the API key. |
+| `GRAPHVIEW_ANTHROPIC_*` | api | Claude Messages defaults | API key yes | Anthropic agent provider configuration; operator-entered project keys can override the API key. |
+| `GRAPHVIEW_GEMINI_*` | api | Gemini generate-content defaults | API key yes | Gemini agent provider configuration; operator-entered project keys can override the API key. |
 
 ## Release Process
 
 1. Capture and verify a `GET /backup` bundle from the target environment.
-2. Run `pnpm run phase26:check`, or `pnpm run phase25:check` for the previous digital nervous system gate.
-   The historical release-readiness smoke gate remains `pnpm run phase22:check` until the release script is advanced.
+2. Run `pnpm run phase27:check`. Use `pnpm run phase26:check` only when validating the previous release-hardening gate,
+   and `pnpm run phase22:check` only when comparing against the historical AI V1 baseline.
+   The Phase 27 gate includes `pnpm run phase27:smoke`; run that command directly when isolating active-context
+   gateway/API smoke failures.
 3. Run `pnpm run release:check`.
 4. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
 5. Run full CI gates, including moderate audit, signature, OSV, and secret scans.

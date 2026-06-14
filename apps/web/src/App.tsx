@@ -368,8 +368,11 @@ interface SourceContentBlock {
 }
 
 type ContextPaneTab = "data" | "review";
-type MobileSection = "graph" | "sources" | "focus" | "ask" | "review" | "plan";
+type MobileSection = "graph" | "sources" | "focus" | "ask" | "review" | "plan" | "context";
+type WorkspaceMode = "graph" | "planning" | "settings" | "context";
+type SettingsPageId = "providers" | "credentials" | "automation" | "runtime" | "capabilities";
 type GraphViewMode = "overview" | "focus" | "evidence" | "review" | "attention";
+type CaptureAuthority = "gateway" | "adapter_reported" | "passive_reconciled";
 type ReviewWorkItemKind =
   | "new_entity"
   | "new_relation"
@@ -398,13 +401,127 @@ interface AttentionItem {
   actionLabel: string;
 }
 
+type ApiProviderId = "graphview-local" | "openai" | "anthropic" | "gemini";
+
+const SETTINGS_PAGES: Array<{ id: SettingsPageId; label: string; summary: string }> = [
+  { id: "providers", label: "Providers", summary: "Model routing and availability" },
+  { id: "credentials", label: "Credentials", summary: "Keys and default provider" },
+  { id: "automation", label: "Automation", summary: "Extraction and commit rules" },
+  { id: "runtime", label: "Runtime", summary: "Current operating defaults" },
+  { id: "capabilities", label: "Capabilities", summary: "Provider feature coverage" }
+];
+
 interface ApiProviderDescriptor {
-  id: "graphview-local" | "openai" | "anthropic" | "gemini";
+  id: ApiProviderId;
   label: string;
   enabled: boolean;
   configured: boolean;
   default_model: string;
   capabilities: string[];
+  models?: ApiProviderModelDescriptor[];
+}
+
+interface ApiProviderModelDescriptor {
+  id: string;
+  label: string;
+  default: boolean;
+  capabilities: string[];
+  context_window?: number | null;
+}
+
+const fallbackProviders: ApiProviderDescriptor[] = [
+  {
+    id: "graphview-local",
+    label: "Graphview Local",
+    enabled: true,
+    configured: true,
+    default_model: "graphview-local-deterministic-v1",
+    capabilities: ["planning", "graph_query", "research", "structured_output"],
+    models: [
+      {
+        id: "graphview-local-deterministic-v1",
+        label: "Local deterministic",
+        default: true,
+        capabilities: ["planning", "graph_query", "research", "structured_output"]
+      }
+    ]
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    enabled: false,
+    configured: false,
+    default_model: "gpt-5.5",
+    capabilities: ["planning", "graph_query", "research", "structured_output", "tool_calling"],
+    models: [
+      { id: "gpt-5.5", label: "gpt-5.5", default: true, capabilities: ["reasoning", "tool_calling", "structured_output"] },
+      { id: "gpt-5.4-mini", label: "gpt-5.4-mini", default: false, capabilities: ["fast_reasoning", "tool_calling", "structured_output"] }
+    ]
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    enabled: false,
+    configured: false,
+    default_model: "claude-opus-4.8",
+    capabilities: ["planning", "graph_query", "research", "tool_calling"],
+    models: [
+      { id: "claude-opus-4.8", label: "claude-opus-4.8", default: true, capabilities: ["reasoning", "tool_calling", "long_context"] },
+      { id: "claude-sonnet-4.6", label: "claude-sonnet-4.6", default: false, capabilities: ["fast_reasoning", "tool_calling", "long_context"] }
+    ]
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    enabled: false,
+    configured: false,
+    default_model: "gemini-3.1-pro",
+    capabilities: ["planning", "graph_query", "research", "structured_output", "search_grounding", "url_context"],
+    models: [
+      { id: "gemini-3.1-pro", label: "gemini-3.1-pro", default: true, capabilities: ["reasoning", "function_calling", "search_grounding", "url_context"] },
+      { id: "gemini-3.5-flash", label: "gemini-3.5-flash", default: false, capabilities: ["fast_reasoning", "function_calling", "search_grounding", "url_context"] }
+    ]
+  }
+];
+
+const providerCredentialCopy: Record<ApiProviderId, { secretLabel: string; placeholder: string; source: string; detail: string }> = {
+  "graphview-local": {
+    secretLabel: "No external key",
+    placeholder: "",
+    source: "Built in",
+    detail: "Deterministic local provider for planning, graph query, and research fallback."
+  },
+  openai: {
+    secretLabel: "OpenAI API key",
+    placeholder: "sk-...",
+    source: "OPENAI_API_KEY",
+    detail: "Used for OpenAI planning, graph query, structured output, and research runs."
+  },
+  anthropic: {
+    secretLabel: "Anthropic API key",
+    placeholder: "sk-ant-...",
+    source: "ANTHROPIC_API_KEY",
+    detail: "Used for Anthropic planning, graph query, long-context reasoning, and research runs."
+  },
+  gemini: {
+    secretLabel: "Gemini API key",
+    placeholder: "AIza...",
+    source: "GEMINI_API_KEY",
+    detail: "Used for Gemini planning, graph query, grounded research, and URL-context runs."
+  }
+};
+
+function withFallbackProviders(providers: ApiProviderDescriptor[] | undefined): ApiProviderDescriptor[] {
+  if (!providers?.length) {
+    return fallbackProviders;
+  }
+  const serverProviders = new Map(providers.map((provider) => [provider.id, provider]));
+  const normalized = fallbackProviders.map((fallbackProvider) => ({
+    ...fallbackProvider,
+    ...(serverProviders.get(fallbackProvider.id) ?? {})
+  }));
+  const fallbackIds = new Set(fallbackProviders.map((provider) => provider.id));
+  return [...normalized, ...providers.filter((provider) => !fallbackIds.has(provider.id))];
 }
 
 interface ApiAgentCitation {
@@ -464,6 +581,85 @@ interface ApiAgentRun {
   tool_calls?: ApiAgentToolCall[];
   generated_artifacts?: ApiGeneratedArtifact[];
   action_proposals: ApiAgentActionProposal[];
+}
+
+interface ApiAgentContextSession {
+  id: string;
+  project_id: string;
+  client_id: string;
+  runtime_kind: "codex" | "claude-code" | "cursor" | "vscode" | "mcp" | "openai-compatible" | "generic";
+  authority: CaptureAuthority;
+  status: "running" | "completed" | "failed" | "cancelled";
+  title: string;
+  workspace_root?: string | null;
+  repository_uri?: string | null;
+  branch?: string | null;
+  commit_sha?: string | null;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  ended_at?: string | null;
+  updated_at: string;
+}
+
+interface ApiAgentContextArtifact {
+  id: string;
+  session_id: string;
+  kind: string;
+  uri?: string | null;
+  path?: string | null;
+  title: string;
+  content_type: string;
+  checksum?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ApiAgentContextEvent {
+  id: string;
+  session_id: string;
+  client_event_id: string;
+  sequence: number;
+  event_kind: string;
+  authority: CaptureAuthority;
+  status: "accepted" | "duplicate" | "rejected";
+  summary: string;
+  checksum: string;
+  artifact_id?: string | null;
+  blob_id?: string | null;
+  payload: Record<string, unknown>;
+  object_refs: Array<{ kind: string; id: string; label?: string | null }>;
+  occurred_at: string;
+  received_at: string;
+}
+
+interface ApiAgentContextGraph {
+  session: ApiAgentContextSession;
+  nodes: Array<{ id: string; kind: string; label: string; authority?: CaptureAuthority | null; metadata: Record<string, unknown> }>;
+  edges: Array<{ id: string; source_id: string; target_id: string; relation: string; observed: boolean; metadata: Record<string, unknown> }>;
+  artifacts: ApiAgentContextArtifact[];
+  events: ApiAgentContextEvent[];
+}
+
+interface ApiAgentContextBlob {
+  id: string;
+  session_id: string;
+  artifact_id?: string | null;
+  content_kind: "text" | "binary" | "metadata_only";
+  media_type?: string | null;
+  redaction_status: "not_required" | "redacted" | "metadata_only";
+  encryption_status: "encrypted" | "metadata_only";
+  checksum?: string | null;
+  byte_count?: number | null;
+  token_count?: number | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  expires_at?: string | null;
+}
+
+interface ApiAgentContextBlobContent {
+  blob: ApiAgentContextBlob;
+  text?: string | null;
 }
 
 interface ApiGraphBuildSpec {
@@ -828,7 +1024,7 @@ async function invalidateConnectorAndGraphQueries(graphId: string) {
 }
 
 function Shell() {
-  const [workspaceMode, setWorkspaceMode] = useState<"graph" | "planning">("graph");
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("graph");
   const [selectedGraphId, setSelectedGraphId] = useState("project-ios26-swift-demo");
   const [selectedGraphLensId, setSelectedGraphLensId] = useState<GraphLensId>(initialGraphLens);
   const [sourceKind, setSourceKind] = useState<SourceKind>("markdown");
@@ -840,6 +1036,8 @@ function Shell() {
   const [connectorContent, setConnectorContent] = useState("# Architecture\nSwiftUI references https://developer.apple.com/documentation/swiftui");
   const [llmEnabled, setLlmEnabled] = useState(false);
   const [autoCommitThreshold, setAutoCommitThreshold] = useState(0.92);
+  const [selectedAiProviderId, setSelectedAiProviderId] = useState<ApiProviderId>("graphview-local");
+  const [providerApiKey, setProviderApiKey] = useState("");
   const [searchText, setSearchText] = useState("");
   const [graphLayout, setGraphLayout] = useState<GraphLayoutMode>("force");
   const [graphDimension, setGraphDimension] = useState<GraphDimensionMode>("2d");
@@ -861,6 +1059,8 @@ function Shell() {
   const [planningGoal, setPlanningGoal] = useState("Plan an AI-native research graph with review-gated sources, citations, and embedded graph Q&A.");
   const [planningMessage, setPlanningMessage] = useState("What are the main open questions and seed sources?");
   const [selectedPlanningSessionId, setSelectedPlanningSessionId] = useState<string | undefined>();
+  const [selectedAgentContextSessionId, setSelectedAgentContextSessionId] = useState<string | undefined>();
+  const [selectedAgentContextArtifactId, setSelectedAgentContextArtifactId] = useState<string | undefined>();
   const [aiCommand, setAiCommand] = useState("");
   const [graphAnswer, setGraphAnswer] = useState<ApiGraphQueryAnswer | undefined>();
   const [researchResult, setResearchResult] = useState<ApiGraphResearchResult | undefined>();
@@ -1034,6 +1234,25 @@ function Shell() {
     queryFn: () => fetchJson<{ planning_sessions: ApiPlanningSession[] }>(graphScopedPath("/planning-sessions", selectedGraphId)),
     retry: false
   });
+  const agentContextSessions = useQuery({
+    queryKey: ["agent-context-sessions"],
+    queryFn: () => fetchJson<{ sessions: ApiAgentContextSession[] }>("/agent-context/sessions?limit=25"),
+    retry: false,
+    refetchInterval: workspaceMode === "context" ? 5000 : false
+  });
+  const agentContextGraph = useQuery({
+    queryKey: ["agent-context-graph", selectedAgentContextSessionId],
+    queryFn: () => fetchJson<ApiAgentContextGraph>(`/agent-context/sessions/${encodeURIComponent(selectedAgentContextSessionId ?? "")}/graph`),
+    enabled: Boolean(selectedAgentContextSessionId),
+    retry: false,
+    refetchInterval: workspaceMode === "context" ? 5000 : false
+  });
+  const agentContextArtifactContent = useQuery({
+    queryKey: ["agent-context-artifact-content", selectedAgentContextArtifactId],
+    queryFn: () => fetchJson<ApiAgentContextBlobContent>(`/agent-context/artifacts/${encodeURIComponent(selectedAgentContextArtifactId ?? "")}/content`),
+    enabled: workspaceMode === "context" && Boolean(selectedAgentContextArtifactId),
+    retry: false
+  });
   const selectedSourceChunks = useQuery({
     queryKey: ["source-chunks", selectedGraphId, selectedSourceId],
     queryFn: () =>
@@ -1056,10 +1275,25 @@ function Shell() {
   const connectorAccountList = connectorAccounts.data?.connector_accounts ?? [];
   const connectorTargetList = connectorTargets.data?.connector_targets ?? [];
   const latestSyncRun = connectorSyncRuns.data?.connector_sync_runs[0];
-  const providerList = providers.data?.providers ?? [
-    { id: "graphview-local" as const, label: "Graphview Local", enabled: true, configured: true, default_model: "graphview-local-deterministic-v1", capabilities: ["planning", "graph_query", "research"] }
-  ];
+  const providerList = withFallbackProviders(providers.data?.providers);
+  const selectedAiProvider = providerList.find((provider) => provider.id === selectedAiProviderId) ?? providerList[0];
+  const activeAiProviderId: ApiProviderId = selectedAiProvider?.enabled ? selectedAiProvider.id : "graphview-local";
+  const savedProviderCredentials = graphSettings.data?.settings.ai_provider_credentials as Record<string, { configured?: boolean }> | undefined;
+  const selectedProviderHasSavedKey = Boolean(savedProviderCredentials?.[selectedAiProviderId]?.configured);
+  const selectedProviderStatus =
+    selectedAiProviderId === "graphview-local"
+      ? "Local"
+      : selectedProviderHasSavedKey
+        ? "Saved"
+        : selectedAiProvider?.configured
+          ? "Env"
+          : "Needs key";
+  const handleAiProviderChange = (providerId: ApiProviderId) => {
+    setSelectedAiProviderId(providerId);
+    setProviderApiKey("");
+  };
   const planningSessionList = planningSessions.data?.planning_sessions ?? [];
+  const agentContextSessionList = agentContextSessions.data?.sessions ?? [];
   const operationalSignals = signals.data?.signals ?? [];
   const operationalObservationCount = observations.data?.observations?.length ?? 0;
   const operationalAlertCount = alerts.data?.alerts?.length ?? 0;
@@ -1120,6 +1354,49 @@ function Shell() {
   }, [planningSessionList, selectedPlanningSessionId]);
 
   useEffect(() => {
+    if (!agentContextSessionList.length) {
+      setSelectedAgentContextSessionId(undefined);
+      return;
+    }
+    if (!selectedAgentContextSessionId || !agentContextSessionList.some((session) => session.id === selectedAgentContextSessionId)) {
+      setSelectedAgentContextSessionId(agentContextSessionList[0].id);
+    }
+  }, [agentContextSessionList, selectedAgentContextSessionId]);
+
+  useEffect(() => {
+    setSelectedAgentContextArtifactId(undefined);
+  }, [selectedAgentContextSessionId]);
+
+  useEffect(() => {
+    if (!selectedAgentContextArtifactId || !agentContextGraph.data) return;
+    if (!agentContextGraph.data.artifacts.some((artifact) => artifact.id === selectedAgentContextArtifactId)) {
+      setSelectedAgentContextArtifactId(undefined);
+    }
+  }, [agentContextGraph.data, selectedAgentContextArtifactId]);
+
+  useEffect(() => {
+    if (workspaceMode !== "context" || !selectedAgentContextSessionId || typeof EventSource === "undefined") return;
+    const stream = new EventSource(
+      `${apiBaseUrl}/agent-context/sessions/${encodeURIComponent(selectedAgentContextSessionId)}/stream?limit=25`
+    );
+    const refreshContext = () => {
+      queryClient.invalidateQueries({ queryKey: ["agent-context-sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["agent-context-graph", selectedAgentContextSessionId] });
+      if (selectedAgentContextArtifactId) {
+        queryClient.invalidateQueries({ queryKey: ["agent-context-artifact-content", selectedAgentContextArtifactId] });
+      }
+    };
+    stream.addEventListener("agent-context.event", refreshContext);
+    stream.onerror = () => {
+      stream.close();
+    };
+    return () => {
+      stream.removeEventListener("agent-context.event", refreshContext);
+      stream.close();
+    };
+  }, [selectedAgentContextArtifactId, selectedAgentContextSessionId, workspaceMode]);
+
+  useEffect(() => {
     window.localStorage.setItem("graphview.graphLens", selectedGraphLensId);
     const url = new URL(window.location.href);
     if (selectedGraphLensId === "all") {
@@ -1134,6 +1411,7 @@ function Shell() {
     if (!graphSettings.data) return;
     setLlmEnabled(graphSettings.data.llm_enabled);
     setAutoCommitThreshold(graphSettings.data.auto_commit_threshold);
+    setSelectedAiProviderId(asApiProviderId(graphSettings.data.settings.ai_default_provider) ?? "graphview-local");
   }, [graphSettings.data]);
 
   useEffect(() => {
@@ -1260,11 +1538,46 @@ function Shell() {
         method: "PATCH",
         body: JSON.stringify({
           llm_enabled: llmEnabled,
-          auto_commit_threshold: autoCommitThreshold
+          auto_commit_threshold: autoCommitThreshold,
+          settings: {
+            ai_default_provider: activeAiProviderId
+          }
         })
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["graph-settings"] });
+    }
+  });
+
+  const saveProviderCredential = useMutation({
+    mutationFn: () =>
+      fetchJson<{ providers: ApiProviderDescriptor[] }>(`/providers/${encodeURIComponent(selectedAiProviderId)}/credentials`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          api_key: providerApiKey.trim(),
+          make_default: true
+        })
+      }),
+    onSuccess: async () => {
+      setProviderApiKey("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["providers"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-settings"] })
+      ]);
+    }
+  });
+
+  const clearProviderCredential = useMutation({
+    mutationFn: () =>
+      fetchJson<{ providers: ApiProviderDescriptor[] }>(`/providers/${encodeURIComponent(selectedAiProviderId)}/credentials`, {
+        method: "DELETE"
+      }),
+    onSuccess: async () => {
+      setProviderApiKey("");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["providers"] }),
+        queryClient.invalidateQueries({ queryKey: ["graph-settings"] })
+      ]);
     }
   });
 
@@ -1339,7 +1652,8 @@ function Shell() {
           title: planningGoal.split(/[.?!]/)[0]?.slice(0, 96) || "AI planning session",
           goal: planningGoal,
           graph_id: selectedGraphId,
-          lens: selectedGraphLensId
+          lens: selectedGraphLensId,
+          provider: activeAiProviderId
         })
       }),
     onSuccess: async (session) => {
@@ -1353,7 +1667,7 @@ function Shell() {
       const session = selectedPlanningSession ?? await createPlanningSession.mutateAsync();
       return fetchJson<ApiPlanningSession>(`/planning-sessions/${encodeURIComponent(session.id)}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content: planningMessage })
+        body: JSON.stringify({ content: planningMessage, provider: activeAiProviderId })
       });
     },
     onSuccess: async (session) => {
@@ -1372,7 +1686,8 @@ function Shell() {
           graph_id: selectedGraphId,
           lens: selectedGraphLensId,
           node_id: selectedGraphNodeId,
-          source_id: selectedSourceId
+          source_id: selectedSourceId,
+          provider: activeAiProviderId
         })
       }),
     onSuccess: (answer) => {
@@ -1389,7 +1704,8 @@ function Shell() {
           query,
           graph_id: selectedGraphId,
           lens: selectedGraphLensId,
-          source_policy: "mixed"
+          source_policy: "mixed",
+          provider: activeAiProviderId
         })
       }),
     onSuccess: async (result) => {
@@ -2093,6 +2409,26 @@ function Shell() {
           >
             Planning
           </button>
+          <button
+            type="button"
+            aria-pressed={workspaceMode === "context"}
+            onClick={() => {
+              setWorkspaceMode("context");
+              setMobileSection("context");
+            }}
+          >
+            Active context
+          </button>
+          <button
+            type="button"
+            aria-pressed={workspaceMode === "settings"}
+            onClick={() => {
+              setWorkspaceMode("settings");
+              setMobileSection("plan");
+            }}
+          >
+            Settings
+          </button>
         </div>
         <span
           className={[
@@ -2113,7 +2449,46 @@ function Shell() {
         onChange={handleImportGraph}
       />
 
-      {workspaceMode === "planning" ? (
+      {workspaceMode === "settings" ? (
+        <SettingsWorkspace
+          providerList={providerList}
+          selectedAiProvider={selectedAiProvider}
+          selectedAiProviderId={selectedAiProviderId}
+          selectedProviderStatus={selectedProviderStatus}
+          selectedProviderHasSavedKey={selectedProviderHasSavedKey}
+          providerApiKey={providerApiKey}
+          saveProviderPending={saveProviderCredential.isPending}
+          clearProviderPending={clearProviderCredential.isPending}
+          llmEnabled={llmEnabled}
+          autoCommitThreshold={autoCommitThreshold}
+          updateSettingsPending={updateGraphSettings.isPending}
+          onProviderChange={handleAiProviderChange}
+          onProviderApiKeyChange={setProviderApiKey}
+          onSaveProviderKey={() => saveProviderCredential.mutate()}
+          onClearProviderKey={() => clearProviderCredential.mutate()}
+          onLlmEnabledChange={setLlmEnabled}
+          onAutoCommitThresholdChange={setAutoCommitThreshold}
+          onSaveSettings={() => updateGraphSettings.mutate()}
+        />
+      ) : workspaceMode === "context" ? (
+        <AgentContextWorkspace
+          sessions={agentContextSessionList}
+          selectedSessionId={selectedAgentContextSessionId}
+          selectedArtifactId={selectedAgentContextArtifactId}
+          graph={agentContextGraph.data}
+          artifactContent={agentContextArtifactContent.data}
+          artifactContentLoading={agentContextArtifactContent.isLoading}
+          artifactContentError={agentContextArtifactContent.isError}
+          loading={agentContextSessions.isLoading || agentContextGraph.isLoading}
+          onSelectSession={setSelectedAgentContextSessionId}
+          onSelectArtifact={setSelectedAgentContextArtifactId}
+          onRefresh={() => {
+            agentContextSessions.refetch();
+            agentContextGraph.refetch();
+            agentContextArtifactContent.refetch();
+          }}
+        />
+      ) : workspaceMode === "planning" ? (
         <PlanningWorkspace
           goal={planningGoal}
           message={planningMessage}
@@ -2127,6 +2502,7 @@ function Shell() {
           onCreateSession={() => createPlanningSession.mutate()}
           onSendMessage={() => sendPlanningMessage.mutate()}
           onSelectSession={setSelectedPlanningSessionId}
+          onOpenSettings={() => setWorkspaceMode("settings")}
           onRunResearch={(query) => {
             setAiCommand(query);
             setWorkspaceMode("graph");
@@ -2384,27 +2760,27 @@ function Shell() {
                   Connector content
                   <textarea value={connectorContent} onChange={(event) => setConnectorContent(event.target.value)} />
                 </label>
-                <div className="connector-settings" aria-label="Advanced connector settings">
-                  <label>
-                    <input type="checkbox" checked={llmEnabled} onChange={(event) => setLlmEnabled(event.target.checked)} />
-                    LLM extraction
-                  </label>
-                  <label>
-                    Auto-commit
-                    <input
-                      type="number"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={autoCommitThreshold}
-                      onChange={(event) => setAutoCommitThreshold(Number(event.target.value))}
-                    />
-                  </label>
-                </div>
+                <ProviderSettingsPanel
+                  providerList={providerList}
+                  selectedAiProvider={selectedAiProvider}
+                  selectedAiProviderId={selectedAiProviderId}
+                  selectedProviderStatus={selectedProviderStatus}
+                  selectedProviderHasSavedKey={selectedProviderHasSavedKey}
+                  providerApiKey={providerApiKey}
+                  saveProviderPending={saveProviderCredential.isPending}
+                  clearProviderPending={clearProviderCredential.isPending}
+                  llmEnabled={llmEnabled}
+                  autoCommitThreshold={autoCommitThreshold}
+                  updateSettingsPending={updateGraphSettings.isPending}
+                  onProviderChange={handleAiProviderChange}
+                  onProviderApiKeyChange={setProviderApiKey}
+                  onSaveProviderKey={() => saveProviderCredential.mutate()}
+                  onClearProviderKey={() => clearProviderCredential.mutate()}
+                  onLlmEnabledChange={setLlmEnabled}
+                  onAutoCommitThresholdChange={setAutoCommitThreshold}
+                  onSaveSettings={() => updateGraphSettings.mutate()}
+                />
                 <div className="connector-actions">
-                  <button type="button" disabled={updateGraphSettings.isPending} onClick={() => updateGraphSettings.mutate()}>
-                    Save settings
-                  </button>
                   <button type="button" disabled={syncConnector.isPending || !connectorTitle.trim()} onClick={() => syncConnector.mutate()}>
                     Sync connector
                   </button>
@@ -3426,6 +3802,703 @@ function BlueprintMap({
   );
 }
 
+function ProviderSettingsPanel({
+  providerList,
+  selectedAiProvider,
+  selectedAiProviderId,
+  selectedProviderStatus,
+  selectedProviderHasSavedKey,
+  providerApiKey,
+  saveProviderPending,
+  clearProviderPending,
+  llmEnabled,
+  autoCommitThreshold,
+  updateSettingsPending,
+  onProviderChange,
+  onProviderApiKeyChange,
+  onSaveProviderKey,
+  onClearProviderKey,
+  onLlmEnabledChange,
+  onAutoCommitThresholdChange,
+  onSaveSettings
+}: {
+  providerList: ApiProviderDescriptor[];
+  selectedAiProvider?: ApiProviderDescriptor;
+  selectedAiProviderId: ApiProviderId;
+  selectedProviderStatus: string;
+  selectedProviderHasSavedKey: boolean;
+  providerApiKey: string;
+  saveProviderPending: boolean;
+  clearProviderPending: boolean;
+  llmEnabled: boolean;
+  autoCommitThreshold: number;
+  updateSettingsPending: boolean;
+  onProviderChange: (providerId: ApiProviderId) => void;
+  onProviderApiKeyChange: (value: string) => void;
+  onSaveProviderKey: () => void;
+  onClearProviderKey: () => void;
+  onLlmEnabledChange: (enabled: boolean) => void;
+  onAutoCommitThresholdChange: (threshold: number) => void;
+  onSaveSettings: () => void;
+}) {
+  return (
+    <div className="provider-settings" aria-label="AI provider credentials">
+      <div className="provider-settings-head">
+        <span>AI provider</span>
+        <strong>{selectedProviderStatus}</strong>
+      </div>
+      <label>
+        Default provider
+        <select value={selectedAiProviderId} onChange={(event) => onProviderChange(event.target.value as ApiProviderId)}>
+          {providerList.map((provider) => (
+            <option value={provider.id} key={provider.id}>
+              {provider.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {selectedAiProviderId !== "graphview-local" && (
+        <>
+          <label>
+            API key
+            <input
+              type="password"
+              value={providerApiKey}
+              autoComplete="off"
+              placeholder={selectedAiProvider?.configured ? "Configured" : "Provider key"}
+              onChange={(event) => onProviderApiKeyChange(event.target.value)}
+            />
+          </label>
+          <div className="provider-actions">
+            <button type="button" disabled={saveProviderPending || !providerApiKey.trim()} onClick={onSaveProviderKey}>
+              Save key
+            </button>
+            <button type="button" disabled={clearProviderPending || !selectedProviderHasSavedKey} onClick={onClearProviderKey}>
+              Clear
+            </button>
+          </div>
+        </>
+      )}
+      <div className="connector-settings" aria-label="Advanced connector settings">
+        <label>
+          <input type="checkbox" checked={llmEnabled} onChange={(event) => onLlmEnabledChange(event.target.checked)} />
+          LLM extraction
+        </label>
+        <label>
+          Auto-commit
+          <input
+            type="number"
+            min="0"
+            max="1"
+            step="0.01"
+            value={autoCommitThreshold}
+            onChange={(event) => onAutoCommitThresholdChange(Number(event.target.value))}
+          />
+        </label>
+      </div>
+      <button className="provider-save-settings" type="button" disabled={updateSettingsPending} onClick={onSaveSettings}>
+        Save settings
+      </button>
+    </div>
+  );
+}
+
+function AgentContextWorkspace({
+  sessions,
+  selectedSessionId,
+  selectedArtifactId,
+  graph,
+  artifactContent,
+  artifactContentLoading,
+  artifactContentError,
+  loading,
+  onSelectSession,
+  onSelectArtifact,
+  onRefresh
+}: {
+  sessions: ApiAgentContextSession[];
+  selectedSessionId?: string;
+  selectedArtifactId?: string;
+  graph?: ApiAgentContextGraph;
+  artifactContent?: ApiAgentContextBlobContent;
+  artifactContentLoading: boolean;
+  artifactContentError: boolean;
+  loading: boolean;
+  onSelectSession: (sessionId: string) => void;
+  onSelectArtifact: (artifactId: string | undefined) => void;
+  onRefresh: () => void;
+}) {
+  const selectedSession = sessions.find((session) => session.id === selectedSessionId) ?? sessions[0];
+  const events = graph?.events ?? [];
+  const artifacts = graph?.artifacts ?? [];
+  const selectedArtifact = artifacts.find((artifact) => artifact.id === selectedArtifactId);
+  const gatewayCount = events.filter((event) => event.authority === "gateway").length;
+  const adapterCount = events.filter((event) => event.authority === "adapter_reported").length;
+  const passiveCount = events.filter((event) => event.authority === "passive_reconciled").length;
+  const promptEvents = events.filter((event) => ["prompt_built", "model_request", "model_response"].includes(event.event_kind));
+  const editEvents = events.filter((event) => ["edit_applied", "diff_observed", "commit_observed"].includes(event.event_kind));
+
+  return (
+    <section className="agent-context-workspace" aria-label="Active agent context">
+      <header className="workspace-head compact">
+        <div>
+          <p>Active context</p>
+          <h2>{selectedSession?.title ?? "No captured sessions"}</h2>
+          <span>
+            {selectedSession
+              ? `${selectedSession.runtime_kind} / ${selectedSession.status} / ${selectedSession.authority.replaceAll("_", " ")}`
+              : "Waiting for adapter sessions"}
+          </span>
+        </div>
+        <button type="button" className="provider-save-settings" onClick={onRefresh}>
+          Refresh
+        </button>
+      </header>
+
+      <div className="agent-context-grid">
+        <aside className="agent-context-sessions" aria-label="Captured sessions">
+          <div className="context-section-head">
+            <div>
+              <span>Sessions</span>
+              <strong>{sessions.length}</strong>
+            </div>
+          </div>
+          <div className="agent-context-session-list">
+            {sessions.map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                aria-pressed={session.id === selectedSession?.id}
+                onClick={() => onSelectSession(session.id)}
+              >
+                <strong>{session.title}</strong>
+                <span>{session.runtime_kind} / {session.status}</span>
+                <small>{formatShortDate(session.updated_at)}</small>
+              </button>
+            ))}
+            {sessions.length === 0 && <div className="outline-empty">No agent context sessions captured.</div>}
+          </div>
+        </aside>
+
+        <section className="agent-context-main" aria-label="Context graph and timeline">
+          <div className="agent-context-metrics" aria-label="Active context metrics">
+            <span><strong>{events.length}</strong> events</span>
+            <span><strong>{artifacts.length}</strong> artifacts</span>
+            <span><strong>{gatewayCount}</strong> gateway</span>
+            <span><strong>{adapterCount + passiveCount}</strong> reconciled</span>
+          </div>
+
+          <div className="agent-context-panels">
+            <article className="agent-context-card" aria-label="Context graph projection">
+              <div className="context-section-head">
+                <div>
+                  <span>Context graph</span>
+                  <strong>{graph?.nodes.length ?? 0}.{graph?.edges.length ?? 0}</strong>
+                </div>
+              </div>
+              <div className="context-projection-list">
+                {(graph?.edges ?? []).slice(0, 12).map((edge) => {
+                  const source = graph?.nodes.find((node) => node.id === edge.source_id);
+                  const target = graph?.nodes.find((node) => node.id === edge.target_id);
+                  return (
+                    <div key={edge.id} className={edge.observed ? "is-observed" : "is-inferred"}>
+                      <span>{source?.label ?? edge.source_id}</span>
+                      <strong>{edge.relation.replaceAll("_", " ")}</strong>
+                      <span>{target?.label ?? edge.target_id}</span>
+                    </div>
+                  );
+                })}
+                {loading && <div className="outline-empty">Loading active context.</div>}
+                {!loading && (graph?.edges.length ?? 0) === 0 && <div className="outline-empty">No context graph edges yet.</div>}
+              </div>
+            </article>
+
+            <article className="agent-context-card" aria-label="Prompt and edit activity">
+              <div className="context-section-head">
+                <div>
+                  <span>Prompt and edits</span>
+                  <strong>{promptEvents.length}.{editEvents.length}</strong>
+                </div>
+              </div>
+              <div className="agent-context-badge-row">
+                {promptEvents.slice(0, 6).map((event) => (
+                  <span key={event.id} className={`authority-${event.authority}`}>
+                    {event.event_kind.replaceAll("_", " ")}
+                  </span>
+                ))}
+                {editEvents.slice(0, 6).map((event) => (
+                  <span key={event.id} className={`authority-${event.authority}`}>
+                    {event.event_kind.replaceAll("_", " ")}
+                  </span>
+                ))}
+                {promptEvents.length + editEvents.length === 0 && <span>No prompt or edit events.</span>}
+              </div>
+            </article>
+
+            <article className="agent-context-card agent-context-inspector" aria-label="Content inspector">
+              <div className="context-section-head">
+                <div>
+                  <span>Content inspector</span>
+                  <strong>{selectedArtifact?.title ?? "None"}</strong>
+                </div>
+              </div>
+              {selectedArtifact ? (
+                <div className="agent-context-inspector-body">
+                  <div className="agent-context-badge-row">
+                    <span>{selectedArtifact.kind}</span>
+                    <span>{selectedArtifact.content_type}</span>
+                    {artifactContent?.blob && <span>{artifactContent.blob.redaction_status.replaceAll("_", " ")}</span>}
+                    {artifactContent?.blob && <span>{artifactContent.blob.encryption_status.replaceAll("_", " ")}</span>}
+                  </div>
+                  <small>{selectedArtifact.path ?? selectedArtifact.uri ?? selectedArtifact.id}</small>
+                  {artifactContentLoading && <div className="outline-empty">Loading artifact content.</div>}
+                  {artifactContentError && (
+                    <div className="outline-empty">Content requires maintainer access or is no longer retained.</div>
+                  )}
+                  {!artifactContentLoading && !artifactContentError && artifactContent?.text && (
+                    <pre>{artifactContent.text}</pre>
+                  )}
+                  {!artifactContentLoading && !artifactContentError && artifactContent && !artifactContent.text && (
+                    <div className="outline-empty">Metadata-only artifact. Text content was binary, oversized, or purged.</div>
+                  )}
+                </div>
+              ) : (
+                <div className="outline-empty">Select an event artifact to inspect retained content.</div>
+              )}
+            </article>
+          </div>
+
+          <div className="agent-context-timeline" aria-label="Active context timeline">
+            {events.slice().reverse().slice(0, 20).map((event) => {
+              const artifact = artifacts.find((item) => item.id === event.artifact_id);
+              return (
+                <article key={event.id} className={`agent-context-event authority-${event.authority}`}>
+                  <span>{event.event_kind.replaceAll("_", " ")}</span>
+                  <strong>{event.summary}</strong>
+                  <small>
+                    {event.authority.replaceAll("_", " ")}
+                    {artifact ? ` / ${artifact.path ?? artifact.title}` : ""}
+                  </small>
+                  {artifact && (
+                    <button
+                      type="button"
+                      className="agent-context-artifact-button"
+                      aria-pressed={artifact.id === selectedArtifactId}
+                      onClick={() => onSelectArtifact(artifact.id === selectedArtifactId ? undefined : artifact.id)}
+                    >
+                      Inspect artifact
+                    </button>
+                  )}
+                </article>
+              );
+            })}
+            {!loading && events.length === 0 && <div className="outline-empty">No active context events yet.</div>}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function SettingsWorkspace({
+  providerList,
+  selectedAiProvider,
+  selectedAiProviderId,
+  selectedProviderStatus,
+  selectedProviderHasSavedKey,
+  providerApiKey,
+  saveProviderPending,
+  clearProviderPending,
+  llmEnabled,
+  autoCommitThreshold,
+  updateSettingsPending,
+  onProviderChange,
+  onProviderApiKeyChange,
+  onSaveProviderKey,
+  onClearProviderKey,
+  onLlmEnabledChange,
+  onAutoCommitThresholdChange,
+  onSaveSettings
+}: {
+  providerList: ApiProviderDescriptor[];
+  selectedAiProvider?: ApiProviderDescriptor;
+  selectedAiProviderId: ApiProviderId;
+  selectedProviderStatus: string;
+  selectedProviderHasSavedKey: boolean;
+  providerApiKey: string;
+  saveProviderPending: boolean;
+  clearProviderPending: boolean;
+  llmEnabled: boolean;
+  autoCommitThreshold: number;
+  updateSettingsPending: boolean;
+  onProviderChange: (providerId: ApiProviderId) => void;
+  onProviderApiKeyChange: (value: string) => void;
+  onSaveProviderKey: () => void;
+  onClearProviderKey: () => void;
+  onLlmEnabledChange: (enabled: boolean) => void;
+  onAutoCommitThresholdChange: (threshold: number) => void;
+  onSaveSettings: () => void;
+}) {
+  const [activeSettingsPage, setActiveSettingsPage] = useState<SettingsPageId>("providers");
+  const activePage = SETTINGS_PAGES.find((page) => page.id === activeSettingsPage) ?? SETTINGS_PAGES[0];
+  const enabledProviders = providerList.filter((provider) => provider.enabled).length;
+  const selectedModel = selectedAiProvider?.default_model ?? "graphview-local-deterministic-v1";
+  const selectedCapabilities = selectedAiProvider?.capabilities ?? ["planning", "graph query", "research"];
+
+  return (
+    <section className="settings-workspace" aria-label="Settings">
+      <aside className="settings-sidebar" aria-label="Settings navigation">
+        <div>
+          <p className="eyebrow">Settings</p>
+          <strong>Workspace</strong>
+          <span>Providers, credentials, automation, and runtime defaults.</span>
+        </div>
+        <nav className="settings-nav" role="tablist" aria-label="Settings pages">
+          {SETTINGS_PAGES.map((page) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={page.id === activeSettingsPage}
+              key={page.id}
+              onClick={() => setActiveSettingsPage(page.id)}
+            >
+              <strong>{page.label}</strong>
+              <span>{page.summary}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-sidebar-status" aria-label="Settings status">
+          <SettingsStat label="Default" value={selectedAiProvider?.label ?? "Graphview Local"} />
+          <SettingsStat label="Enabled" value={enabledProviders.toString()} />
+        </div>
+      </aside>
+
+      <div className="settings-page-main">
+        <div className="settings-page-head">
+          <div>
+            <p className="eyebrow">Settings / {activePage.label}</p>
+            <h2>{activePage.label}</h2>
+            <span>{activePage.summary}</span>
+          </div>
+          <div className="settings-stat-strip" aria-label="Provider settings status">
+            <SettingsStat label="Provider" value={selectedAiProvider?.label ?? "Graphview Local"} />
+            <SettingsStat label="Credential" value={selectedProviderStatus} />
+            <SettingsStat label="Extraction" value={llmEnabled ? "On" : "Off"} />
+          </div>
+        </div>
+
+        <div className="settings-page-body">
+          {activeSettingsPage === "providers" && (
+            <section className="settings-section settings-provider-section" aria-label="Provider catalog">
+              <div className="settings-section-head">
+                <div>
+                  <p className="eyebrow">Providers</p>
+                  <h3>Model routing</h3>
+                </div>
+                <span className="settings-status-pill">{selectedProviderStatus}</span>
+              </div>
+              <div className="settings-provider-grid">
+                {providerList.map((provider) => (
+                  <button
+                    className="provider-status-card"
+                    type="button"
+                    aria-pressed={provider.id === selectedAiProviderId}
+                    key={provider.id}
+                    onClick={() => onProviderChange(provider.id)}
+                  >
+                    <span className={provider.enabled ? "is-enabled" : ""}>{provider.enabled ? "Enabled" : "Not configured"}</span>
+                    <strong>{provider.label}</strong>
+                    <small>{provider.default_model}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {activeSettingsPage === "credentials" && (
+            <section className="settings-section settings-form-section" aria-label="Provider credentials">
+              <div className="settings-section-head">
+                <div>
+                  <p className="eyebrow">Credentials</p>
+                  <h3>Provider access</h3>
+                </div>
+                <span className="settings-status-pill">{selectedProviderStatus}</span>
+              </div>
+              <ProviderCredentialPanel
+                providerList={providerList}
+                selectedAiProvider={selectedAiProvider}
+                selectedAiProviderId={selectedAiProviderId}
+                selectedProviderHasSavedKey={selectedProviderHasSavedKey}
+                providerApiKey={providerApiKey}
+                saveProviderPending={saveProviderPending}
+                clearProviderPending={clearProviderPending}
+                onProviderChange={onProviderChange}
+                onProviderApiKeyChange={onProviderApiKeyChange}
+                onSaveProviderKey={onSaveProviderKey}
+                onClearProviderKey={onClearProviderKey}
+              />
+            </section>
+          )}
+
+          {activeSettingsPage === "automation" && (
+            <section className="settings-section settings-form-section" aria-label="Automation settings">
+              <div className="settings-section-head">
+                <div>
+                  <p className="eyebrow">Automation</p>
+                  <h3>Extraction and review rules</h3>
+                </div>
+              </div>
+              <AutomationSettingsPanel
+                llmEnabled={llmEnabled}
+                autoCommitThreshold={autoCommitThreshold}
+                updateSettingsPending={updateSettingsPending}
+                onLlmEnabledChange={onLlmEnabledChange}
+                onAutoCommitThresholdChange={onAutoCommitThresholdChange}
+                onSaveSettings={onSaveSettings}
+              />
+            </section>
+          )}
+
+          {activeSettingsPage === "runtime" && (
+            <section className="settings-section settings-runtime-section" aria-label="Runtime defaults">
+              <div className="settings-section-head">
+                <div>
+                  <p className="eyebrow">Runtime</p>
+                  <h3>Defaults and guardrails</h3>
+                </div>
+              </div>
+              <div className="settings-readout-grid">
+                <SettingsReadout label="Runtime model" value={selectedModel} detail="Used for planning, graph Q&A, and research runs." />
+                <SettingsReadout label="Credential source" value={selectedProviderStatus} detail="Reflects saved provider credential state." />
+                <SettingsReadout label="Auto-commit" value={autoCommitThreshold.toFixed(2)} detail="Minimum confidence before automatic graph commits." />
+                <SettingsReadout label="Extraction" value={llmEnabled ? "LLM-assisted" : "Deterministic"} detail="Controls connector and ingestion proposal generation." />
+              </div>
+            </section>
+          )}
+
+          {activeSettingsPage === "capabilities" && (
+            <section className="settings-section settings-capability-section" aria-label="Selected provider capabilities">
+              <div className="settings-section-head">
+                <div>
+                  <p className="eyebrow">Capabilities</p>
+                  <h3>{selectedAiProvider?.label ?? "Graphview Local"}</h3>
+                </div>
+              </div>
+              <div className="settings-capability-list">
+                {selectedCapabilities.map((capability) => (
+                  <span key={capability}>{capability.replaceAll("_", " ")}</span>
+                ))}
+              </div>
+              <div className="settings-provider-matrix">
+                {providerList.map((provider) => (
+                  <article key={provider.id}>
+                    <span>{provider.enabled ? "Enabled" : "Needs setup"}</span>
+                    <strong>{provider.label}</strong>
+                    <small>{provider.capabilities.map((capability) => capability.replaceAll("_", " ")).join(" / ")}</small>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ProviderCredentialPanel({
+  providerList,
+  selectedAiProvider,
+  selectedAiProviderId,
+  selectedProviderHasSavedKey,
+  providerApiKey,
+  saveProviderPending,
+  clearProviderPending,
+  onProviderChange,
+  onProviderApiKeyChange,
+  onSaveProviderKey,
+  onClearProviderKey
+}: {
+  providerList: ApiProviderDescriptor[];
+  selectedAiProvider?: ApiProviderDescriptor;
+  selectedAiProviderId: ApiProviderId;
+  selectedProviderHasSavedKey: boolean;
+  providerApiKey: string;
+  saveProviderPending: boolean;
+  clearProviderPending: boolean;
+  onProviderChange: (providerId: ApiProviderId) => void;
+  onProviderApiKeyChange: (value: string) => void;
+  onSaveProviderKey: () => void;
+  onClearProviderKey: () => void;
+}) {
+  const selectedCredentialStatus =
+    selectedAiProviderId === "graphview-local"
+      ? "No key required"
+      : selectedProviderHasSavedKey
+        ? "Saved key"
+        : selectedAiProvider?.configured
+          ? "Environment key"
+          : "Needs key";
+  const credentialCopy = providerCredentialCopy[selectedAiProviderId];
+  const selectedModels =
+    selectedAiProvider?.models?.length
+      ? selectedAiProvider.models
+      : [
+          {
+            id: selectedAiProvider?.default_model ?? "graphview-local-deterministic-v1",
+            label: selectedAiProvider?.default_model ?? "graphview-local-deterministic-v1",
+            default: true,
+            capabilities: selectedAiProvider?.capabilities ?? []
+          }
+        ];
+  const selectedDefaultModel = selectedModels.find((model) => model.default) ?? selectedModels[0];
+
+  return (
+    <div className="credential-settings-grid">
+      <div className="credential-provider-grid" aria-label="LLM provider selection">
+        {providerList.map((provider) => {
+          const providerStatus = provider.id === "graphview-local" ? "No key" : provider.configured ? "Configured" : "Needs key";
+          return (
+            <button
+              className="credential-provider-card"
+              type="button"
+              aria-pressed={provider.id === selectedAiProviderId}
+              key={provider.id}
+              onClick={() => onProviderChange(provider.id)}
+            >
+              <span className={provider.configured ? "is-configured" : ""}>{providerStatus}</span>
+              <strong>{provider.label}</strong>
+              <small>{provider.default_model}</small>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="credential-detail-panel">
+        <div className="credential-detail-head">
+          <div>
+            <p className="eyebrow">Selected provider</p>
+            <h4>{selectedAiProvider?.label ?? "Graphview Local"}</h4>
+            <span>{credentialCopy.detail}</span>
+          </div>
+          <strong>{selectedCredentialStatus}</strong>
+        </div>
+
+        <div className="credential-summary-row" aria-label="Selected provider details">
+          <div>
+            <span>Default model</span>
+            <strong>{selectedDefaultModel.label}</strong>
+          </div>
+          <div>
+            <span>Credential source</span>
+            <strong>{credentialCopy.source}</strong>
+          </div>
+        </div>
+
+        <div className="credential-model-list" aria-label={`${selectedAiProvider?.label ?? "Provider"} model catalog`}>
+          {selectedModels.map((model) => (
+            <span key={model.id}>
+              <strong>{model.label}</strong>
+              <small>{model.default ? "Default" : model.capabilities.map((capability) => capability.replaceAll("_", " ")).join(" / ")}</small>
+            </span>
+          ))}
+        </div>
+
+        {selectedAiProviderId === "graphview-local" ? (
+          <div className="settings-callout credential-callout">
+            <strong>Graphview Local</strong>
+            <span>Runs without external credentials and remains available when cloud providers are not configured.</span>
+          </div>
+        ) : (
+          <div className="credential-key-panel">
+            <label>
+              {credentialCopy.secretLabel}
+              <input
+                type="password"
+                value={providerApiKey}
+                autoComplete="off"
+                aria-label={credentialCopy.secretLabel}
+                placeholder={selectedAiProvider?.configured ? `${selectedAiProvider.label} key configured` : credentialCopy.placeholder}
+                onChange={(event) => onProviderApiKeyChange(event.target.value)}
+              />
+            </label>
+            <div className="credential-key-actions">
+              <button className="provider-save-settings" type="button" disabled={saveProviderPending || !providerApiKey.trim()} onClick={onSaveProviderKey}>
+                Save key
+              </button>
+              <button type="button" disabled={clearProviderPending || !selectedProviderHasSavedKey} onClick={onClearProviderKey}>
+                Clear key
+              </button>
+            </div>
+            <small>Saving sets {selectedAiProvider?.label ?? "this provider"} as the default LLM provider.</small>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AutomationSettingsPanel({
+  llmEnabled,
+  autoCommitThreshold,
+  updateSettingsPending,
+  onLlmEnabledChange,
+  onAutoCommitThresholdChange,
+  onSaveSettings
+}: {
+  llmEnabled: boolean;
+  autoCommitThreshold: number;
+  updateSettingsPending: boolean;
+  onLlmEnabledChange: (enabled: boolean) => void;
+  onAutoCommitThresholdChange: (threshold: number) => void;
+  onSaveSettings: () => void;
+}) {
+  return (
+    <div className="settings-form-grid">
+      <label className="settings-toggle-row">
+        <input type="checkbox" checked={llmEnabled} onChange={(event) => onLlmEnabledChange(event.target.checked)} />
+        <span>
+          <strong>LLM extraction</strong>
+          <small>Use the selected provider to generate richer graph proposals during ingestion.</small>
+        </span>
+      </label>
+      <label>
+        Auto-commit threshold
+        <input
+          type="number"
+          min="0"
+          max="1"
+          step="0.01"
+          value={autoCommitThreshold}
+          onChange={(event) => onAutoCommitThresholdChange(Number(event.target.value))}
+        />
+      </label>
+      <button className="provider-save-settings" type="button" disabled={updateSettingsPending} onClick={onSaveSettings}>
+        Save automation
+      </button>
+    </div>
+  );
+}
+
+function SettingsStat({ label, value }: { label: string; value: string }) {
+  return (
+    <span>
+      <strong>{value}</strong>
+      {label}
+    </span>
+  );
+}
+
+function SettingsReadout({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
+  );
+}
+
 function PlanningWorkspace({
   goal,
   message,
@@ -3439,6 +4512,7 @@ function PlanningWorkspace({
   onCreateSession,
   onSendMessage,
   onSelectSession,
+  onOpenSettings,
   onRunResearch
 }: {
   goal: string;
@@ -3453,6 +4527,7 @@ function PlanningWorkspace({
   onCreateSession: () => void;
   onSendMessage: () => void;
   onSelectSession: (id: string) => void;
+  onOpenSettings: () => void;
   onRunResearch: (query: string) => void;
 }) {
   const buildSpec = selectedSession?.build_spec;
@@ -3469,6 +4544,14 @@ function PlanningWorkspace({
             <small>{sessions.length} session{sessions.length === 1 ? "" : "s"}</small>
           </span>
           <button type="button" disabled={createPending || !goal.trim()} onClick={onCreateSession}>New</button>
+        </div>
+        <div className="planning-view-tabs" role="tablist" aria-label="Planning view">
+          <button type="button" role="tab" aria-selected="true">
+            Sessions
+          </button>
+          <button type="button" role="tab" aria-selected="false" onClick={onOpenSettings}>
+            Settings
+          </button>
         </div>
         <div className="planning-session-list">
           {sessions.map((session) => (
@@ -4624,6 +5707,15 @@ function uniqueById<T extends { id: string }>(item: T, index: number, items: T[]
   return items.findIndex((candidate) => candidate.id === item.id) === index;
 }
 
+function formatShortDate(value?: string | null) {
+  if (!value) return "";
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 function proposalMatchesFocus(proposal: ApiProposal, selectedGraphNode: ContentNode | undefined, selectedSourceId: string | undefined) {
   if (!selectedGraphNode && !selectedSourceId) return true;
   if (selectedGraphNode) {
@@ -4648,6 +5740,13 @@ function proposalAnchor(proposal: ApiProposal, graphNodes: ContentNode[]) {
   const labelCandidates = [proposed.label, proposed.sourceLabel, proposed.targetLabel].filter(Boolean).map((label) => String(label).toLowerCase());
   const labelMatch = graphNodes.find((node) => labelCandidates.some((label) => node.label.toLowerCase().includes(label) || label.includes(node.label.toLowerCase())));
   return labelMatch?.id;
+}
+
+function asApiProviderId(value: unknown): ApiProviderId | undefined {
+  if (value === "graphview-local" || value === "openai" || value === "anthropic" || value === "gemini") {
+    return value;
+  }
+  return undefined;
 }
 
 function connectorLabel(kind: ApiConnectorDescriptor["kind"]) {

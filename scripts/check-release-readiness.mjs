@@ -13,7 +13,12 @@ const releaseChecklist = await read("docs/rituals/release-checklist.md");
 const readme = await read("README.md");
 
 if (!packageJson.scripts?.["phase22:check"]) failures.push("package.json missing phase22:check");
+if (!packageJson.scripts?.["phase27:smoke"]) failures.push("package.json missing phase27:smoke");
+if (!packageJson.scripts?.["phase27:check"]) failures.push("package.json missing phase27:check");
 if (!packageJson.scripts?.["release:check"]) failures.push("package.json missing release:check");
+if (!roadmap.includes("## Phase 27: Active Agent Context Connectors\n\nStatus: complete.")) {
+  failures.push("roadmap does not mark Phase 27 complete");
+}
 if (!roadmap.includes("## Phase 22: Provider Completion and Release Hardening\n\nStatus: complete.")) {
   failures.push("roadmap does not mark Phase 22 complete");
 }
@@ -29,6 +34,8 @@ if (!roadmap.includes("## Phase 16: Full Graph Workspace UI\n\nStatus: complete.
 
 for (const text of [
   "pnpm run phase22:check",
+  "pnpm run phase27:smoke",
+  "pnpm run phase27:check",
   "pnpm run release:check",
   "/observability/ready",
   "/observability/metrics",
@@ -51,13 +58,17 @@ for (const text of [
   "/extraction-lenses",
   "/graph-lenses",
   "/backup",
-  "/restore"
+  "/restore",
+  "/agent-context/sessions",
+  "/agent-context/events/batch"
 ]) {
   if (!operations.includes(text)) failures.push(`operations doc missing ${text}`);
 }
 
 for (const text of [
   "pnpm run phase22:check",
+  "pnpm run phase27:smoke",
+  "pnpm run phase27:check",
   "pnpm run release:check",
   "backup",
   "restore",
@@ -74,7 +85,9 @@ for (const text of [
   "/graph/neighborhood",
   "/insights",
   "/extraction-lenses",
-  "/graph-lenses"
+  "/graph-lenses",
+  "/agent-context/sessions",
+  "/agent-context/events/batch"
 ]) {
   if (!releaseChecklist.toLowerCase().includes(text.toLowerCase())) {
     failures.push(`release checklist missing ${text}`);
@@ -88,6 +101,7 @@ for (const text of [
   "graph Q&A",
   "scoped research",
   "connector-backed graph building",
+  "active agent context",
   "full graph workspace",
   "/providers",
   "/planning-sessions",
@@ -99,6 +113,8 @@ for (const text of [
   "/source-chunks",
   "/extraction-lenses",
   "/graph-lenses",
+  "/agent-context/sessions",
+  "/agent-context/events/batch",
   "/lineage",
   "/insights",
   "/review-sources",

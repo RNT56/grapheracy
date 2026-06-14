@@ -3047,6 +3047,140 @@
         }
       }
     },
+    "/providers/{provider_id}/credentials": {
+      "patch": {
+        "summary": "Update Provider Credentials",
+        "operationId": "update_provider_credentials_providers__provider_id__credentials_patch",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProviderCredentialUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ProviderDescriptorOut"
+                    }
+                  },
+                  "title": "Response Update Provider Credentials Providers  Provider Id  Credentials Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Provider Credentials",
+        "operationId": "delete_provider_credentials_providers__provider_id__credentials_delete",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/ProviderDescriptorOut"
+                    }
+                  },
+                  "title": "Response Delete Provider Credentials Providers  Provider Id  Credentials Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/planning-sessions": {
       "post": {
         "summary": "Create Planning Session",
@@ -3511,6 +3645,640 @@
                     }
                   },
                   "title": "Response Agent Tools Agent Tools Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/clients": {
+      "post": {
+        "summary": "Create Agent Context Client",
+        "operationId": "create_agent_context_client_agent_context_clients_post",
+        "parameters": [
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentContextClientCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextClientCreateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/sessions": {
+      "post": {
+        "summary": "Create Agent Context Session",
+        "operationId": "create_agent_context_session_agent_context_sessions_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentContextSessionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextSessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Agent Context Sessions",
+        "operationId": "agent_context_sessions_agent_context_sessions_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AgentContextSessionOut"
+                    }
+                  },
+                  "title": "Response Agent Context Sessions Agent Context Sessions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/sessions/{session_id}": {
+      "patch": {
+        "summary": "Update Agent Context Session",
+        "operationId": "update_agent_context_session_agent_context_sessions__session_id__patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentContextSessionUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextSessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "Agent Context Session",
+        "operationId": "agent_context_session_agent_context_sessions__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextSessionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/events/batch": {
+      "post": {
+        "summary": "Create Agent Context Event Batch",
+        "operationId": "create_agent_context_event_batch_agent_context_events_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentContextEventBatchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextEventBatchOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/sessions/{session_id}/events": {
+      "get": {
+        "summary": "Agent Context Events",
+        "operationId": "agent_context_events_agent_context_sessions__session_id__events_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "since_sequence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Sequence"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/AgentContextEventOut"
+                    }
+                  },
+                  "title": "Response Agent Context Events Agent Context Sessions  Session Id  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/sessions/{session_id}/graph": {
+      "get": {
+        "summary": "Agent Context Graph",
+        "operationId": "agent_context_graph_agent_context_sessions__session_id__graph_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextGraphOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/artifacts/{artifact_id}/content": {
+      "get": {
+        "summary": "Agent Context Artifact Content",
+        "operationId": "agent_context_artifact_content_agent_context_artifacts__artifact_id__content_get",
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextBlobContentOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/sessions/{session_id}/stream": {
+      "get": {
+        "summary": "Agent Context Stream",
+        "operationId": "agent_context_stream_agent_context_sessions__session_id__stream_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "since_sequence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since Sequence"
+            }
+          },
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-context/retention/run": {
+      "post": {
+        "summary": "Run Agent Context Retention",
+        "operationId": "run_agent_context_retention_agent_context_retention_run_post",
+        "parameters": [
+          {
+            "name": "x-graphview-user",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "researcher",
+              "title": "X-Graphview-User"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentContextRetentionOut"
                 }
               }
             }
@@ -5667,6 +6435,16 @@
         "operationId": "backup_backup_get",
         "parameters": [
           {
+            "name": "include_agent_context_content",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Agent Context Content"
+            }
+          },
+          {
             "name": "x-graphview-user",
             "in": "header",
             "required": false,
@@ -6492,6 +7270,1346 @@
           "label"
         ],
         "title": "AgentCitationOut"
+      },
+      "AgentContextArtifactCreate": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "selection",
+              "search_result",
+              "shell",
+              "prompt",
+              "model",
+              "diff",
+              "test",
+              "commit",
+              "editor",
+              "other"
+            ],
+            "title": "Kind",
+            "default": "other"
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type",
+            "default": "text/plain"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "title": "AgentContextArtifactCreate"
+      },
+      "AgentContextArtifactOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "selection",
+              "search_result",
+              "shell",
+              "prompt",
+              "model",
+              "diff",
+              "test",
+              "commit",
+              "editor",
+              "other"
+            ],
+            "title": "Kind"
+          },
+          "uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uri"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "session_id",
+          "kind",
+          "title",
+          "content_type",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentContextArtifactOut"
+      },
+      "AgentContextBlobBackupContentOut": {
+        "properties": {
+          "blob_id": {
+            "type": "string",
+            "title": "Blob Id"
+          },
+          "encrypted_content": {
+            "type": "string",
+            "title": "Encrypted Content"
+          },
+          "exported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Exported At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "blob_id",
+          "encrypted_content",
+          "exported_at"
+        ],
+        "title": "AgentContextBlobBackupContentOut"
+      },
+      "AgentContextBlobContentOut": {
+        "properties": {
+          "blob": {
+            "$ref": "#/components/schemas/AgentContextBlobOut"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "blob"
+        ],
+        "title": "AgentContextBlobContentOut"
+      },
+      "AgentContextBlobCreate": {
+        "properties": {
+          "content_kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "binary",
+              "metadata"
+            ],
+            "title": "Content Kind",
+            "default": "text"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type",
+            "default": "text/plain"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "byte_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Count"
+          },
+          "token_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Count"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "title": "AgentContextBlobCreate"
+      },
+      "AgentContextBlobOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "content_kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "binary",
+              "metadata"
+            ],
+            "title": "Content Kind"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "redaction_status": {
+            "type": "string",
+            "enum": [
+              "redacted",
+              "not_required",
+              "metadata_only"
+            ],
+            "title": "Redaction Status"
+          },
+          "encryption_status": {
+            "type": "string",
+            "enum": [
+              "encrypted",
+              "metadata_only"
+            ],
+            "title": "Encryption Status"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "byte_count": {
+            "type": "integer",
+            "title": "Byte Count"
+          },
+          "token_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Count"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "session_id",
+          "content_kind",
+          "media_type",
+          "redaction_status",
+          "encryption_status",
+          "checksum",
+          "byte_count",
+          "created_at"
+        ],
+        "title": "AgentContextBlobOut"
+      },
+      "AgentContextClientCreate": {
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Display Name"
+          },
+          "runtime_kind": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "cursor",
+              "vscode",
+              "mcp",
+              "openai-compatible",
+              "generic"
+            ],
+            "title": "Runtime Kind",
+            "default": "generic"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_name"
+        ],
+        "title": "AgentContextClientCreate"
+      },
+      "AgentContextClientCreateOut": {
+        "properties": {
+          "client": {
+            "$ref": "#/components/schemas/AgentContextClientOut"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client",
+          "token"
+        ],
+        "title": "AgentContextClientCreateOut"
+      },
+      "AgentContextClientOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "runtime_kind": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "cursor",
+              "vscode",
+              "mcp",
+              "openai-compatible",
+              "generic"
+            ],
+            "title": "Runtime Kind"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ],
+            "title": "Status"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "settings": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Settings"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "display_name",
+          "runtime_kind",
+          "status",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentContextClientOut"
+      },
+      "AgentContextEventBatchCreate": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextEventCreate"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "events"
+        ],
+        "title": "AgentContextEventBatchCreate"
+      },
+      "AgentContextEventBatchOut": {
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/AgentContextSessionOut"
+          },
+          "accepted_count": {
+            "type": "integer",
+            "title": "Accepted Count"
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count"
+          },
+          "rejected_count": {
+            "type": "integer",
+            "title": "Rejected Count",
+            "default": 0
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session",
+          "accepted_count",
+          "duplicate_count"
+        ],
+        "title": "AgentContextEventBatchOut"
+      },
+      "AgentContextEventCreate": {
+        "properties": {
+          "client_event_id": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Client Event Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sequence"
+          },
+          "event_kind": {
+            "type": "string",
+            "enum": [
+              "session_started",
+              "heartbeat",
+              "file_opened",
+              "file_read",
+              "selection_changed",
+              "search_performed",
+              "shell_command",
+              "prompt_built",
+              "model_request",
+              "model_response",
+              "edit_applied",
+              "diff_observed",
+              "test_run",
+              "commit_observed",
+              "session_ended"
+            ],
+            "title": "Event Kind"
+          },
+          "authority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "gateway",
+                  "adapter_reported",
+                  "passive_reconciled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "object_refs": {
+            "items": {
+              "$ref": "#/components/schemas/GraphObjectRefOut"
+            },
+            "type": "array",
+            "title": "Object Refs"
+          },
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentContextArtifactCreate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentContextBlobCreate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "client_event_id",
+          "sequence",
+          "event_kind"
+        ],
+        "title": "AgentContextEventCreate"
+      },
+      "AgentContextEventOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "client_event_id": {
+            "type": "string",
+            "title": "Client Event Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "event_kind": {
+            "type": "string",
+            "enum": [
+              "session_started",
+              "heartbeat",
+              "file_opened",
+              "file_read",
+              "selection_changed",
+              "search_performed",
+              "shell_command",
+              "prompt_built",
+              "model_request",
+              "model_response",
+              "edit_applied",
+              "diff_observed",
+              "test_run",
+              "commit_observed",
+              "session_ended"
+            ],
+            "title": "Event Kind"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "gateway",
+              "adapter_reported",
+              "passive_reconciled"
+            ],
+            "title": "Authority"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "rejected"
+            ],
+            "title": "Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "checksum": {
+            "type": "string",
+            "title": "Checksum"
+          },
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Id"
+          },
+          "blob_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blob Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "object_refs": {
+            "items": {
+              "$ref": "#/components/schemas/GraphObjectRefOut"
+            },
+            "type": "array",
+            "title": "Object Refs"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "received_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Received At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "session_id",
+          "client_event_id",
+          "sequence",
+          "event_kind",
+          "authority",
+          "status",
+          "summary",
+          "checksum",
+          "occurred_at",
+          "received_at"
+        ],
+        "title": "AgentContextEventOut"
+      },
+      "AgentContextGraphEdgeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "target_id": {
+            "type": "string",
+            "title": "Target Id"
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "observed": {
+            "type": "boolean",
+            "title": "Observed",
+            "default": true
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source_id",
+          "target_id",
+          "relation"
+        ],
+        "title": "AgentContextGraphEdgeOut"
+      },
+      "AgentContextGraphNodeOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "authority": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "gateway",
+                  "adapter_reported",
+                  "passive_reconciled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "title": "AgentContextGraphNodeOut"
+      },
+      "AgentContextGraphOut": {
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/AgentContextSessionOut"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextGraphNodeOut"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextGraphEdgeOut"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextArtifactOut"
+            },
+            "type": "array",
+            "title": "Artifacts"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextEventOut"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session"
+        ],
+        "title": "AgentContextGraphOut"
+      },
+      "AgentContextRetentionOut": {
+        "properties": {
+          "purged_blob_count": {
+            "type": "integer",
+            "title": "Purged Blob Count"
+          },
+          "retained_blob_count": {
+            "type": "integer",
+            "title": "Retained Blob Count"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "purged_blob_count",
+          "retained_blob_count",
+          "generated_at"
+        ],
+        "title": "AgentContextRetentionOut"
+      },
+      "AgentContextSessionCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "runtime_kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "codex",
+                  "claude-code",
+                  "cursor",
+                  "vscode",
+                  "mcp",
+                  "openai-compatible",
+                  "generic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Kind"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "gateway",
+              "adapter_reported",
+              "passive_reconciled"
+            ],
+            "title": "Authority",
+            "default": "gateway"
+          },
+          "workspace_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Root"
+          },
+          "repository_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Uri"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "AgentContextSessionCreate"
+      },
+      "AgentContextSessionOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "client_id": {
+            "type": "string",
+            "title": "Client Id"
+          },
+          "runtime_kind": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude-code",
+              "cursor",
+              "vscode",
+              "mcp",
+              "openai-compatible",
+              "generic"
+            ],
+            "title": "Runtime Kind"
+          },
+          "authority": {
+            "type": "string",
+            "enum": [
+              "gateway",
+              "adapter_reported",
+              "passive_reconciled"
+            ],
+            "title": "Authority"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "Status"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "workspace_root": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Root"
+          },
+          "repository_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repository Uri"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "client_id",
+          "runtime_kind",
+          "authority",
+          "status",
+          "title",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "AgentContextSessionOut"
+      },
+      "AgentContextSessionUpdate": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 240,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "commit_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Sha"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          }
+        },
+        "type": "object",
+        "title": "AgentContextSessionUpdate"
       },
       "AgentGeneratedArtifactOut": {
         "properties": {
@@ -7589,6 +9707,16 @@
           "proposal_count": {
             "type": "integer",
             "title": "Proposal Count"
+          },
+          "agent_context_session_count": {
+            "type": "integer",
+            "title": "Agent Context Session Count",
+            "default": 0
+          },
+          "agent_context_content_blob_count": {
+            "type": "integer",
+            "title": "Agent Context Content Blob Count",
+            "default": 0
           }
         },
         "type": "object",
@@ -8622,6 +10750,48 @@
             },
             "type": "array",
             "title": "Feedback Events"
+          },
+          "agent_context_clients": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextClientOut"
+            },
+            "type": "array",
+            "title": "Agent Context Clients"
+          },
+          "agent_context_sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextSessionOut"
+            },
+            "type": "array",
+            "title": "Agent Context Sessions"
+          },
+          "agent_context_artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextArtifactOut"
+            },
+            "type": "array",
+            "title": "Agent Context Artifacts"
+          },
+          "agent_context_blobs": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextBlobOut"
+            },
+            "type": "array",
+            "title": "Agent Context Blobs"
+          },
+          "agent_context_blob_contents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextBlobBackupContentOut"
+            },
+            "type": "array",
+            "title": "Agent Context Blob Contents"
+          },
+          "agent_context_events": {
+            "items": {
+              "$ref": "#/components/schemas/AgentContextEventOut"
+            },
+            "type": "array",
+            "title": "Agent Context Events"
           }
         },
         "type": "object",
@@ -11376,6 +13546,26 @@
           "traceId"
         ],
         "title": "ProvenanceOut"
+      },
+      "ProviderCredentialUpdate": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Api Key"
+          },
+          "make_default": {
+            "type": "boolean",
+            "title": "Make Default",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "title": "ProviderCredentialUpdate"
       },
       "ProviderDescriptorOut": {
         "properties": {

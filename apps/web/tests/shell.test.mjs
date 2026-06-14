@@ -30,7 +30,15 @@ test("web shell is product-first and wired to API health", async () => {
   assert.match(source, /\/review-sources/);
   assert.match(source, /\/source-chunks/);
   assert.match(source, /\/providers/);
+  assert.match(source, /fallbackProviders/);
+  assert.match(source, /withFallbackProviders/);
+  assert.match(source, /OpenAI API key/);
+  assert.match(source, /Anthropic API key/);
+  assert.match(source, /Gemini API key/);
   assert.match(source, /\/planning-sessions/);
+  assert.match(source, /\/agent-context\/sessions/);
+  assert.match(source, /AgentContextWorkspace/);
+  assert.match(source, /Active context/);
   assert.match(source, /\/graph\/query/);
   assert.match(source, /\/graph\/research/);
   assert.match(source, /approve-action/);
@@ -161,6 +169,9 @@ test("graph canvas uses bounded render plans for large graphs", async () => {
   assert.match(source, /sensedIds/);
   assert.match(source, /actionRunningIds/);
   assert.match(source, /feedbackAppliedIds/);
+  assert.match(source, /tooltipPlacementScore/);
+  assert.match(source, /onActiveNodePosition/);
+  assert.match(source, /activeNodeId/);
 });
 
 test("phase 25 digital nervous system routes through Attention mode", async () => {
@@ -200,6 +211,34 @@ test("phase 25 digital nervous system routes through Attention mode", async () =
   assertSourceIncludes(graphCore, /feedbackAppliedIds/, "graph-core feedback visual ids");
   assertSourceIncludes(canvasSource, /event.kind === "feedback_applied"/, "canvas feedback hint");
   assertSourceIncludes(canvasSource, /event.kind === "attention_reopened"/, "canvas reopened hint");
+});
+
+test("phase 27 active context workspace and shared contracts are exposed", async () => {
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
+
+  assertSourceIncludes(sharedTypes, /export interface AgentContextSession/, "shared context session contract");
+  assertSourceIncludes(sharedTypes, /export interface AgentContextEvent/, "shared context event contract");
+  assertSourceIncludes(sharedTypes, /export interface AgentContextGraph/, "shared context graph contract");
+  assertSourceIncludes(sharedTypes, /CaptureAuthority/, "shared capture authority contract");
+  assertSourceIncludes(sharedTypes, /ContextEventKind/, "shared context event kind contract");
+  assertSourceIncludes(sharedTypes, /"passive_reconciled"/, "shared passive authority");
+
+  assertSourceIncludes(appSource, /type WorkspaceMode = "graph" \| "planning" \| "settings" \| "context"/, "context workspace mode");
+  assertSourceIncludes(appSource, /AgentContextWorkspace/, "active context component");
+  assertSourceIncludes(appSource, /\/agent-context\/sessions\?limit=25/, "active context sessions route");
+  assertSourceIncludes(appSource, /\/agent-context\/sessions\/.*\/graph/, "active context graph route");
+  assertSourceIncludes(appSource, /\/agent-context\/sessions\/.*\/stream/, "active context stream route");
+  assertSourceIncludes(appSource, /new EventSource/, "active context event stream client");
+  assertSourceIncludes(appSource, /addEventListener\("agent-context\.event"/, "active context stream listener");
+  assertSourceIncludes(appSource, /\/agent-context\/artifacts\/.*\/content/, "active context artifact content route");
+  assertSourceIncludes(appSource, /Content inspector/, "active context content inspector");
+  assertSourceIncludes(appSource, /redaction_status\.replaceAll/, "active context redaction display");
+  assertSourceIncludes(appSource, /authority-/, "active context authority badges");
+  assertSourceIncludes(styles, /agent-context-workspace/, "active context workspace styles");
+  assertSourceIncludes(styles, /agent-context-inspector/, "active context inspector styles");
+  assertSourceIncludes(styles, /authority-gateway/, "active context authority style");
 });
 
 test("phase 24 living graph contracts are exposed for web integration", async () => {

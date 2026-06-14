@@ -242,10 +242,15 @@ class GeminiGenerateProvider:
 
 
 class ProviderRegistry:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, *, provider_api_keys: dict[str, str] | None = None, default_provider: str | None = None):
         self.settings = settings
+        self.provider_api_keys = provider_api_keys or {}
+        self.default_provider = default_provider
 
     def descriptors(self) -> list[dict[str, Any]]:
+        openai_api_key = self._api_key("openai")
+        anthropic_api_key = self._api_key("anthropic")
+        gemini_api_key = self._api_key("gemini")
         descriptors = [
             ProviderDescriptor(
                 id="graphview-local",
@@ -266,8 +271,8 @@ class ProviderRegistry:
             ProviderDescriptor(
                 id="openai",
                 label="OpenAI",
-                enabled=bool(self.settings.openai_api_key),
-                configured=bool(self.settings.openai_api_key),
+                enabled=bool(openai_api_key),
+                configured=bool(openai_api_key),
                 default_model=self.settings.openai_model,
                 capabilities=["planning", "graph_query", "research", "structured_output", "tool_calling"],
                 models=_provider_models(
@@ -281,8 +286,8 @@ class ProviderRegistry:
             ProviderDescriptor(
                 id="anthropic",
                 label="Anthropic",
-                enabled=bool(self.settings.anthropic_api_key),
-                configured=bool(self.settings.anthropic_api_key),
+                enabled=bool(anthropic_api_key),
+                configured=bool(anthropic_api_key),
                 default_model=self.settings.anthropic_model,
                 capabilities=["planning", "graph_query", "research", "tool_calling"],
                 models=_provider_models(
@@ -296,8 +301,8 @@ class ProviderRegistry:
             ProviderDescriptor(
                 id="gemini",
                 label="Gemini",
-                enabled=bool(self.settings.gemini_api_key),
-                configured=bool(self.settings.gemini_api_key),
+                enabled=bool(gemini_api_key),
+                configured=bool(gemini_api_key),
                 default_model=self.settings.gemini_model,
                 capabilities=["planning", "graph_query", "research", "structured_output", "search_grounding", "url_context"],
                 models=_provider_models(
@@ -312,32 +317,45 @@ class ProviderRegistry:
         return [_descriptor_to_dict(descriptor) for descriptor in descriptors]
 
     def resolve(self, provider: str | None = None, model: str | None = None) -> AiProvider:
-        provider_id = provider or self.settings.ai_default_provider
+        provider_id = provider or self.default_provider or self.settings.ai_default_provider
         if provider_id == "graphview-local":
             return GraphviewLocalProvider(model or "graphview-local-deterministic-v1")
-        if provider_id == "openai" and self.settings.openai_api_key:
+        openai_api_key = self._api_key("openai")
+        if provider_id == "openai" and openai_api_key:
             return OpenAIResponsesProvider(
-                api_key=self.settings.openai_api_key,
+                api_key=openai_api_key,
                 base_url=self.settings.openai_base_url,
                 model=model or self.settings.openai_model,
             )
-        if provider_id == "anthropic" and self.settings.anthropic_api_key:
+        anthropic_api_key = self._api_key("anthropic")
+        if provider_id == "anthropic" and anthropic_api_key:
             return AnthropicMessagesProvider(
-                api_key=self.settings.anthropic_api_key,
+                api_key=anthropic_api_key,
                 base_url=self.settings.anthropic_base_url,
                 model=model or self.settings.anthropic_model,
             )
-        if provider_id == "gemini" and self.settings.gemini_api_key:
+        gemini_api_key = self._api_key("gemini")
+        if provider_id == "gemini" and gemini_api_key:
             return GeminiGenerateProvider(
-                api_key=self.settings.gemini_api_key,
+                api_key=gemini_api_key,
                 base_url=self.settings.gemini_base_url,
                 model=model or self.settings.gemini_model,
             )
         raise ValueError(f"Provider {provider_id} is not configured")
 
+    def _api_key(self, provider_id: str) -> str | None:
+        if self.provider_api_keys.get(provider_id):
+            return self.provider_api_keys[provider_id]
+        return getattr(self.settings, f"{provider_id}_api_key", None)
 
-def build_provider_registry(settings: Settings) -> ProviderRegistry:
-    return ProviderRegistry(settings)
+
+def build_provider_registry(
+    settings: Settings,
+    *,
+    provider_api_keys: dict[str, str] | None = None,
+    default_provider: str | None = None,
+) -> ProviderRegistry:
+    return ProviderRegistry(settings, provider_api_keys=provider_api_keys, default_provider=default_provider)
 
 
 @dataclass(frozen=True)

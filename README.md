@@ -3,14 +3,15 @@
 Graphview is an internal knowledge graph product for ingesting mixed sources, extracting and reviewing concepts,
 preserving provenance, and exploring relationships in an interactive graph.
 
-The repository is in Phase 26: release hardening and performance split on top of the digital nervous system loop,
-AI-native planning, graph Q&A, scoped research, provider registry hardening, and connector-backed graph building for
-uploads, URLs, repositories, Google Workspace, and Notion. Planning Mode is a separate workspace, while continued
-research, graph questions, and graph-centered Attention operate through the existing source, proposal, review,
-provenance, lineage, and activity flows. The standalone prototype is preserved as UX evidence at
+The repository is in Phase 27: active agent context connectors on top of the digital nervous system loop, AI-native
+planning, graph Q&A, scoped research, provider registry hardening, and connector-backed graph building for uploads,
+URLs, repositories, Google Workspace, and Notion. Planning Mode is a separate workspace, while continued research,
+graph questions, graph-centered Attention, and active agent context operate through the existing source, proposal,
+review, provenance, lineage, and activity flows. The standalone prototype is preserved as UX evidence at
 `prototypes/knowledge-graph-explorer.html`; it is not production code.
 
-Phase 22 remains the historical release-readiness baseline for the current release script.
+Phase 27 is the current release-readiness gate through `pnpm run phase27:check`; Phase 22 remains available through
+`pnpm run phase22:check` as the historical AI V1 baseline.
 
 ## Start Here
 
@@ -28,6 +29,7 @@ Phase 22 remains the historical release-readiness baseline for the current relea
 - User journeys and value map: `docs/10-user-journeys-and-value-map.md`
 - Living graph UI vision and upgrade plan: `docs/11-living-graph-ui-vision-and-upgrade-plan.md`
 - Digital nervous system Phase 25 plan: `docs/12-digital-nervous-system-phase25-plan.md`
+- Active agent context connectors: `docs/13-active-agent-context-connectors.md`
 - Changelog: `CHANGELOG.md`
 - Security policy: `SECURITY.md`
 
@@ -44,7 +46,7 @@ Required for local checks:
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase26:check
+pnpm run phase27:check
 ```
 
 Phase 4 provides runnable app, API, and worker scaffolds plus source CRUD, proposal review commits, provenance, search,
@@ -81,7 +83,9 @@ Phase 24 adds the living graph UI, activity overlays, tethered explanatory toolt
 renderer parity. Phase 25 adds persisted signals, observations, alerts, Attention items, owners, routing policies,
 decision records, gated action proposals/runs, outcomes, feedback events, backup/restore coverage, and the web Attention
 mode for the digital nervous system loop. Phase 26 lazy-loads the 3D renderer, hardens action execution policy,
-validates migration continuity, tightens activity stream delivery, and cleans browser QA artifacts.
+validates migration continuity, tightens activity stream delivery, and cleans browser QA artifacts. Phase 27 adds
+scoped `gvctx_...` adapter tokens, `/agent-context/sessions`, `/agent-context/events/batch`, encrypted redacted context
+blobs, the local agent gateway, VS Code/Cursor telemetry, worker enrichment stages, and the Active Context web lens.
 
 ```sh
 pnpm --filter @graphview/web dev
@@ -93,7 +97,9 @@ pnpm --filter @graphview/worker-contract dev
 
 - `apps/web`: React/Vite product UI shell.
 - `apps/docs-app`: future docs app consuming repo markdown.
+- `apps/vscode-extension`: VS Code-compatible active context adapter for VS Code and Cursor.
 - `services/api`: FastAPI service and generated OpenAPI contract.
+- `services/agent-gateway`: local MCP-compatible active context gateway and Codex/Claude wrapper helpers.
 - `services/worker`: ingestion worker contract and deterministic ingestion primitives.
 - `packages/shared-types`: shared public TypeScript contracts.
 - `packages/graph-core`: graph model and rendering abstraction boundary.

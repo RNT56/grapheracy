@@ -117,6 +117,17 @@ changes.
 - `POST /action-runs/{action_run_id}/outcome`
 - `GET /feedback-events`
 - `POST /feedback-events`
+- `POST /agent-context/clients`
+- `POST /agent-context/sessions`
+- `PATCH /agent-context/sessions/{session_id}`
+- `POST /agent-context/events/batch`
+- `GET /agent-context/sessions`
+- `GET /agent-context/sessions/{session_id}`
+- `GET /agent-context/sessions/{session_id}/events`
+- `GET /agent-context/sessions/{session_id}/graph`
+- `GET /agent-context/artifacts/{artifact_id}/content`
+- `GET /agent-context/sessions/{session_id}/stream`
+- `POST /agent-context/retention/run`
 
 Phase 4 adds backend-triggered ingestion for text, markdown, URLs, and PDFs. The request creates a source, ingestion run,
 reviewable proposals, deterministic local embeddings, and provenance in one repository transaction.
@@ -181,6 +192,11 @@ ActionProposal -> ActionRun -> Outcome -> FeedbackEvent`. The loop stores owners
 outcome, and learning records in the API, exposes them in the graph-centered Attention mode, and keeps every mutating
 action behind review and operate permission gates.
 
+Phase 27 adds active agent context connectors. External agents and editor adapters create scoped context clients, start
+sessions, report file/search/shell/prompt/model/edit/test/commit events, and attach redacted encrypted text blobs. The
+API projects those records into a session-local context graph and graph activity events. Captured context remains
+observed evidence, not reviewed graph memory, until an existing proposal/review workflow accepts a derived graph change.
+
 ## Worker Lifecycle
 
 Worker stages are documented in `../services/worker/worker-contract.md`, with the runnable stage plan in
@@ -216,6 +232,10 @@ Every stage must be idempotent, traceable, retryable, and linked to `IngestionRu
 - `action.run.succeeded`
 - `outcome.resolved`
 - `feedback.recorded`
+- `agent_context.session_started`
+- `agent_context.event_recorded`
+- `agent_context.session_completed`
+- `agent_context.retention_run`
 
 Events are internal integration contracts. They must include stable IDs, actor context when available, timestamps,
 schema version, and trace ID.
@@ -311,3 +331,7 @@ action approval is the only AI action endpoint that can apply review decisions o
 - Provider credentials can leak if provider catalogs, run outputs, logs, or connector settings return raw API keys.
 - Agent research can overreach if scoped research writes reviewed nodes/edges directly instead of creating reviewable
   proposals through existing ingestion and review workflows.
+- Active context capture can overstate what an LLM saw if passive editor observations are not labeled separately from
+  gateway-authoritative file and model-call events.
+- Full captured content can leak private material if redaction, encryption, token scope, read permissions, and retention
+  policy are bypassed.

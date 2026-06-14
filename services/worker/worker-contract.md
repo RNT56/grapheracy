@@ -25,6 +25,9 @@ Define ingestion stages and the deterministic worker contract.
 | Agent propose | Synthesis plus imported sources | Reviewable `ExtractionProposal[]` and action proposals | `project.id + task.id + proposal checksum` |
 | Agent action await review | Pending action proposal | Durable review gate state | `agentActionProposal.id` |
 | Agent action apply | Approved action proposal | Review decision, connector sync, source import, or graph mutation through existing paths | `agentActionProposal.id + approval actor` |
+| Agent context normalize | Captured context events and artifacts | Redacted metadata, artifact records, and blob references | `session.id + event sequence + checksum` |
+| Agent context enrich | Context events, repository metadata, diffs, tests, and commits | Inferred file-symbol, import/reference, diff/test/commit relationships | `event.id + enrichment kind + input checksum` |
+| Agent context retention | Session policy and encrypted blobs | Deleted expired blob content with retained metadata audit records | `blob.id + retention policy version` |
 
 ## Requirements
 
@@ -84,6 +87,17 @@ Define ingestion stages and the deterministic worker contract.
   the existing review/autocommit contract.
 - Provider clients are isolated from repository writes. Worker or API orchestration owns persistence and review gates.
 
+## Phase 27 Active Agent Context
+
+- Active context capture starts with scoped `gvctx_...` adapter clients and sessions. The worker treats captured context
+  as observation, not reviewed graph memory.
+- Gateway and MCP tool events are authoritative for exact file reads, searches, shell commands, prompts, model calls,
+  edits, diffs, tests, and session boundaries.
+- VS Code and Cursor observations are reconciliation hints unless they are linked to a gateway/tool event.
+- Enrichment may infer file-to-symbol, import/reference, diff/test, and commit relationships, but inferred edges never
+  override observed event relationships or bypass proposal/review gates.
+- Redaction, encryption, retention, and access checks happen before downstream enrichment reads captured content.
+
 ## Events
 
 - `source.created`
@@ -95,6 +109,14 @@ Define ingestion stages and the deterministic worker contract.
 - `agent.step.completed`
 - `agent.action.pending_review`
 - `research.task.completed`
+- `agent_context.session_started`
+- `agent_context.file_read`
+- `agent_context.prompt_built`
+- `agent_context.model_request`
+- `agent_context.model_response`
+- `agent_context.edit_applied`
+- `agent_context.test_run`
+- `agent_context.session_ended`
 
 ## Failure Modes
 
@@ -105,3 +127,6 @@ Define ingestion stages and the deterministic worker contract.
 - Worker logs exposing source secrets or private document content.
 - Provider fallback changing the recorded model without user or graph settings.
 - AI action application bypassing proposals or review decisions.
+- Captured agent context being treated as reviewed graph truth.
+- Adapter outbox replay duplicating events without sequence idempotency.
+- Editor-only passive observations being mistaken for exact model prompt context.

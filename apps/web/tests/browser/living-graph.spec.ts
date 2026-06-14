@@ -14,6 +14,61 @@ const source = {
   metadata: {}
 };
 
+const providers = [
+  {
+    id: "graphview-local",
+    label: "Graphview Local",
+    enabled: true,
+    configured: true,
+    default_model: "graphview-local-deterministic-v1",
+    capabilities: ["planning", "graph_query", "research", "structured_output"],
+    models: [
+      {
+        id: "graphview-local-deterministic-v1",
+        label: "Local deterministic",
+        default: true,
+        capabilities: ["planning", "graph_query", "research", "structured_output"]
+      }
+    ]
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    enabled: false,
+    configured: false,
+    default_model: "gpt-5.5",
+    capabilities: ["planning", "graph_query", "research", "structured_output", "tool_calling"],
+    models: [
+      { id: "gpt-5.5", label: "gpt-5.5", default: true, capabilities: ["reasoning", "tool_calling", "structured_output"] },
+      { id: "gpt-5.4-mini", label: "gpt-5.4-mini", default: false, capabilities: ["fast_reasoning", "tool_calling", "structured_output"] }
+    ]
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    enabled: false,
+    configured: false,
+    default_model: "claude-opus-4.8",
+    capabilities: ["planning", "graph_query", "research", "tool_calling"],
+    models: [
+      { id: "claude-opus-4.8", label: "claude-opus-4.8", default: true, capabilities: ["reasoning", "tool_calling", "long_context"] },
+      { id: "claude-sonnet-4.6", label: "claude-sonnet-4.6", default: false, capabilities: ["fast_reasoning", "tool_calling", "long_context"] }
+    ]
+  },
+  {
+    id: "gemini",
+    label: "Gemini",
+    enabled: false,
+    configured: false,
+    default_model: "gemini-3.1-pro",
+    capabilities: ["planning", "graph_query", "research", "structured_output", "search_grounding", "url_context"],
+    models: [
+      { id: "gemini-3.1-pro", label: "gemini-3.1-pro", default: true, capabilities: ["reasoning", "function_calling", "search_grounding", "url_context"] },
+      { id: "gemini-3.5-flash", label: "gemini-3.5-flash", default: false, capabilities: ["fast_reasoning", "function_calling", "search_grounding", "url_context"] }
+    ]
+  }
+];
+
 const nodes = [
   {
     id: "node-living-graph",
@@ -118,20 +173,148 @@ test("renders nonblank 2D and 3D living graph surfaces", async ({ page }) => {
 
   await page.getByRole("button", { name: "3D graph" }).click();
   await expect(root).toHaveClass(/graph-view-3d/);
+  const threeCanvas = page.locator(".three-graph-canvas").first();
+  await expect(threeCanvas).toBeVisible();
+  await expectBrightPixels(threeCanvas, "3D graph canvas");
   await expectNonBlank(surface, "3D graph");
+});
+
+test("settings use left navigation and focused pages", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Settings" }).click();
+  await expect(page.locator(".settings-sidebar")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /Credentials/ })).toBeVisible();
+
+  await page.getByRole("tab", { name: /Credentials/ }).click();
+  await expect(page.getByRole("heading", { name: "Credentials" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /OpenAI/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Anthropic/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Gemini/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Graphview Local/ })).toBeVisible();
+
+  await page.getByRole("button", { name: /OpenAI/ }).click();
+  await expect(page.getByLabel("OpenAI API key")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save key" })).toBeDisabled();
+  await page.getByLabel("OpenAI API key").fill("test-openai-key");
+  await expect(page.getByRole("button", { name: "Save key" })).toBeEnabled();
+  await expect(page.getByText("Saving sets OpenAI as the default LLM provider.")).toBeVisible();
+
+  await page.getByRole("tab", { name: /Automation/ }).click();
+  await expect(page.getByRole("heading", { name: "Automation" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save automation" })).toBeVisible();
+
+  await page.getByRole("tab", { name: /Capabilities/ }).click();
+  await expect(page.getByRole("heading", { name: "Capabilities" })).toBeVisible();
+  await expect(page.locator(".settings-provider-matrix")).toBeVisible();
+});
+
+test("opens active context workspace with mocked live context data", async ({ page }) => {
+  const agentContextRequests: string[] = [];
+  await installMockEventSource(page);
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith("/agent-context/")) {
+      agentContextRequests.push(`${url.pathname}${url.search}`);
+    }
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Active context" }).click();
+
+  const workspace = page.getByLabel("Active agent context");
+  await expect(workspace).toBeVisible();
+  await expect(workspace.getByRole("heading", { name: "Codex active context" })).toBeVisible();
+  await expect(workspace).toContainText("codex / running / gateway");
+
+  const sessions = page.getByLabel("Captured sessions");
+  await expect(sessions.getByRole("button", { name: /Codex active context/ })).toHaveAttribute("aria-pressed", "true");
+
+  const metrics = page.getByLabel("Active context metrics");
+  await expect(metrics).toContainText("4 events");
+  await expect(metrics).toContainText("2 artifacts");
+  await expect(metrics).toContainText("2 gateway");
+  await expect(metrics).toContainText("2 reconciled");
+
+  const graphProjection = page.getByLabel("Context graph projection");
+  await expect(graphProjection).toContainText("file read");
+  await expect(graphProjection).toContainText("read");
+  await expect(graphProjection).toContainText("App.tsx");
+
+  const promptAndEdits = page.getByLabel("Prompt and edit activity");
+  await expect(promptAndEdits).toContainText("prompt built");
+  await expect(promptAndEdits).toContainText("model response");
+  await expect(promptAndEdits).toContainText("edit applied");
+  await expect(promptAndEdits.locator(".authority-gateway")).toContainText("prompt built");
+  await expect(promptAndEdits.locator(".authority-adapter_reported")).toContainText("model response");
+  await expect(promptAndEdits.locator(".authority-passive_reconciled")).toContainText("edit applied");
+
+  const timeline = page.getByLabel("Active context timeline");
+  await expect(timeline).toContainText("Read App.tsx.");
+  await expect(timeline).toContainText("gateway / apps/web/src/App.tsx");
+  await expect(timeline).toContainText("Adapter returned a grounded model response.");
+  await expect(timeline).toContainText("adapter reported");
+  await expect(timeline).toContainText("Observed a passive edit touching App.tsx.");
+  await expect(timeline).toContainText("passive reconciled");
+
+  await expect
+    .poll(() => page.evaluate(() => window.__agentContextEventSourceUrls?.at(-1) ?? ""))
+    .toBe("http://127.0.0.1:8000/agent-context/sessions/ctxsession-phase27/stream?limit=25");
+
+  const inspectAppArtifact = timeline
+    .locator(".agent-context-event")
+    .filter({ hasText: "Read App.tsx." })
+    .getByRole("button", { name: "Inspect artifact" });
+  await expect(inspectAppArtifact).toBeVisible();
+  const contentResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/agent-context/artifacts/ctxartifact-file/content" && response.ok();
+  });
+  await inspectAppArtifact.evaluate((button: HTMLButtonElement) => button.click());
+  await contentResponse;
+
+  const inspector = page.getByLabel("Content inspector");
+  await expect(inspector).toContainText("App.tsx");
+  await expect(inspector).toContainText("redacted");
+  await expect(inspector).toContainText("encrypted");
+  await expect(inspector).toContainText('const apiToken = "[REDACTED]";');
+  await expect(inspector).not.toContainText("super-secret-token");
+
+  const graphRequestCount = agentContextRequests.filter((path) => path === "/agent-context/sessions/ctxsession-phase27/graph").length;
+  const contentRequestCount = agentContextRequests.filter((path) => path === "/agent-context/artifacts/ctxartifact-file/content").length;
+
+  await page.evaluate(() => window.__dispatchAgentContextEvent?.());
+
+  await expect
+    .poll(() => agentContextRequests.filter((path) => path === "/agent-context/sessions/ctxsession-phase27/graph").length)
+    .toBeGreaterThan(graphRequestCount);
+  await expect
+    .poll(() => agentContextRequests.filter((path) => path === "/agent-context/artifacts/ctxartifact-file/content").length)
+    .toBeGreaterThan(contentRequestCount);
 });
 
 test("shows tethered node tooltip with safe source URL behavior", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Living Graph Tooltip Node" }).hover();
+  await hoverGraphNode(page, "Living Graph Tooltip Node");
 
   const tooltip = page.getByTestId("graph-tooltip");
   await expect(tooltip).toBeVisible();
   await expect(tooltip).toContainText("Living Graph Tooltip Node");
   await expect(page.getByTestId("graph-tooltip-tether")).toBeVisible();
+  await expect(tooltip).toHaveCSS("pointer-events", "none");
+  await expect(tooltip).toHaveAttribute("data-placement", /right|left|top|bottom/);
+
+  const tooltipInterceptsPointer = await tooltip.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const target = document.elementFromPoint(rect.left + 12, rect.top + 12);
+    return Boolean(target?.closest('[data-testid="graph-tooltip"]'));
+  });
+  expect(tooltipInterceptsPointer).toBe(false);
 
   const url = page.getByTestId("graph-tooltip-source-url");
+  await expect(url).toHaveCSS("pointer-events", "auto");
   await expect(url).toHaveAttribute("href", sourceUrl);
   await expect(url).toHaveAttribute("target", "_blank");
   await expect(url).toHaveAttribute("rel", /noopener|noreferrer/);
@@ -146,6 +329,47 @@ test("shows tethered node tooltip with safe source URL behavior", async ({ page 
   await expect(popup).toHaveURL(sourceUrl);
   await popup.close();
 });
+
+async function hoverGraphNode(page: Page, label: string) {
+  const node = page.getByRole("button", { name: label });
+  await expect(node).toBeVisible();
+  const box = await node.boundingBox();
+  expect(box, `Expected ${label} graph node box`).not.toBeNull();
+  await page.mouse.move(box!.x + Math.min(12, box!.width / 2), box!.y + box!.height / 2);
+}
+
+async function installMockEventSource(page: Page) {
+  await page.addInitScript({
+    content: `
+      (() => {
+        window.__agentContextEventSourceUrls = [];
+        window.__dispatchAgentContextEvent = () => {};
+
+        class MockEventSource extends EventTarget {
+          constructor(url) {
+            super();
+            this.url = String(url);
+            this.readyState = 0;
+            window.__agentContextEventSourceUrls.push(this.url);
+            window.__lastAgentContextEventSource = this;
+            window.__dispatchAgentContextEvent = () => {
+              this.dispatchEvent(new MessageEvent("agent-context.event", { data: "{}" }));
+            };
+          }
+
+          close() {
+            this.readyState = 2;
+          }
+        }
+
+        MockEventSource.CONNECTING = 0;
+        MockEventSource.OPEN = 1;
+        MockEventSource.CLOSED = 2;
+        window.EventSource = MockEventSource;
+      })();
+    `
+  });
+}
 
 async function expectNonBlank(locator: Locator, label: string) {
   const image = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
@@ -163,6 +387,21 @@ async function expectNonBlank(locator: Locator, label: string) {
   }
 
   expect(coloredPixels, `${label} should contain visible graph pixels`).toBeGreaterThan(Math.floor(totalPixels * 0.01));
+}
+
+async function expectBrightPixels(locator: Locator, label: string) {
+  const image = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
+  let brightPixels = 0;
+
+  for (let index = 0; index < image.data.length; index += 4) {
+    const red = image.data[index];
+    const green = image.data[index + 1];
+    const blue = image.data[index + 2];
+    const alpha = image.data[index + 3];
+    if (alpha > 8 && red + green + blue > 120) brightPixels += 1;
+  }
+
+  expect(brightPixels, `${label} should contain rendered node or edge pixels`).toBeGreaterThan(30);
 }
 
 async function installApiFixtures(page: Page) {
@@ -401,6 +640,213 @@ async function installApiFixtures(page: Page) {
       });
       return;
     }
+    if (path === "/agent-context/sessions") {
+      await fulfillJson(route, {
+        sessions: [
+          {
+            id: "ctxsession-phase27",
+            project_id: graphId,
+            client_id: "ctxclient-phase27",
+            runtime_kind: "codex",
+            authority: "gateway",
+            status: "running",
+            title: "Codex active context",
+            workspace_root: "/workspace/graphview",
+            repository_uri: "git@example.invalid:graphview.git",
+            branch: "codex/phase27",
+            commit_sha: "abc123",
+            metadata: {},
+            started_at: now,
+            ended_at: null,
+            updated_at: now
+          }
+        ]
+      });
+      return;
+    }
+    if (path === "/agent-context/sessions/ctxsession-phase27/graph") {
+      await fulfillJson(route, {
+        session: {
+          id: "ctxsession-phase27",
+          project_id: graphId,
+          client_id: "ctxclient-phase27",
+          runtime_kind: "codex",
+          authority: "gateway",
+          status: "running",
+          title: "Codex active context",
+          workspace_root: "/workspace/graphview",
+          repository_uri: "git@example.invalid:graphview.git",
+          branch: "codex/phase27",
+          commit_sha: "abc123",
+          metadata: {},
+          started_at: now,
+          ended_at: null,
+          updated_at: now
+        },
+        nodes: [
+          { id: "ctxsession-phase27", kind: "session", label: "Codex active context", authority: "gateway", metadata: {} },
+          { id: "ctxartifact-file", kind: "file", label: "App.tsx", authority: null, metadata: { path: "apps/web/src/App.tsx" } },
+          { id: "ctxartifact-prompt", kind: "prompt", label: "Prompt context", authority: null, metadata: { title: "Prompt context" } },
+          { id: "ctxevent-read", kind: "event", label: "file read", authority: "gateway", metadata: {} },
+          { id: "ctxevent-prompt", kind: "event", label: "prompt built", authority: "gateway", metadata: {} },
+          { id: "ctxevent-model", kind: "event", label: "model response", authority: "adapter_reported", metadata: {} },
+          { id: "ctxevent-edit", kind: "event", label: "edit applied", authority: "passive_reconciled", metadata: {} }
+        ],
+        edges: [
+          {
+            id: "ctxedge-read",
+            source_id: "ctxevent-read",
+            target_id: "ctxartifact-file",
+            relation: "read",
+            observed: true,
+            metadata: { authority: "gateway" }
+          },
+          {
+            id: "ctxedge-prompt",
+            source_id: "ctxevent-prompt",
+            target_id: "ctxartifact-prompt",
+            relation: "built_prompt",
+            observed: true,
+            metadata: { authority: "gateway" }
+          },
+          {
+            id: "ctxedge-edit",
+            source_id: "ctxevent-edit",
+            target_id: "ctxartifact-file",
+            relation: "edited",
+            observed: false,
+            metadata: { authority: "passive_reconciled" }
+          }
+        ],
+        artifacts: [
+          {
+            id: "ctxartifact-file",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            kind: "file",
+            path: "apps/web/src/App.tsx",
+            uri: null,
+            title: "App.tsx",
+            content_type: "text/typescript",
+            checksum: "abc",
+            metadata: {},
+            created_at: now,
+            updated_at: now
+          },
+          {
+            id: "ctxartifact-prompt",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            kind: "prompt",
+            path: null,
+            uri: null,
+            title: "Prompt context",
+            content_type: "text/markdown",
+            checksum: "prompt123",
+            metadata: {},
+            created_at: now,
+            updated_at: now
+          }
+        ],
+        events: [
+          {
+            id: "ctxevent-read",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            client_event_id: "evt-read",
+            sequence: 1,
+            event_kind: "file_read",
+            authority: "gateway",
+            status: "accepted",
+            summary: "Read App.tsx.",
+            checksum: "ctxevent-read",
+            artifact_id: "ctxartifact-file",
+            blob_id: "ctxblob-file",
+            payload: {},
+            object_refs: [],
+            occurred_at: now,
+            received_at: now
+          },
+          {
+            id: "ctxevent-prompt",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            client_event_id: "evt-prompt",
+            sequence: 2,
+            event_kind: "prompt_built",
+            authority: "gateway",
+            status: "accepted",
+            summary: "Built prompt from graph context.",
+            checksum: "ctxevent-prompt",
+            artifact_id: "ctxartifact-prompt",
+            blob_id: "ctxblob-prompt",
+            payload: { token_count: 128 },
+            object_refs: [{ kind: "artifact", id: "ctxartifact-prompt", label: "Prompt context" }],
+            occurred_at: now,
+            received_at: now
+          },
+          {
+            id: "ctxevent-model",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            client_event_id: "evt-model",
+            sequence: 3,
+            event_kind: "model_response",
+            authority: "adapter_reported",
+            status: "accepted",
+            summary: "Adapter returned a grounded model response.",
+            checksum: "ctxevent-model",
+            artifact_id: "ctxartifact-prompt",
+            blob_id: "ctxblob-prompt",
+            payload: { model: "graphview-local-deterministic-v1" },
+            object_refs: [],
+            occurred_at: now,
+            received_at: now
+          },
+          {
+            id: "ctxevent-edit",
+            project_id: graphId,
+            session_id: "ctxsession-phase27",
+            client_event_id: "evt-edit",
+            sequence: 4,
+            event_kind: "edit_applied",
+            authority: "passive_reconciled",
+            status: "accepted",
+            summary: "Observed a passive edit touching App.tsx.",
+            checksum: "ctxevent-edit",
+            artifact_id: "ctxartifact-file",
+            blob_id: "ctxblob-file",
+            payload: { source: "filesystem_reconcile" },
+            object_refs: [{ kind: "file", id: "ctxartifact-file", label: "App.tsx" }],
+            occurred_at: now,
+            received_at: now
+          }
+        ]
+      });
+      return;
+    }
+    if (path === "/agent-context/artifacts/ctxartifact-file/content") {
+      await fulfillJson(route, {
+        blob: {
+          id: "ctxblob-file",
+          project_id: graphId,
+          session_id: "ctxsession-phase27",
+          artifact_id: "ctxartifact-file",
+          content_kind: "text",
+          media_type: "text/typescript",
+          redaction_status: "redacted",
+          encryption_status: "encrypted",
+          checksum: "ctxblob-file",
+          byte_count: 74,
+          token_count: 16,
+          metadata: { redacted_fields: ["apiToken"] },
+          created_at: now,
+          expires_at: null
+        },
+        text: 'const apiToken = "[REDACTED]";\\nexport const activeContext = true;'
+      });
+      return;
+    }
     if (path === "/extraction-lenses") {
       await fulfillJson(route, {
         extraction_lenses: [
@@ -456,18 +902,7 @@ async function installApiFixtures(page: Page) {
       return;
     }
     if (path === "/providers") {
-      await fulfillJson(route, {
-        providers: [
-          {
-            id: "graphview-local",
-            label: "Graphview Local",
-            enabled: true,
-            configured: true,
-            default_model: "graphview-local-deterministic-v1",
-            capabilities: ["planning", "graph_query", "research"]
-          }
-        ]
-      });
+      await fulfillJson(route, { providers });
       return;
     }
     if (path === "/planning-sessions") {

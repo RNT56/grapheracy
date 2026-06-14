@@ -61,6 +61,11 @@ erDiagram
   action_runs ||--o{ outcomes : observes
   outcomes ||--o{ feedback_events : learns
   graph_projects ||--o{ graph_activity_events : replays
+  graph_projects ||--o{ agent_context_clients : authorizes
+  agent_context_clients ||--o{ agent_context_sessions : captures
+  agent_context_sessions ||--o{ agent_context_events : records
+  agent_context_sessions ||--o{ agent_context_artifacts : references
+  agent_context_artifacts ||--o{ agent_context_blobs : stores
 ```
 
 ## Vocabulary
@@ -77,6 +82,14 @@ Digital nervous system signal kinds are: `source_changed`, `source_stale`, `prop
 
 Digital nervous system action proposal statuses are: `proposed`, `pending_review`, `approved`, `rejected`, `queued`,
 `running`, `succeeded`, `failed`, and `cancelled`.
+
+Active context capture authorities are: `gateway`, `adapter_reported`, and `passive_reconciled`.
+
+Active context runtime kinds are: `codex`, `claude-code`, `cursor`, `vscode`, `mcp`, `openai-compatible`, and `generic`.
+
+Active context event kinds are: `session_started`, `heartbeat`, `file_opened`, `file_read`, `selection_changed`,
+`search_performed`, `shell_command`, `prompt_built`, `model_request`, `model_response`, `edit_applied`,
+`diff_observed`, `test_run`, `commit_observed`, and `session_ended`.
 
 Proposal kinds are: `content_node`, `semantic_edge`.
 
@@ -96,7 +109,7 @@ Content node kinds are defined in `CONTENT_NODE_KINDS` in `schemas.py` and mirro
 | --- | --- | --- | --- |
 | `graph_projects` | Workspace-level graph container. | `id`, `name`, `created_at`, `updated_at` | None |
 | `topics` | Imported or curated graph topic hierarchy. | `id`, `project_id`, `parent_topic_id`, `name` | None |
-| `graph_settings` | Project extraction, LLM, and auto-commit settings. | `project_id`, `llm_enabled`, `llm_provider`, `llm_model`, `auto_commit_threshold` | `settings_json` |
+| `graph_settings` | Project extraction, LLM, auto-commit, default AI provider, and encrypted provider credential settings. | `project_id`, `llm_enabled`, `llm_provider`, `llm_model`, `auto_commit_threshold` | `settings_json` |
 | `sources` | User-created, fetched, or connector-imported source artifacts. | `id`, `project_id`, `kind`, `title`, `uri`, `object_key`, `checksum`, `connector_kind`, `remote_id`, `remote_parent_id`, `remote_modified_at`, `remote_url`, `stale_at` | `metadata_json` |
 | `source_chunks` | Normalized source blocks for provenance and context retrieval. | `id`, `project_id`, `source_id`, `parent_chunk_id`, `block_type`, `ordinal`, `text`, `checksum`, `locator` | `heading_path_json`, `links_json`, `mentions_json` |
 | `ingestion_runs` | Traceable source processing runs. | `id`, `project_id`, `source_id`, `status`, `stage`, `trace_id`, `started_at`, `finished_at`, `error_code` | None |
@@ -152,6 +165,21 @@ review decisions.
 Action proposal and run responses expose `redacted_payload` only. Backup/export also uses redacted action payloads for
 restored `payload_json` so restoring a bundle preserves the audit trail without rehydrating sensitive raw action inputs
 or replaying side effects.
+
+## Active Agent Context Tables
+
+| Table | Purpose | Key columns | JSON columns |
+| --- | --- | --- | --- |
+| `agent_context_clients` | Scoped adapter identities for Codex, Claude Code, Cursor/VS Code, MCP, and generic runtime connectors. | `id`, `project_id`, `runtime_kind`, `status`, `token_hash`, `created_by`, timestamps | `scopes_json`, `settings_json` |
+| `agent_context_sessions` | Live or historical external agent context sessions. | `id`, `project_id`, `client_id`, `runtime_kind`, `authority`, `status`, workspace/repo/branch/commit fields, timestamps | `metadata_json` |
+| `agent_context_artifacts` | Files, prompts, model calls, shell commands, diffs, tests, commits, and editor observations referenced by events. | `id`, `project_id`, `session_id`, `kind`, `path`, `uri`, `title`, `content_type`, `checksum` | `metadata_json` |
+| `agent_context_blobs` | Redacted encrypted text payloads or metadata-only binary/oversized payload records. | `id`, `project_id`, `session_id`, `artifact_id`, `content_kind`, redaction/encryption status, `checksum`, byte/token counts, `expires_at` | `metadata_json`; `encrypted_content` is omitted from normal export and included only through explicit backup opt-in |
+| Backup `agent_context_blob_contents` | Optional encrypted context content backup payloads. | `blob_id`, `encrypted_content`, `exported_at` | Present only when a maintainer requests `GET /backup?include_agent_context_content=true` |
+| `agent_context_events` | Idempotent ordered context events from adapter or gateway sessions. | `id`, `project_id`, `session_id`, `client_event_id`, `sequence`, `event_kind`, `authority`, `checksum`, `artifact_id`, `blob_id`, timestamps | `payload_json`, `object_refs_json` |
+
+Adapter tokens are returned only at client creation. Restored clients preserve audit metadata but do not restore usable
+tokens. Blob content is not returned by normal export/backup metadata, is readable only through the maintainer-only
+artifact content endpoint, and enters backups only through explicit encrypted-content opt-in.
 
 ## Proposal Values
 
@@ -219,6 +247,12 @@ fields above must remain stable.
 - Research task idempotency keys are unique within a project.
 - Backup and restore must preserve original IDs, timestamps, provenance, proposals, decisions, connector records, source
   chunks, graph settings, planning records, agent records, digital nervous system records, and graph activity events.
+- Backup and restore must preserve active context metadata while avoiding raw token or encrypted content rehydration by
+  default.
+- Active context events are unique by `session_id + client_event_id` and `session_id + sequence`.
+- Active context capture authority must be explicit; passive editor observations cannot be treated as exact prompt
+  inclusion.
+- Active context blobs must be redacted before encryption and purged according to retention policy.
 - Phase 25 action runs require an approved proposal and an action type on the configured safe execution allowlist.
 - Source freshness action runs can only mutate a source in the proposal project; missing targets produce failed runs.
 - Restoring Phase 25 action proposals and runs must not execute side effects.

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     gemini_base_url: str = "https://generativelanguage.googleapis.com"
     gemini_model: str = "gemini-3.1-pro"
     safe_action_types: str = ",".join(DEFAULT_SAFE_ACTION_TYPES)
+    agent_context_max_blob_bytes: int = 512_000
+    agent_context_retention_days: int = 30
 
     model_config = SettingsConfigDict(
         env_file=".env",

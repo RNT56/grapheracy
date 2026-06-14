@@ -1,0 +1,60 @@
+{
+  "name": "@graphview/vscode-extension",
+  "version": "0.0.0",
+  "private": true,
+  "displayName": "Graphview Active Context",
+  "description": "Passive active-context telemetry for Graphview from VS Code and Cursor editors.",
+  "publisher": "graphview",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "src/extension.mjs",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "package.json"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:graphview.startAgentContextSession",
+    "onCommand:graphview.flushAgentContextHeartbeat"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "graphview.startAgentContextSession",
+        "title": "Graphview: Start Agent Context Session"
+      },
+      {
+        "command": "graphview.flushAgentContextHeartbeat",
+        "title": "Graphview: Send Agent Context Heartbeat"
+      }
+    ],
+    "configuration": {
+      "title": "Graphview",
+      "properties": {
+        "graphview.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000"
+        },
+        "graphview.agentContextToken": {
+          "type": "string",
+          "default": ""
+        }
+      }
+    }
+  },
+  "scripts": {
+    "check": "pnpm run typecheck && pnpm run test",
+    "typecheck": "node --check src/extension.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.120.0"
+  }
+}

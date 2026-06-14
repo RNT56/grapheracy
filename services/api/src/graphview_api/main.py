@@ -26,6 +26,17 @@ from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
     AgentActionProposalOut,
+    AgentContextBlobContentOut,
+    AgentContextClientCreate,
+    AgentContextClientCreateOut,
+    AgentContextEventBatchCreate,
+    AgentContextEventBatchOut,
+    AgentContextEventOut,
+    AgentContextGraphOut,
+    AgentContextRetentionOut,
+    AgentContextSessionCreate,
+    AgentContextSessionOut,
+    AgentContextSessionUpdate,
     ActionProposalCreate,
     ActionProposalDecision,
     ActionProposalOut,
@@ -84,6 +95,7 @@ from graphview_api.schemas import (
     PlanningSessionCreate,
     PlanningSessionOut,
     ProposalCreate,
+    ProviderCredentialUpdate,
     ProviderDescriptorOut,
     ResearchTaskOut,
     ProposalOut,
@@ -117,6 +129,14 @@ def _activity_event_matches_agent_run(event: dict[str, object], agent_run_id: st
     return any(
         isinstance(ref, dict) and ref.get("kind") == "agent_run" and ref.get("id") == agent_run_id
         for ref in refs
+)
+
+
+def configured_provider_registry(settings: Settings, repository: GraphRepository):
+    return build_provider_registry(
+        settings,
+        provider_api_keys=repository.ai_provider_api_keys(),
+        default_provider=repository.ai_default_provider(),
     )
 
 
@@ -128,6 +148,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         secret_key=settings.secret_key,
         auto_commit_threshold=settings.auto_commit_threshold,
         safe_action_types=settings.safe_action_types,
+        agent_context_max_blob_bytes=settings.agent_context_max_blob_bytes,
+        agent_context_retention_days=settings.agent_context_retention_days,
     )
     repository.initialize()
     app.state.repository = repository
@@ -162,6 +184,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def repo() -> GraphRepository:
         return app.state.repository
+
+    async def agent_context_capture_client(
+        request: Request,
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        authorization = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent context bearer token required")
+        client = repository.authenticate_agent_context_token(token.strip())
+        if client is None or "context:capture" not in client.get("scopes", []):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent context token")
+        return client
 
     @app.get("/version")
     async def version(settings: Settings = Depends(get_settings)) -> dict[str, str]:
@@ -617,9 +652,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/providers")
     async def providers(
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
         settings: Settings = Depends(get_settings),
     ) -> dict[str, list[ProviderDescriptorOut]]:
-        return {"providers": build_provider_registry(settings).descriptors()}
+        return {"providers": configured_provider_registry(settings, repository).descriptors()}
+
+    @app.patch("/providers/{provider_id}/credentials")
+    async def update_provider_credentials(
+        provider_id: str,
+        payload: ProviderCredentialUpdate,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+        settings: Settings = Depends(get_settings),
+    ) -> dict[str, list[ProviderDescriptorOut]]:
+        try:
+            repository.upsert_ai_provider_api_key(provider_id, payload.api_key, make_default=payload.make_default)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        return {"providers": configured_provider_registry(settings, repository).descriptors()}
+
+    @app.delete("/providers/{provider_id}/credentials")
+    async def delete_provider_credentials(
+        provider_id: str,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+        settings: Settings = Depends(get_settings),
+    ) -> dict[str, list[ProviderDescriptorOut]]:
+        try:
+            repository.delete_ai_provider_api_key(provider_id)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        return {"providers": configured_provider_registry(settings, repository).descriptors()}
 
     @app.post("/planning-sessions", response_model=PlanningSessionOut, status_code=status.HTTP_201_CREATED)
     async def create_planning_session(
@@ -659,7 +722,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session = repository.get_planning_session(session_id)
         if session is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planning session not found")
-        registry = build_provider_registry(settings)
+        registry = configured_provider_registry(settings, repository)
         try:
             provider = registry.resolve(payload.provider or session.get("provider"), payload.model or session.get("model"))
         except ValueError as error:
@@ -719,7 +782,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings: Settings = Depends(get_settings),
     ) -> dict:
         try:
-            provider = build_provider_registry(settings).resolve(payload.provider, payload.model)
+            provider = configured_provider_registry(settings, repository).resolve(payload.provider, payload.model)
             response = await provider.complete(
                 system="Execute a Graphview agent run without direct graph mutation.",
                 user=json.dumps(payload.input, sort_keys=True),
@@ -764,6 +827,131 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {"kind": "graph_layout", "label": "Change graph layout", "mutates_graph": False},
             ]
         }
+
+    @app.post("/agent-context/clients", response_model=AgentContextClientCreateOut, status_code=status.HTTP_201_CREATED)
+    async def create_agent_context_client(
+        payload: AgentContextClientCreate,
+        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        return repository.create_agent_context_client(payload, actor_id=user.id)
+
+    @app.post("/agent-context/sessions", response_model=AgentContextSessionOut, status_code=status.HTTP_201_CREATED)
+    async def create_agent_context_session(
+        payload: AgentContextSessionCreate,
+        client: dict = Depends(agent_context_capture_client),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        return repository.create_agent_context_session(payload, client=client)
+
+    @app.patch("/agent-context/sessions/{session_id}", response_model=AgentContextSessionOut)
+    async def update_agent_context_session(
+        session_id: str,
+        payload: AgentContextSessionUpdate,
+        client: dict = Depends(agent_context_capture_client),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            return repository.update_agent_context_session(session_id, payload, client=client)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found") from error
+
+    @app.post("/agent-context/events/batch", response_model=AgentContextEventBatchOut, status_code=status.HTTP_201_CREATED)
+    async def create_agent_context_event_batch(
+        payload: AgentContextEventBatchCreate,
+        client: dict = Depends(agent_context_capture_client),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            return repository.ingest_agent_context_events(payload, client=client)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found") from error
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+    @app.get("/agent-context/sessions", response_model=dict[str, list[AgentContextSessionOut]])
+    async def agent_context_sessions(
+        limit: int = Query(default=50, ge=1, le=100),
+        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict[str, list[dict]]:
+        return {"sessions": repository.list_agent_context_sessions(limit=limit)}
+
+    @app.get("/agent-context/sessions/{session_id}", response_model=AgentContextSessionOut)
+    async def agent_context_session(
+        session_id: str,
+        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        session = repository.get_agent_context_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found")
+        return session
+
+    @app.get("/agent-context/sessions/{session_id}/events", response_model=dict[str, list[AgentContextEventOut]])
+    async def agent_context_events(
+        session_id: str,
+        limit: int = Query(default=100, ge=1, le=500),
+        since_sequence: int | None = Query(default=None, ge=0),
+        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict[str, list[dict]]:
+        if repository.get_agent_context_session(session_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found")
+        return {"events": repository.list_agent_context_events(session_id, limit=limit, since_sequence=since_sequence)}
+
+    @app.get("/agent-context/sessions/{session_id}/graph", response_model=AgentContextGraphOut)
+    async def agent_context_graph(
+        session_id: str,
+        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            return repository.agent_context_graph(session_id)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found") from error
+
+    @app.get("/agent-context/artifacts/{artifact_id}/content", response_model=AgentContextBlobContentOut)
+    async def agent_context_artifact_content(
+        artifact_id: str,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        content = repository.agent_context_artifact_content(artifact_id)
+        if content is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context content not found")
+        return content
+
+    @app.get("/agent-context/sessions/{session_id}/stream")
+    async def agent_context_stream(
+        session_id: str,
+        limit: int = Query(default=25, ge=1, le=100),
+        since_sequence: int | None = Query(default=None, ge=0),
+        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> StreamingResponse:
+        if repository.get_agent_context_session(session_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent context session not found")
+        events = repository.list_agent_context_events(session_id, limit=limit, since_sequence=since_sequence)
+
+        async def event_stream():
+            yield ": heartbeat\n\n"
+            for event in events:
+                yield "event: agent-context.event\n"
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/agent-context/retention/run", response_model=AgentContextRetentionOut)
+    async def run_agent_context_retention(
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        return repository.run_agent_context_retention()
 
     @app.post("/agent-tool-calls", response_model=AgentToolCallOut, status_code=status.HTTP_201_CREATED)
     async def create_agent_tool_call(
@@ -909,7 +1097,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         context = repository.graph_query_context(payload)
         try:
-            provider = build_provider_registry(settings).resolve(payload.provider, payload.model)
+            provider = configured_provider_registry(settings, repository).resolve(payload.provider, payload.model)
         except ValueError as error:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
         response = await provider.complete(
@@ -949,7 +1137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 update={"graph_id": graph_id or payload.graph_id, "lens": lens or payload.lens}
             )
         try:
-            provider = build_provider_registry(settings).resolve(payload.provider, payload.model)
+            provider = configured_provider_registry(settings, repository).resolve(payload.provider, payload.model)
         except ValueError as error:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
         response = await provider.complete(
@@ -1108,13 +1296,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as error:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Connector sync failed") from error
 
-        graph_settings = repository.graph_settings()
+        graph_settings = repository.graph_settings_with_secrets()
+        provider_api_keys = repository.ai_provider_api_keys()
         target_settings = target.get("sync_settings", {})
         llm_enabled = bool(target_settings.get("llm_enabled", graph_settings.get("llm_enabled", settings.llm_enabled)))
         llm_provider = str(target_settings.get("llm_provider") or graph_settings.get("llm_provider") or settings.llm_provider)
         llm_model = str(target_settings.get("llm_model") or graph_settings.get("llm_model") or settings.llm_model)
         llm_base_url = str(target_settings.get("llm_base_url") or graph_settings["settings"].get("llm_base_url") or settings.llm_base_url)
-        llm_api_key = target_settings.get("llm_api_key") or graph_settings["settings"].get("llm_api_key") or settings.llm_api_key
+        llm_api_key = (
+            target_settings.get("llm_api_key")
+            or graph_settings["settings"].get("llm_api_key")
+            or settings.llm_api_key
+            or provider_api_keys.get("openai")
+        )
         auto_commit_threshold = float(
             target_settings.get("auto_commit_threshold", graph_settings.get("auto_commit_threshold", settings.auto_commit_threshold))
         )
@@ -1377,10 +1571,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/backup", response_model=BackupBundle)
     async def backup(
+        include_agent_context_content: bool = Query(default=False),
         user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
         repository: GraphRepository = Depends(repo),
     ) -> dict:
-        return repository.backup_bundle(actor_id=user.id)
+        return repository.backup_bundle(actor_id=user.id, include_agent_context_content=include_agent_context_content)
 
     @app.post("/restore", response_model=ExportBundle)
     async def restore(

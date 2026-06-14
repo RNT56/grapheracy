@@ -1,8 +1,11 @@
 import importlib.util
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 
+from graphview_api import db
 from graphview_api.main import create_app
 from graphview_api.settings import Settings
 
@@ -13,6 +16,41 @@ def make_client(settings: Settings | None = None) -> TestClient:
 
 ADMIN_HEADERS = {"X-Graphview-User": "maintainer"}
 READER_HEADERS = {"X-Graphview-User": "reader"}
+
+
+def create_agent_context_capture_session(
+    client: TestClient,
+    *,
+    title: str = "Codex context run",
+    workspace_root: str | None = "/Users/mt/Programming/Schtack/graphview",
+) -> tuple[dict[str, str], dict]:
+    created_client = client.post(
+        "/agent-context/clients",
+        headers=ADMIN_HEADERS,
+        json={
+            "display_name": "Codex local gateway",
+            "runtime_kind": "codex",
+            "scopes": ["context:capture"],
+        },
+    )
+    assert created_client.status_code == 201
+    token = created_client.json()["token"]
+    capture_headers = {"Authorization": f"Bearer {token}"}
+    created_session = client.post(
+        "/agent-context/sessions",
+        headers=capture_headers,
+        json={
+            "title": title,
+            "runtime_kind": "codex",
+            "authority": "gateway",
+            "workspace_root": workspace_root,
+            "repository_uri": "git@example.invalid:graphview.git",
+            "branch": "codex/phase27",
+            "commit_sha": "abc123",
+        },
+    )
+    assert created_session.status_code == 201
+    return capture_headers, created_session.json()
 
 
 def test_health() -> None:
@@ -433,6 +471,8 @@ def test_llm_extraction_is_disabled_by_default_and_runs_through_provider_when_en
         json={"llm_enabled": True, "settings": {"llm_api_key": "test-key"}},
     )
     assert settings.status_code == 200
+    assert "test-key" not in str(settings.json())
+    assert "llm_api_key" not in settings.json()["settings"]
     enabled = client.post("/connector-sync-runs", headers=ADMIN_HEADERS, json={"target_id": target["id"]})
     assert enabled.status_code == 201
     assert calls["count"] == 1
@@ -451,6 +491,74 @@ def test_provider_catalog_redacts_configuration_and_lists_ai_providers() -> None
     assert {"graphview-local", "openai", "anthropic", "gemini"} <= provider_ids
     assert next(provider for provider in providers if provider["id"] == "graphview-local")["enabled"] is True
     assert "api_key" not in str(response.json()).lower()
+
+
+def test_ai_provider_credentials_are_saved_redacted_and_used(monkeypatch) -> None:
+    from graphview_api import llm
+
+    class FakeResponse:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.body
+
+    class FakeAsyncClient:
+        calls = []
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, **kwargs):
+            self.calls.append({"url": url, **kwargs})
+            return FakeResponse({"output_text": '{"answer":"saved provider ok","confidence":0.8}'})
+
+    FakeAsyncClient.calls = []
+    monkeypatch.setattr(llm.httpx, "AsyncClient", FakeAsyncClient)
+    client = make_client()
+
+    denied = client.patch(
+        "/providers/openai/credentials",
+        headers=READER_HEADERS,
+        json={"api_key": "fake-openai-key"},
+    )
+    assert denied.status_code == 403
+
+    saved = client.patch(
+        "/providers/openai/credentials",
+        headers=ADMIN_HEADERS,
+        json={"api_key": "fake-openai-key", "make_default": True},
+    )
+    assert saved.status_code == 200
+    saved_body = saved.json()
+    assert next(provider for provider in saved_body["providers"] if provider["id"] == "openai")["enabled"] is True
+    assert "fake-openai-key" not in str(saved_body)
+
+    settings = client.get("/graph/settings", headers=READER_HEADERS).json()
+    assert settings["settings"]["ai_default_provider"] == "openai"
+    assert settings["settings"]["ai_provider_credentials"]["openai"]["configured"] is True
+    assert "fake-openai-key" not in str(settings)
+    assert "encrypted_api_key" not in str(settings)
+
+    answer = client.post("/graph/query", headers=READER_HEADERS, json={"question": "What does the graph know?"})
+    assert answer.status_code == 200
+    assert answer.json()["agent_run"]["provider"] == "openai"
+    assert FakeAsyncClient.calls[0]["headers"]["Authorization"] == "Bearer fake-openai-key"
+
+    cleared = client.delete("/providers/openai/credentials", headers=ADMIN_HEADERS)
+    assert cleared.status_code == 200
+    assert next(provider for provider in cleared.json()["providers"] if provider["id"] == "openai")["enabled"] is False
+    settings_after_clear = client.get("/graph/settings", headers=READER_HEADERS).json()
+    assert settings_after_clear["settings"]["ai_default_provider"] == "graphview-local"
 
 
 def test_planning_session_message_creates_build_spec_and_agent_run() -> None:
@@ -573,6 +681,461 @@ def test_agent_tools_execute_read_tools_and_gate_mutations() -> None:
     proposals = client.get("/proposals", headers=READER_HEADERS).json()["proposals"]
     assert proposals[0]["id"] == body["resulting_proposal_id"]
     assert proposals[0]["status"] == "pending_review"
+
+
+def test_agent_context_capture_lifecycle_encryption_graph_stream_retention_and_backup() -> None:
+    client = make_client(Settings(database_url="sqlite://", agent_context_max_blob_bytes=20_000, agent_context_retention_days=1))
+
+    denied_client = client.post(
+        "/agent-context/clients",
+        headers=READER_HEADERS,
+        json={"display_name": "Reader adapter", "runtime_kind": "codex"},
+    )
+    assert denied_client.status_code == 403
+
+    created_client = client.post(
+        "/agent-context/clients",
+        headers=ADMIN_HEADERS,
+        json={
+            "display_name": "Codex local gateway",
+            "runtime_kind": "codex",
+            "scopes": ["context:read", "context:capture"],
+        },
+    )
+    assert created_client.status_code == 201
+    client_body = created_client.json()
+    token = client_body["token"]
+    assert token.startswith("gvctx_")
+    assert "token_hash" not in str(client_body)
+    assert client_body["client"]["scopes"] == ["context:capture"]
+    capture_headers = {"Authorization": f"Bearer {token}"}
+
+    no_token = client.post(
+        "/agent-context/sessions",
+        json={"title": "Missing token", "runtime_kind": "codex"},
+    )
+    assert no_token.status_code == 401
+
+    created_session = client.post(
+        "/agent-context/sessions",
+        headers=capture_headers,
+        json={
+            "title": "Codex context run",
+            "runtime_kind": "codex",
+            "authority": "gateway",
+            "workspace_root": "/Users/mt/Programming/Schtack/graphview",
+            "repository_uri": "git@example.invalid:graphview.git",
+            "branch": "codex/phase27",
+            "commit_sha": "abc123",
+        },
+    )
+    assert created_session.status_code == 201
+    session = created_session.json()
+    assert session["status"] == "running"
+    assert session["authority"] == "gateway"
+
+    batch = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-1",
+                    "sequence": 1,
+                    "event_kind": "file_read",
+                    "summary": "Read API settings file.",
+                    "payload": {"path": "services/api/src/graphview_api/settings.py", "api_key": "sk-secret"},
+                    "artifact": {
+                        "kind": "file",
+                        "path": "services/api/src/graphview_api/settings.py",
+                        "title": "settings.py",
+                        "content_type": "text/x-python",
+                    },
+                    "content": {
+                        "content_kind": "text",
+                        "media_type": "text/x-python",
+                        "text": "OPENAI_API_KEY=sk-secret\nclass Settings: pass\n",
+                        "token_count": 8,
+                    },
+                },
+                {
+                    "client_event_id": "evt-2",
+                    "sequence": 2,
+                    "event_kind": "prompt_built",
+                    "authority": "adapter_reported",
+                    "summary": "Built prompt with selected context.",
+                    "artifact": {"kind": "prompt", "title": "Prompt context", "content_type": "text/plain"},
+                    "content": {
+                        "content_kind": "text",
+                        "media_type": "text/plain",
+                        "text": "Use settings.py but do not reveal token=secret-value",
+                    },
+                },
+            ],
+        },
+    )
+    assert batch.status_code == 201
+    batch_body = batch.json()
+    assert batch_body["accepted_count"] == 2
+    assert batch_body["duplicate_count"] == 0
+    assert "sk-secret" not in str(batch_body)
+    assert all(len(event["checksum"]) == 64 for event in batch_body["events"])
+
+    duplicate = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={"session_id": session["id"], "events": [{"client_event_id": "evt-1", "sequence": 1, "event_kind": "file_read"}]},
+    )
+    assert duplicate.status_code == 201
+    assert duplicate.json()["accepted_count"] == 0
+    assert duplicate.json()["duplicate_count"] == 1
+
+    denied_path = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-denied-path",
+                    "sequence": 3,
+                    "event_kind": "file_read",
+                    "artifact": {"kind": "file", "path": ".env", "title": ".env"},
+                }
+            ],
+        },
+    )
+    assert denied_path.status_code == 403
+    assert "denied" in denied_path.json()["detail"]
+
+    outside_workspace = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-outside-workspace",
+                    "sequence": 4,
+                    "event_kind": "file_read",
+                    "artifact": {"kind": "file", "path": "/tmp/outside.py", "title": "outside.py"},
+                }
+            ],
+        },
+    )
+    assert outside_workspace.status_code == 403
+    assert "outside configured workspace" in outside_workspace.json()["detail"]
+
+    events = client.get(f"/agent-context/sessions/{session['id']}/events", headers=READER_HEADERS)
+    assert events.status_code == 200
+    assert [event["sequence"] for event in events.json()["events"]] == [1, 2]
+    assert all(len(event["checksum"]) == 64 for event in events.json()["events"])
+    assert "sk-secret" not in str(events.json())
+
+    graph = client.get(f"/agent-context/sessions/{session['id']}/graph", headers=READER_HEADERS)
+    assert graph.status_code == 200
+    graph_body = graph.json()
+    assert graph_body["session"]["id"] == session["id"]
+    assert any(node["kind"] == "file" and node["label"] == "settings.py" for node in graph_body["nodes"])
+    assert any(edge["relation"] == "read" for edge in graph_body["edges"])
+
+    artifact_id = next(artifact["id"] for artifact in graph_body["artifacts"] if artifact["kind"] == "file")
+    reader_content = client.get(f"/agent-context/artifacts/{artifact_id}/content", headers=READER_HEADERS)
+    assert reader_content.status_code == 403
+    admin_content = client.get(f"/agent-context/artifacts/{artifact_id}/content", headers=ADMIN_HEADERS)
+    assert admin_content.status_code == 200
+    assert "class Settings" in admin_content.json()["text"]
+    assert "sk-secret" not in admin_content.json()["text"]
+
+    default_backup = client.get("/backup", headers=ADMIN_HEADERS)
+    assert default_backup.status_code == 200
+    assert default_backup.json()["metadata"]["agent_context_content_blob_count"] == 0
+    assert default_backup.json()["bundle"]["agent_context_blob_contents"] == []
+
+    content_backup = client.get(
+        "/backup",
+        params={"include_agent_context_content": True},
+        headers=ADMIN_HEADERS,
+    )
+    assert content_backup.status_code == 200
+    content_backup_body = content_backup.json()
+    assert content_backup_body["metadata"]["agent_context_content_blob_count"] >= 1
+    encrypted_backup_content = content_backup_body["bundle"]["agent_context_blob_contents"][0]["encrypted_content"]
+    assert encrypted_backup_content.startswith("gvenc:fernet:v1:")
+    assert "class Settings" not in str(content_backup_body["bundle"]["agent_context_blob_contents"])
+
+    restored_client = make_client(Settings(database_url="sqlite://", agent_context_max_blob_bytes=20_000, agent_context_retention_days=1))
+    restored = restored_client.post("/restore", headers=ADMIN_HEADERS, json=content_backup_body)
+    assert restored.status_code == 200
+    restored_content = restored_client.get(f"/agent-context/artifacts/{artifact_id}/content", headers=ADMIN_HEADERS)
+    assert restored_content.status_code == 200
+    assert "class Settings" in restored_content.json()["text"]
+    assert "sk-secret" not in restored_content.json()["text"]
+
+    with client.app.state.repository.engine.begin() as conn:
+        stored_blob = conn.execute(db.agent_context_blobs.select()).mappings().first()
+        assert stored_blob is not None
+        assert stored_blob["encrypted_content"].startswith("gvenc:fernet:v1:")
+        assert "class Settings" not in stored_blob["encrypted_content"]
+        conn.execute(
+            update(db.agent_context_blobs)
+            .where(db.agent_context_blobs.c.id == stored_blob["id"])
+            .values(expires_at=datetime.now(tz=UTC) - timedelta(seconds=1))
+        )
+
+    stream_payload = ""
+    with client.stream("GET", f"/agent-context/sessions/{session['id']}/stream", headers=READER_HEADERS) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        stream_payload = "".join(response.iter_text())
+    assert stream_payload.startswith(": heartbeat\n\n")
+    assert "event: agent-context.event\n" in stream_payload
+
+    retention = client.post("/agent-context/retention/run", headers=ADMIN_HEADERS)
+    assert retention.status_code == 200
+    assert retention.json()["purged_blob_count"] == 1
+    assert retention.json()["retained_blob_count"] >= 1
+
+    retained_content = client.get(f"/agent-context/artifacts/{artifact_id}/content", headers=ADMIN_HEADERS)
+    assert retained_content.status_code == 200
+    assert retained_content.json()["text"] is None
+    assert retained_content.json()["blob"]["encryption_status"] == "metadata_only"
+    assert retained_content.json()["blob"]["redaction_status"] == "metadata_only"
+
+    with client.app.state.repository.engine.begin() as conn:
+        retained_blob = conn.execute(
+            db.agent_context_blobs.select().where(db.agent_context_blobs.c.id == stored_blob["id"])
+        ).mappings().first()
+        retained_event = conn.execute(
+            db.agent_context_events.select().where(db.agent_context_events.c.blob_id == stored_blob["id"])
+        ).mappings().first()
+        assert retained_blob is not None
+        assert retained_blob["encrypted_content"] is None
+        assert "retention_purged_at" in retained_blob["metadata_json"]
+        assert retained_event is not None
+
+    backup = client.get("/backup", headers=ADMIN_HEADERS)
+    assert backup.status_code == 200
+    backup_body = backup.json()
+    assert backup_body["metadata"]["agent_context_session_count"] == 1
+    assert backup_body["bundle"]["agent_context_sessions"][0]["id"] == session["id"]
+    assert len(backup_body["bundle"]["agent_context_events"][0]["checksum"]) == 64
+    assert "encrypted_content" not in str(backup_body["bundle"]["agent_context_blobs"])
+
+    completed = client.patch(
+        f"/agent-context/sessions/{session['id']}",
+        headers=capture_headers,
+        json={"status": "completed"},
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+
+
+def test_agent_context_out_of_order_events_are_listed_and_replayed_idempotently() -> None:
+    client = make_client()
+    capture_headers, session = create_agent_context_capture_session(
+        client,
+        title="Out of order context run",
+    )
+
+    out_of_order = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-seq-3",
+                    "sequence": 3,
+                    "event_kind": "model_response",
+                    "summary": "Model returned after a pending tool call.",
+                },
+                {
+                    "client_event_id": "evt-seq-1",
+                    "sequence": 1,
+                    "event_kind": "session_started",
+                    "summary": "Capture session started.",
+                },
+            ],
+        },
+    )
+    assert out_of_order.status_code == 201
+    assert out_of_order.json()["accepted_count"] == 2
+    assert out_of_order.json()["duplicate_count"] == 0
+
+    late_middle = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-seq-2",
+                    "sequence": 2,
+                    "event_kind": "file_read",
+                    "summary": "Late file read arrived after sequence 3.",
+                }
+            ],
+        },
+    )
+    assert late_middle.status_code == 201
+    assert late_middle.json()["accepted_count"] == 1
+    assert late_middle.json()["duplicate_count"] == 0
+    assert [event["sequence"] for event in late_middle.json()["events"]] == [2]
+
+    replayed = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-seq-2",
+                    "sequence": 20,
+                    "event_kind": "file_read",
+                    "summary": "Same client event should not be reaccepted at a new sequence.",
+                },
+                {
+                    "client_event_id": "evt-seq-3-replay",
+                    "sequence": 3,
+                    "event_kind": "model_response",
+                    "summary": "Same sequence should not be reaccepted with a new client event id.",
+                },
+            ],
+        },
+    )
+    assert replayed.status_code == 201
+    assert replayed.json()["accepted_count"] == 0
+    assert replayed.json()["duplicate_count"] == 2
+    assert replayed.json()["events"] == []
+
+    events = client.get(f"/agent-context/sessions/{session['id']}/events", headers=READER_HEADERS)
+    assert events.status_code == 200
+    event_body = events.json()["events"]
+    assert [event["sequence"] for event in event_body] == [1, 2, 3]
+    assert [event["client_event_id"] for event in event_body] == ["evt-seq-1", "evt-seq-2", "evt-seq-3"]
+
+    since_first = client.get(
+        f"/agent-context/sessions/{session['id']}/events",
+        params={"since_sequence": 1},
+        headers=READER_HEADERS,
+    )
+    assert since_first.status_code == 200
+    assert [event["sequence"] for event in since_first.json()["events"]] == [2, 3]
+
+    graph = client.get(f"/agent-context/sessions/{session['id']}/graph", headers=READER_HEADERS)
+    assert graph.status_code == 200
+    assert [event["sequence"] for event in graph.json()["events"]] == [1, 2, 3]
+
+
+def test_agent_context_oversized_and_metadata_blobs_are_metadata_only() -> None:
+    client = make_client(
+        Settings(database_url="sqlite://", agent_context_max_blob_bytes=12, agent_context_retention_days=1)
+    )
+    capture_headers, session = create_agent_context_capture_session(client, title="Metadata-only context run")
+    oversized_text = "This context text is too large to retain."
+    command_metadata = {"command": "pytest services/api/tests/test_api.py", "status": "passed"}
+
+    batch = client.post(
+        "/agent-context/events/batch",
+        headers=capture_headers,
+        json={
+            "session_id": session["id"],
+            "events": [
+                {
+                    "client_event_id": "evt-oversized",
+                    "sequence": 1,
+                    "event_kind": "file_read",
+                    "summary": "Read a file whose captured content exceeds the blob limit.",
+                    "artifact": {
+                        "kind": "file",
+                        "path": "services/api/tests/test_api.py",
+                        "title": "test_api.py",
+                        "content_type": "text/x-python",
+                    },
+                    "content": {
+                        "content_kind": "text",
+                        "media_type": "text/plain",
+                        "text": oversized_text,
+                        "token_count": 9,
+                        "metadata": {"capture_mode": "oversized"},
+                    },
+                },
+                {
+                    "client_event_id": "evt-metadata",
+                    "sequence": 2,
+                    "event_kind": "shell_command",
+                    "summary": "Recorded command metadata without retaining output bytes.",
+                    "artifact": {"kind": "shell", "title": "pytest"},
+                    "content": {
+                        "content_kind": "metadata",
+                        "media_type": "application/json",
+                        "byte_count": 128,
+                        "metadata": command_metadata,
+                    },
+                },
+            ],
+        },
+    )
+    assert batch.status_code == 201
+    batch_body = batch.json()
+    assert batch_body["accepted_count"] == 2
+    assert batch_body["duplicate_count"] == 0
+    oversized_event = next(
+        event for event in batch_body["events"] if event["client_event_id"] == "evt-oversized"
+    )
+    metadata_event = next(
+        event for event in batch_body["events"] if event["client_event_id"] == "evt-metadata"
+    )
+    assert oversized_event["blob_id"]
+    assert metadata_event["blob_id"]
+
+    oversized_content = client.get(
+        f"/agent-context/artifacts/{oversized_event['artifact_id']}/content",
+        headers=ADMIN_HEADERS,
+    )
+    assert oversized_content.status_code == 200
+    oversized_body = oversized_content.json()
+    assert oversized_body["text"] is None
+    assert oversized_body["blob"]["content_kind"] == "text"
+    assert oversized_body["blob"]["encryption_status"] == "metadata_only"
+    assert oversized_body["blob"]["redaction_status"] == "metadata_only"
+    assert oversized_body["blob"]["byte_count"] == len(oversized_text.encode("utf-8"))
+    assert oversized_body["blob"]["token_count"] == 9
+    assert oversized_body["blob"]["metadata"] == {"capture_mode": "oversized"}
+
+    metadata_content = client.get(
+        f"/agent-context/artifacts/{metadata_event['artifact_id']}/content",
+        headers=ADMIN_HEADERS,
+    )
+    assert metadata_content.status_code == 200
+    metadata_body = metadata_content.json()
+    assert metadata_body["text"] is None
+    assert metadata_body["blob"]["content_kind"] == "metadata"
+    assert metadata_body["blob"]["encryption_status"] == "metadata_only"
+    assert metadata_body["blob"]["redaction_status"] == "metadata_only"
+    assert metadata_body["blob"]["byte_count"] == 128
+    assert metadata_body["blob"]["metadata"] == command_metadata
+    assert len(metadata_body["blob"]["checksum"]) == 64
+
+    content_backup = client.get(
+        "/backup",
+        params={"include_agent_context_content": True},
+        headers=ADMIN_HEADERS,
+    )
+    assert content_backup.status_code == 200
+    assert content_backup.json()["metadata"]["agent_context_content_blob_count"] == 0
+    assert content_backup.json()["bundle"]["agent_context_blob_contents"] == []
+    assert oversized_text not in str(content_backup.json())
+
+    with client.app.state.repository.engine.begin() as conn:
+        stored_blobs = conn.execute(db.agent_context_blobs.select()).mappings().all()
+        assert {blob["id"] for blob in stored_blobs} == {
+            oversized_event["blob_id"],
+            metadata_event["blob_id"],
+        }
+        assert all(blob["encrypted_content"] is None for blob in stored_blobs)
 
 
 def test_graph_research_creates_reviewable_proposals_and_action_gate() -> None:
@@ -831,7 +1394,7 @@ def test_phase26_action_policy_is_configurable_and_source_actions_are_scoped() -
     assert failed_run.json()["error_code"] == "source_not_found"
 
 
-def test_phase26_migrations_are_linear_through_activity_and_nervous_system_tables() -> None:
+def test_phase27_migrations_are_linear_through_activity_nervous_system_and_context_tables() -> None:
     migration_dir = Path(__file__).parents[1] / "migrations" / "versions"
     revisions: dict[str, str | None] = {}
 
@@ -846,9 +1409,10 @@ def test_phase26_migrations_are_linear_through_activity_and_nervous_system_table
     assert list(revisions.values()).count(None) == 1
     assert revisions["20260605_0008"] == "20260605_0007"
     assert revisions["20260606_0009"] == "20260605_0008"
+    assert revisions["20260614_0010"] == "20260606_0009"
 
     seen: set[str] = set()
-    current = "20260606_0009"
+    current = "20260614_0010"
     while current is not None:
         assert current not in seen
         seen.add(current)

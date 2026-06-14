@@ -28,6 +28,11 @@ export type ActionProposalId = Id<"ActionProposal">;
 export type ActionRunId = Id<"ActionRun">;
 export type OutcomeId = Id<"Outcome">;
 export type FeedbackEventId = Id<"FeedbackEvent">;
+export type AgentContextClientId = Id<"AgentContextClient">;
+export type AgentContextSessionId = Id<"AgentContextSession">;
+export type AgentContextEventId = Id<"AgentContextEvent">;
+export type AgentContextArtifactId = Id<"AgentContextArtifact">;
+export type AgentContextBlobId = Id<"AgentContextBlob">;
 
 export type SourceKind = "text" | "markdown" | "url" | "pdf" | "repository" | "ops-document";
 export type ConnectorKind = "upload" | "url" | "repository" | "google-workspace" | "notion";
@@ -51,6 +56,40 @@ export type AgentToolKind =
   | "connector_sync"
   | "graph_layout";
 export type AgentToolStatus = "pending_review" | "running" | "succeeded" | "failed" | "blocked";
+export type CaptureAuthority = "gateway" | "adapter_reported" | "passive_reconciled";
+export type RuntimeKind = "codex" | "claude-code" | "cursor" | "vscode" | "mcp" | "openai-compatible" | "generic";
+export type AgentContextSessionStatus = "running" | "completed" | "failed" | "cancelled";
+export type ContextEventKind =
+  | "session_started"
+  | "heartbeat"
+  | "file_opened"
+  | "file_read"
+  | "selection_changed"
+  | "search_performed"
+  | "shell_command"
+  | "prompt_built"
+  | "model_request"
+  | "model_response"
+  | "edit_applied"
+  | "diff_observed"
+  | "test_run"
+  | "commit_observed"
+  | "session_ended";
+export type AgentContextArtifactKind =
+  | "file"
+  | "selection"
+  | "search_result"
+  | "shell"
+  | "prompt"
+  | "model"
+  | "diff"
+  | "test"
+  | "commit"
+  | "editor"
+  | "other";
+export type AgentContextContentKind = "text" | "binary" | "metadata";
+export type AgentContextRedactionStatus = "redacted" | "not_required" | "metadata_only";
+export type AgentContextEncryptionStatus = "encrypted" | "metadata_only";
 export type ReviewWorkItemKind =
   | "new_entity"
   | "new_relation"
@@ -80,7 +119,11 @@ export type GraphObjectKind =
   | "action_proposal"
   | "action_run"
   | "outcome"
-  | "feedback";
+  | "feedback"
+  | "agent_context_client"
+  | "agent_context_session"
+  | "agent_context_event"
+  | "agent_context_artifact";
 export type GraphVisualStatus =
   | "hover"
   | "focus"
@@ -107,7 +150,11 @@ export type GraphVisualStatus =
   | "outcome_succeeded"
   | "outcome_failed"
   | "feedback_applied"
-  | "reopened";
+  | "reopened"
+  | "context_active"
+  | "context_authoritative"
+  | "context_reconciled"
+  | "context_redacted";
 export type GraphActivityEventKind =
   | "graph_hover"
   | "graph_focus"
@@ -136,7 +183,10 @@ export type GraphActivityEventKind =
   | "outcome_succeeded"
   | "outcome_failed"
   | "feedback_applied"
-  | "attention_reopened";
+  | "attention_reopened"
+  | "agent_context_started"
+  | "agent_context_event"
+  | "agent_context_ended";
 export type GraphActivityEventStatus = "queued" | "running" | "ready" | "blocked" | "succeeded" | "failed" | "cancelled";
 export type SignalKind =
   | "source_changed"
@@ -1238,6 +1288,123 @@ export interface AgentRun {
   toolCalls?: AgentToolCall[];
   generatedArtifacts?: AgentGeneratedArtifact[];
   actionProposals: AgentActionProposal[];
+}
+
+export interface AgentContextClient {
+  id: AgentContextClientId;
+  projectId: GraphProjectId;
+  displayName: string;
+  runtimeKind: RuntimeKind;
+  status: "active" | "revoked";
+  createdBy: string;
+  scopes: string[];
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt?: string;
+  revokedAt?: string;
+}
+
+export interface AgentContextSession {
+  id: AgentContextSessionId;
+  projectId: GraphProjectId;
+  clientId: AgentContextClientId;
+  runtimeKind: RuntimeKind;
+  authority: CaptureAuthority;
+  status: AgentContextSessionStatus;
+  title: string;
+  workspaceRoot?: string;
+  repositoryUri?: string;
+  branch?: string;
+  commitSha?: string;
+  metadata: Record<string, unknown>;
+  startedAt: string;
+  endedAt?: string;
+  updatedAt: string;
+}
+
+export interface AgentContextArtifact {
+  id: AgentContextArtifactId;
+  projectId: GraphProjectId;
+  sessionId: AgentContextSessionId;
+  kind: AgentContextArtifactKind;
+  uri?: string;
+  path?: string;
+  title: string;
+  contentType: string;
+  checksum?: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AgentContextBlob {
+  id: AgentContextBlobId;
+  projectId: GraphProjectId;
+  sessionId: AgentContextSessionId;
+  artifactId?: AgentContextArtifactId;
+  contentKind: AgentContextContentKind;
+  mediaType: string;
+  redactionStatus: AgentContextRedactionStatus;
+  encryptionStatus: AgentContextEncryptionStatus;
+  checksum: string;
+  byteCount: number;
+  tokenCount?: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  expiresAt?: string;
+}
+
+export interface AgentContextEvent {
+  id: AgentContextEventId;
+  projectId: GraphProjectId;
+  sessionId: AgentContextSessionId;
+  clientEventId: string;
+  sequence: number;
+  eventKind: ContextEventKind;
+  authority: CaptureAuthority;
+  status: "accepted" | "duplicate" | "rejected";
+  summary: string;
+  checksum: string;
+  artifactId?: AgentContextArtifactId;
+  blobId?: AgentContextBlobId;
+  payload: Record<string, unknown>;
+  objectRefs: GraphObjectRef[];
+  occurredAt: string;
+  receivedAt: string;
+}
+
+export interface AgentContextGraphNode {
+  id: string;
+  kind: string;
+  label: string;
+  authority?: CaptureAuthority;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentContextGraphEdge {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  relation: string;
+  observed: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface AgentContextGraph {
+  session: AgentContextSession;
+  nodes: AgentContextGraphNode[];
+  edges: AgentContextGraphEdge[];
+  artifacts: AgentContextArtifact[];
+  events: AgentContextEvent[];
+}
+
+export interface AgentContextEventBatchResult {
+  session: AgentContextSession;
+  acceptedCount: number;
+  duplicateCount: number;
+  rejectedCount: number;
+  events: AgentContextEvent[];
 }
 
 export interface GraphBuildSpec {

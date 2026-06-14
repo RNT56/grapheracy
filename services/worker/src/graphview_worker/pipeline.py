@@ -28,6 +28,9 @@ def build_stage_plan() -> list[WorkerStage]:
         WorkerStage("agent.propose", "NormalizedSourceDocument[] + AgentAnswer", "Source[] + ExtractionProposal[]", "task.id + source checksum + model"),
         WorkerStage("agent.action.await_review", "AgentRun", "AgentActionProposal[]", "agentRun.id + action payload hash"),
         WorkerStage("agent.action.apply", "AgentActionProposal + ReviewDecision", "GraphUpdate | ReviewDecision", "actionProposal.id + reviewer.id"),
+        WorkerStage("agent_context.normalize", "AgentContextEvent[]", "AgentContextArtifact[] + AgentContextBlob[]", "session.id + event sequence"),
+        WorkerStage("agent_context.enrich", "AgentContextArtifact[] + repository index", "AgentContextGraph inferred edges", "session.id + artifact checksum + repo commit"),
+        WorkerStage("agent_context.retention", "AgentContextBlob[] + retention policy", "PurgedBlob[] + retention activity", "project.id + retention window + blob expires_at"),
     ]
 
 

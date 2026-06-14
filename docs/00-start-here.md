@@ -5,8 +5,8 @@ personal knowledge workflows.
 
 ## Current Phase
 
-Phase 26 adds release hardening, lazy 3D graph loading, action-policy configuration, migration continuity checks, and
-browser QA artifact cleanup on top of the Phase 25 digital nervous system loop.
+Phase 27 adds active agent context connectors for Codex, Claude Code, MCP-compatible agents, VS Code, and Cursor on top
+of the Phase 25 digital nervous system loop and Phase 26 release-hardening gate.
 The old prototype is preserved at `../prototypes/knowledge-graph-explorer.html` as UX evidence only.
 
 ## Read Order
@@ -25,7 +25,8 @@ The old prototype is preserved at `../prototypes/knowledge-graph-explorer.html` 
 12. `10-user-journeys-and-value-map.md`
 13. `11-living-graph-ui-vision-and-upgrade-plan.md`
 14. `12-digital-nervous-system-phase25-plan.md`
-15. `../CHANGELOG.md`
+15. `13-active-agent-context-connectors.md`
+16. `../CHANGELOG.md`
 
 ## Subsystem Documentation Standard
 
@@ -49,5 +50,6 @@ Every new subsystem must document:
 - User journey and value map: `10-user-journeys-and-value-map.md`.
 - Living graph UI vision and upgrade plan: `11-living-graph-ui-vision-and-upgrade-plan.md`.
 - Digital nervous system Phase 25 plan: `12-digital-nervous-system-phase25-plan.md`.
+- Active agent context connectors: `13-active-agent-context-connectors.md`.
 - Architecture and contracts: `02-architecture.md`, `09-data-schema.md`, `../packages/shared-types/src/index.ts`,
   `../services/api/openapi.yaml`, and `../services/worker/worker-contract.md`.

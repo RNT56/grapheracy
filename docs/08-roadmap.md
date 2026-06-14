@@ -274,6 +274,25 @@ Status: complete.
   Alembic migration continuity through graph activity and digital nervous system tables.
 - Suppress only the known external Starlette TestClient deprecation in pytest output while keeping new warnings visible.
 
+## Phase 27: Active Agent Context Connectors
+
+Status: complete.
+
+- Added durable active-context clients, adapter tokens, sessions, artifacts, encrypted blobs, events, graph projections,
+  retention cleanup, and activity replay for external agent work.
+- Added capture authority labels for `gateway`, `adapter_reported`, and `passive_reconciled` so exact prompt/file reads
+  remain distinct from editor observations.
+- Added an MCP SDK-backed agent gateway package with tool metadata, Codex/Claude command aliases, file range capture,
+  prompt/model reporting, shell capture, redaction, denied-path checks, stdio server registration, and offline outbox
+  retry.
+- Added a VS Code/Cursor extension package that reports active editors, selections, visible ranges, saves, and
+  heartbeats as passive reconciliation hints.
+- Added an Active Context web workspace with session selection, timeline, authority badges, prompt/edit badges, and
+  context graph projection without promoting captured context into reviewed graph memory.
+- Added worker-stage contracts for context normalization, repository/diff/test enrichment, and retention.
+- Preserved review gates: captured context is observable evidence only until it flows through existing proposal/review
+  paths.
+
 ## Coordinator Notes
 
 - `CHANGELOG.md` and this roadmap are coordinator-owned.

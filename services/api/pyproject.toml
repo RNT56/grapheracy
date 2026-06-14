@@ -5,12 +5,13 @@ description = "Future FastAPI service for Graphview."
 requires-python = ">=3.14"
 dependencies = [
   "alembic",
+  "cryptography>=49.0.0",
   "fastapi",
   "httpx",
   "pydantic-settings",
   "pypdf",
   "sqlalchemy",
-  "uvicorn"
+  "uvicorn",
 ]
 
 [dependency-groups]

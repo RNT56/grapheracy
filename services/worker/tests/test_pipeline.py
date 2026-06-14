@@ -22,5 +22,8 @@ def test_stage_plan_is_idempotent_and_ordered() -> None:
         "agent.propose",
         "agent.action.await_review",
         "agent.action.apply",
+        "agent_context.normalize",
+        "agent_context.enrich",
+        "agent_context.retention",
     ]
     assert all(stage.idempotency_key for stage in stages)

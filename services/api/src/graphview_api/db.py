@@ -572,6 +572,111 @@ feedback_events = Table(
 )
 Index("ix_feedback_events_project_created", feedback_events.c.project_id, feedback_events.c.created_at)
 
+agent_context_clients = Table(
+    "agent_context_clients",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("display_name", String(240), nullable=False),
+    Column("runtime_kind", String(80), nullable=False),
+    Column("status", String(40), nullable=False),
+    Column("created_by", String(128), nullable=False),
+    Column("token_hash", String(128), nullable=False),
+    Column("scopes_json", Text(), nullable=False),
+    Column("settings_json", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("last_seen_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+)
+Index("ix_agent_context_clients_project_runtime", agent_context_clients.c.project_id, agent_context_clients.c.runtime_kind)
+
+agent_context_sessions = Table(
+    "agent_context_sessions",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("client_id", String(64), ForeignKey("agent_context_clients.id"), nullable=False, index=True),
+    Column("runtime_kind", String(80), nullable=False),
+    Column("authority", String(40), nullable=False),
+    Column("status", String(40), nullable=False),
+    Column("title", String(240), nullable=False),
+    Column("workspace_root", Text(), nullable=True),
+    Column("repository_uri", Text(), nullable=True),
+    Column("branch", String(240), nullable=True),
+    Column("commit_sha", String(80), nullable=True),
+    Column("metadata_json", Text(), nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("ended_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+Index("ix_agent_context_sessions_project_updated", agent_context_sessions.c.project_id, agent_context_sessions.c.updated_at)
+Index("ix_agent_context_sessions_client_started", agent_context_sessions.c.client_id, agent_context_sessions.c.started_at)
+
+agent_context_artifacts = Table(
+    "agent_context_artifacts",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("session_id", String(64), ForeignKey("agent_context_sessions.id"), nullable=False, index=True),
+    Column("kind", String(80), nullable=False),
+    Column("uri", Text(), nullable=True),
+    Column("path", Text(), nullable=True),
+    Column("title", String(240), nullable=False),
+    Column("content_type", String(80), nullable=False),
+    Column("checksum", String(128), nullable=True),
+    Column("metadata_json", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+Index("ix_agent_context_artifacts_session_kind", agent_context_artifacts.c.session_id, agent_context_artifacts.c.kind)
+
+agent_context_blobs = Table(
+    "agent_context_blobs",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("session_id", String(64), ForeignKey("agent_context_sessions.id"), nullable=False, index=True),
+    Column("artifact_id", String(64), ForeignKey("agent_context_artifacts.id"), nullable=True, index=True),
+    Column("content_kind", String(40), nullable=False),
+    Column("media_type", String(120), nullable=False),
+    Column("redaction_status", String(40), nullable=False),
+    Column("encryption_status", String(40), nullable=False),
+    Column("checksum", String(128), nullable=False),
+    Column("byte_count", Integer(), nullable=False),
+    Column("token_count", Integer(), nullable=True),
+    Column("encrypted_content", Text(), nullable=True),
+    Column("metadata_json", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+)
+Index("ix_agent_context_blobs_project_expires", agent_context_blobs.c.project_id, agent_context_blobs.c.expires_at)
+
+agent_context_events = Table(
+    "agent_context_events",
+    metadata,
+    Column("id", String(64), primary_key=True),
+    Column("project_id", String(64), ForeignKey("graph_projects.id"), nullable=False, index=True),
+    Column("session_id", String(64), ForeignKey("agent_context_sessions.id"), nullable=False, index=True),
+    Column("client_event_id", String(160), nullable=False),
+    Column("sequence", Integer(), nullable=False),
+    Column("event_kind", String(80), nullable=False),
+    Column("authority", String(40), nullable=False),
+    Column("status", String(40), nullable=False),
+    Column("summary", Text(), nullable=False),
+    Column("checksum", String(128), nullable=False),
+    Column("artifact_id", String(64), ForeignKey("agent_context_artifacts.id"), nullable=True, index=True),
+    Column("blob_id", String(64), ForeignKey("agent_context_blobs.id"), nullable=True, index=True),
+    Column("payload_json", Text(), nullable=False),
+    Column("object_refs_json", Text(), nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("received_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint("session_id", "client_event_id", name="uq_agent_context_events_session_client_event"),
+    UniqueConstraint("session_id", "sequence", name="uq_agent_context_events_session_sequence"),
+)
+Index("ix_agent_context_events_session_sequence", agent_context_events.c.session_id, agent_context_events.c.sequence)
+Index("ix_agent_context_events_project_received", agent_context_events.c.project_id, agent_context_events.c.received_at)
+
 graph_activity_events = Table(
     "graph_activity_events",
     metadata,

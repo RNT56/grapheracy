@@ -19,7 +19,7 @@ Install dependencies and run the current local acceptance gate:
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase26:check
+pnpm run phase27:check
 ```
 
 ## Root Commands
@@ -35,7 +35,7 @@ pnpm run phase26:check
 | `pnpm run security:audit` | Runnable after install | Run pnpm audit at moderate severity. |
 | `pnpm run security:signatures` | CI gate | Verify npm registry signatures where package metadata supports it. |
 | `pnpm run security:osv` | CI gate | Run OSV-Scanner against the source tree and lockfiles. |
-| `pnpm run security:secrets` | CI gate | Run gitleaks secret scanning. |
+| `pnpm run security:secrets` | CI gate | Run Gitleaks secret scanning with an installed binary or Go module fallback. |
 | `pnpm run typecheck` | Runnable placeholder | Runs package type checks as implementations appear. |
 | `pnpm run test` | Runnable placeholder | Runs package tests as implementations appear. |
 | `pnpm run phase1:check` | Runnable | Runs the local Phase 1 acceptance checks. |
@@ -64,10 +64,14 @@ pnpm run phase26:check
 | `pnpm run phase24:check` | Runnable | Runs living graph source contracts, Playwright browser QA, release readiness validation, and the web build. |
 | `pnpm run phase25:check` | Runnable | Runs digital nervous system checks, web build, and browser graph QA. |
 | `pnpm run phase26:check` | Runnable | Runs release hardening checks, web build, browser graph QA, and artifact cleanup. |
+| `pnpm run phase27:smoke` | Runnable | Starts a temporary local API and verifies active context token normalization, gateway capture, checksums, redaction, content permissions, graph projection, and `end-session` PATCH behavior. |
+| `pnpm run phase27:check` | Runnable | Runs active agent context connector checks, web build, browser graph QA, and artifact cleanup. |
 | `pnpm run release:check` | Runnable | Validates release readiness docs, commands, mode discovery, lineage, insights, neighborhoods, paths, review worklists, review dashboards, review activity, source review coverage, full graph workspace, backup/restore, and observability references. |
 | `pnpm --filter @graphview/web dev` | Runnable | Starts the Vite web app on `127.0.0.1:5173`. |
 | `pnpm --filter @graphview/api-contract dev` | Runnable | Starts the FastAPI service on `127.0.0.1:8000`. |
 | `pnpm --filter @graphview/worker-contract dev` | Runnable | Runs the worker scaffold and prints the stage plan. |
+| `pnpm --filter @graphview/agent-gateway test` | Runnable | Tests the local agent context gateway, MCP-compatible manifest, redaction, and outbox behavior. |
+| `pnpm --filter @graphview/vscode-extension test` | Runnable | Tests the VS Code/Cursor passive reconciliation adapter mapping. |
 | `pnpm --filter @graphview/web test:browser` | Runnable | Runs browser smoke tests for nonblank 2D/3D graph rendering and tooltip URL behavior. |
 
 ## Environment Variables

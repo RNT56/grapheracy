@@ -23,10 +23,27 @@
 19. Verify `POST /agent-runs/{agent_run_id}/approve-action` is the only AI endpoint that applies an action proposal.
 20. Verify the web app shows Planning Mode, embedded graph AI command controls, citation drawer, research status, and
     action approval sheet without compact-control overflow.
-21. Run `pnpm run phase22:check`.
-22. Run `pnpm run release:check`.
-23. Run full CI security gates.
-24. Generate SBOMs for app, API, and worker images.
-25. Confirm no release-blocking security criteria in `../../SECURITY.md`.
-26. Confirm runtime image users are non-root.
-27. Tag release after coordinator approval.
+21. Verify `POST /agent-context/clients` returns a one-time redacted `gvctx_...` adapter token for maintainers.
+22. Verify `POST /agent-context/sessions`, `PATCH /agent-context/sessions/{session_id}`, and
+    `POST /agent-context/events/batch` accept capture-only bearer tokens, normalize requested scopes to
+    `context:capture`, and reject normal UI credentials.
+23. Verify `GET /agent-context/sessions`, `GET /agent-context/sessions/{session_id}/events`, and
+    `GET /agent-context/sessions/{session_id}/graph` expose authority-labeled context timelines and graph projections.
+24. Verify event batch responses and session event reads include API-generated checksums for accepted events.
+25. Verify `GET /agent-context/artifacts/{artifact_id}/content` requires maintainer permission and never returns raw
+    adapter tokens, provider keys, private keys, or unredacted command environments.
+26. Verify `GET /agent-context/sessions/{session_id}/stream` replays context events as SSE frames.
+27. Verify `POST /agent-context/retention/run` purges expired encrypted blobs while preserving metadata audit records.
+28. Verify `GET /backup` omits active-context encrypted content by default and
+    `GET /backup?include_agent_context_content=true` includes encrypted blob envelopes only when explicitly requested.
+29. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
+    conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
+30. Run `pnpm run phase22:check` only when comparing against the historical AI V1 baseline.
+31. Run `pnpm run phase27:smoke`.
+32. Run `pnpm run phase27:check`.
+33. Run `pnpm run release:check`.
+34. Run full CI security gates.
+35. Generate SBOMs for app, API, worker, gateway, and extension packages.
+36. Confirm no release-blocking security criteria in `../../SECURITY.md`.
+37. Confirm runtime image users are non-root.
+38. Tag release after coordinator approval.
