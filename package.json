@@ -34,9 +34,10 @@
     "test:e2e": "pnpm --filter @graphview/web test:browser",
     "test:performance": "node --experimental-strip-types scripts/check-performance-contract.mjs",
     "test:performance:live": "uv run --package graphview-api python scripts/benchmark-viewport.py",
+    "test:deployment": "bash scripts/check-helm.sh",
     "security:full": "pnpm run security:local && pnpm run security:licenses && pnpm run security:audit && pnpm run security:osv && pnpm run security:secrets && pnpm run security:signatures",
     "quality:full": "pnpm run clean:artifacts && pnpm run quality:fast && pnpm run test:smoke && pnpm run test:integration && pnpm run test:e2e && pnpm run test:performance && pnpm run clean:artifacts",
-    "release:verify": "pnpm run quality:full && pnpm run security:full",
+    "release:verify": "pnpm run quality:full && pnpm run security:full && pnpm run test:deployment",
     "test:smoke": "node scripts/phase27-smoke.mjs",
     "docs:check": "node scripts/run-local-checks.mjs doc-links doc-freshness"
   },

@@ -5,7 +5,7 @@ kind: PodDisruptionBudget
 metadata: { name: {{ $.Release.Name }}-{{ $name }} }
 spec:
   minAvailable: 1
-  selector: { matchLabels: { app.kubernetes.io/name: graphview-{{ $name }} } }
+  selector: { matchLabels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/instance: {{ $.Release.Name }} } }
 {{- end }}
 {{- if .Values.autoscaling.enabled }}
 {{- range $name := list "api" "worker" }}

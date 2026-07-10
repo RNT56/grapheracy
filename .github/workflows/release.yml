@@ -21,6 +21,9 @@ jobs:
           - { service: web, dockerfile: infra/docker/web.Dockerfile }
           - { service: worker, dockerfile: infra/docker/worker.Dockerfile }
           - { service: ops, dockerfile: infra/docker/ops.Dockerfile }
+          - { service: keycloak, dockerfile: infra/docker/keycloak.Dockerfile }
+          - { service: clamav, dockerfile: infra/docker/clamav.Dockerfile }
+          - { service: minio, dockerfile: infra/docker/minio.Dockerfile }
     steps:
       - uses: actions/checkout@v5
       - uses: docker/login-action@v3

@@ -32,6 +32,7 @@ resources:
 
 ingress:
   enabled: true
+  controllerNamespace: ingress-nginx
   className: nginx
   annotations: {}
   host: graphview.example.invalid
@@ -47,49 +48,82 @@ backup:
   schedule: "17 2 * * *"
   image: ghcr.io/example/graphview-ops:1.0.0
   retentionDays: 30
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
 
-postgresql:
+migration:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+database:
   enabled: true
-  image:
-    repository: pgvector/pgvector
-    tag: pg18
+  image: pgvector/pgvector:pg18
   auth:
     username: graphview
     database: graphview
     existingSecret: graphview-runtime
-    secretKeys: { userPasswordKey: POSTGRES_PASSWORD }
-  primary:
-    persistence: { enabled: true, size: 100Gi }
+    passwordKey: POSTGRES_PASSWORD
+  persistence: { enabled: true, size: 100Gi, storageClassName: "" }
 
 redis:
   enabled: true
-  architecture: replication
-  auth: { enabled: false }
-  master: { persistence: { enabled: true, size: 20Gi } }
+  image: redis:8.2.3-alpine
+  auth:
+    existingSecret: graphview-runtime
+    passwordKey: REDIS_PASSWORD
+  persistence: { enabled: true, size: 20Gi, storageClassName: "" }
 
 minio:
   enabled: true
+  image: ghcr.io/example/graphview-minio:1.0.0
+  clientImage: minio/mc:RELEASE.2025-08-13T08-35-41Z
   auth:
     existingSecret: graphview-runtime
-    rootUserSecretKey: MINIO_ROOT_USER
-    rootPasswordSecretKey: MINIO_ROOT_PASSWORD
-  defaultBuckets: graphview
-  persistence: { enabled: true, size: 250Gi }
+    rootUserKey: MINIO_ROOT_USER
+    rootPasswordKey: MINIO_ROOT_PASSWORD
+  persistence: { enabled: true, size: 250Gi, storageClassName: "" }
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 4Gi }
 
 keycloak:
   enabled: true
+  image: ghcr.io/example/graphview-keycloak:1.0.0
+  replicas: 1
+  realmConfigMapName: graphview-keycloak-realm
   auth:
     existingSecret: graphview-runtime
     adminUser: admin
-    passwordSecretKey: KEYCLOAK_ADMIN_PASSWORD
-  production: true
-  proxyHeaders: xforwarded
-  extraEnvVars:
-    - { name: KC_HTTP_RELATIVE_PATH, value: /identity }
+    adminPasswordKey: KEYCLOAK_ADMIN_PASSWORD
+    serviceClientSecretKey: GRAPHVIEW_SERVICE_CLIENT_SECRET
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "2", memory: 2Gi }
+
+clamav:
+  enabled: true
+  image: ghcr.io/example/graphview-clamav:1.0.0
+  persistence: { enabled: true, size: 5Gi, storageClassName: "" }
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
 
 vault:
   enabled: true
+  injector: { enabled: false }
   server:
+    networkPolicy: { enabled: false }
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    statefulSet:
+      securityContext:
+        pod: { runAsNonRoot: true, runAsUser: 100, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+        container: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+    volumes: [{ name: tmp, emptyDir: {} }]
+    volumeMounts: [{ name: tmp, mountPath: /tmp }]
     dev:
       enabled: true
       devRootToken: graphview-reference-only

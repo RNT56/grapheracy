@@ -80,3 +80,16 @@ jobs:
       - run: bash scripts/test-postgres-migrations.sh
         env:
           GRAPHVIEW_DATABASE_URL: postgresql+psycopg://graphview:graphview-ci@127.0.0.1:5432/graphview
+
+  deployment-manifests:
+    name: Helm schema and security gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with: { version: v4.2.3 }
+      - run: helm dependency list infra/helm/graphview | grep -Eq '^vault[[:space:]]+0\.34\.0[[:space:]].*[[:space:]]ok[[:space:]]*$' && helm lint --strict infra/helm/graphview && helm template graphview infra/helm/graphview --namespace graphview --skip-tests > graphview-rendered.yaml
+      - name: Kubernetes schema validation
+        run: docker run --rm -v "$PWD:/work" ghcr.io/yannh/kubeconform:v0.8.0 -strict -summary -kubernetes-version 1.35.0 /work/graphview-rendered.yaml
+      - name: Manifest security scan
+        run: docker run --rm -v "$PWD:/work" aquasec/trivy:0.71.0 config --skip-version-check --severity HIGH,CRITICAL --exit-code 1 /work/graphview-rendered.yaml

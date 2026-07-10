@@ -34,7 +34,8 @@ class AiRuntime:
             raise KeyError(session_id)
         provider = self.provider_registry().resolve(payload.provider or session.get("provider"), payload.model or session.get("model"))
         context = self.repository.graph_query_context(
-            GraphQueryCreate(question=f"{session['goal']}\n{payload.content}", graph_id=session.get("graph_id"), lens=session["lens"])
+            GraphQueryCreate(question=f"{session['goal']}\n{payload.content}", graph_id=session.get("graph_id"), lens=session["lens"]),
+            actor_id=actor_id,
         )
         response = await provider.complete(
             system="Create a concise cited Graphview planning response and graph build spec. Graph mutations remain review-gated.",
@@ -96,7 +97,7 @@ class AiRuntime:
         )
 
     async def graph_query(self, payload: GraphQueryCreate, *, actor_id: str) -> dict:
-        context = self.repository.graph_query_context(payload)
+        context = self.repository.graph_query_context(payload, actor_id=actor_id)
         if not context["citations"]:
             raise ValueError("Graph answer blocked because no supporting citations were retrieved")
         provider = self.provider_registry().resolve(payload.provider, payload.model)
@@ -125,7 +126,15 @@ class AiRuntime:
 
     async def research(self, payload: GraphResearchCreate, *, actor_id: str) -> dict:
         context = self.repository.graph_query_context(
-            GraphQueryCreate(question=payload.query, graph_id=payload.graph_id, lens=payload.lens)
+            GraphQueryCreate(
+                question=payload.query,
+                graph_id=payload.graph_id,
+                lens=payload.lens,
+                node_id=payload.node_id,
+                source_id=payload.source_id,
+                source_chunk_id=payload.source_chunk_id,
+            ),
+            actor_id=actor_id,
         )
         if not context["citations"]:
             raise ValueError("Research blocked because no supporting citations were retrieved")

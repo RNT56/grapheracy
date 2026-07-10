@@ -5164,6 +5164,8 @@ export interface components {
             node_id?: string | null;
             /** Source Id */
             source_id?: string | null;
+            /** Source Chunk Id */
+            source_chunk_id?: string | null;
             /** Provider */
             provider?: string | null;
             /** Model */
@@ -5181,6 +5183,12 @@ export interface components {
              * @enum {string}
              */
             lens: "all" | "research" | "engineering" | "ops";
+            /** Node Id */
+            node_id?: string | null;
+            /** Source Id */
+            source_id?: string | null;
+            /** Source Chunk Id */
+            source_chunk_id?: string | null;
             /** Provider */
             provider?: string | null;
             /** Model */

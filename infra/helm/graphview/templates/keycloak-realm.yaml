@@ -1,0 +1,10 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.keycloak.realmConfigMapName }}
+  labels: { app.kubernetes.io/part-of: graphview }
+data:
+  graphview-realm.json: |
+{{ tpl (.Files.Get "files/graphview-realm.json") . | indent 4 }}
+{{- end }}

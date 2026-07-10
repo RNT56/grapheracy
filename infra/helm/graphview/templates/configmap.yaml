@@ -6,16 +6,17 @@ metadata:
 data:
   GRAPHVIEW_ENVIRONMENT: production
   GRAPHVIEW_OIDC_ISSUER_URL: {{ .Values.oidcIssuerUrl | quote }}
+  GRAPHVIEW_OIDC_BACKCHANNEL_URL: http://keycloak:8080/identity/realms/graphview
   GRAPHVIEW_OIDC_CLIENT_ID: graphview-web
   GRAPHVIEW_OIDC_REDIRECT_URI: {{ printf "%s/api/v1/auth/callback" .Values.publicUrl | quote }}
-  GRAPHVIEW_SECRET_PROVIDER: vault
+  GRAPHVIEW_CORS_ORIGINS: {{ printf "[\"%s\"]" .Values.publicUrl | quote }}
   GRAPHVIEW_VAULT_ADDRESS: {{ printf "http://%s-vault:8200" .Release.Name | quote }}
   GRAPHVIEW_OBJECT_STORE_PROVIDER: s3
   GRAPHVIEW_S3_ENDPOINT_URL: {{ printf "http://%s-minio:9000" .Release.Name | quote }}
   GRAPHVIEW_S3_BUCKET: graphview
+  GRAPHVIEW_MALWARE_SCAN_CLAMD_HOST: {{ printf "%s-clamav" .Release.Name | quote }}
   GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otelEndpoint | quote }}
   GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS: {{ join "," .Values.outboundAllowedHosts | quote }}
   PGHOST: {{ printf "%s-postgresql" .Release.Name | quote }}
-  PGUSER: {{ .Values.postgresql.auth.username | quote }}
-  PGDATABASE: {{ .Values.postgresql.auth.database | quote }}
-  REDIS_URL: {{ printf "redis://%s-redis-master:6379/0" .Release.Name | quote }}
+  PGUSER: {{ .Values.database.auth.username | quote }}
+  PGDATABASE: {{ .Values.database.auth.database | quote }}

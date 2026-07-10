@@ -9,7 +9,11 @@ ENV VITE_GRAPHVIEW_API_BASE_URL=${VITE_GRAPHVIEW_API_BASE_URL}
 RUN pnpm install --frozen-lockfile && pnpm --filter @graphview/web build
 
 FROM nginxinc/nginx-unprivileged:1.29.5-alpine AS runtime
-COPY infra/docker/nginx.conf /etc/nginx/conf.d/default.conf
+ENV NGINX_ENVSUBST_FILTER="GRAPHVIEW_DNS_RESOLVER|GRAPHVIEW_API_UPSTREAM_HOST|GRAPHVIEW_IDENTITY_UPSTREAM_HOST" \
+    GRAPHVIEW_API_UPSTREAM_HOST=api \
+    GRAPHVIEW_IDENTITY_UPSTREAM_HOST=keycloak
+COPY infra/docker/nginx.conf /etc/nginx/templates/default.conf.template
+COPY --chmod=755 infra/docker/05-graphview-resolver.envsh /docker-entrypoint.d/05-graphview-resolver.envsh
 COPY --from=build --chown=101:101 /app/apps/web/dist /usr/share/nginx/html
 USER 101:101
 EXPOSE 8080

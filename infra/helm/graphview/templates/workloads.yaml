@@ -8,13 +8,48 @@ metadata:
 spec:
   replicas: {{ index $.Values.replicas $name }}
   selector:
-    matchLabels: { app.kubernetes.io/name: graphview-{{ $name }} }
+    matchLabels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/instance: {{ $.Release.Name }} }
   template:
     metadata:
-      labels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/part-of: graphview }
+      labels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/part-of: graphview, app.kubernetes.io/instance: {{ $.Release.Name }} }
     spec:
       automountServiceAccountToken: false
-      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+        {{- if eq $name "web" }}
+        fsGroup: 101
+        {{- end }}
+      {{- if ne $name "web" }}
+      initContainers:
+        - name: wait-for-migrations
+          image: {{ $.Values.image.api | quote }}
+          command: [/bin/sh, -ec]
+          args: ['until alembic -c services/api/alembic.ini current --check-heads; do sleep 2; done']
+          envFrom:
+            - configMapRef: { name: {{ $.Release.Name }}-config }
+            - secretRef: { name: {{ $.Values.runtimeSecretName }} }
+          env:
+{{ include "graphview.runtimeEnv" $ | nindent 12 }}
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 250m, memory: 256Mi } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+        {{- if $.Values.minio.enabled }}
+        - name: ensure-object-bucket
+          image: {{ $.Values.minio.clientImage | quote }}
+          command: [/bin/sh, -ec]
+          args: ['until mc alias set graphview http://{{ $.Release.Name }}-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done; mc mb --ignore-existing graphview/graphview']
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: {{ $.Values.runtimeSecretName }}, key: MINIO_ROOT_USER } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $.Values.runtimeSecretName }}, key: MINIO_ROOT_PASSWORD } }
+            - { name: HOME, value: /tmp }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 250m, memory: 256Mi } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+        {{- end }}
+      {{- end }}
       containers:
         - name: {{ $name }}
           image: {{ index $.Values.image $name | quote }}
@@ -25,11 +60,23 @@ spec:
             capabilities: { drop: [ALL] }
           envFrom:
             - configMapRef: { name: {{ $.Release.Name }}-config }
+            {{- if ne $name "web" }}
             - secretRef: { name: {{ $.Values.runtimeSecretName }} }
+            {{- end }}
+          {{- if eq $name "web" }}
+          env:
+            - { name: GRAPHVIEW_API_UPSTREAM_HOST, value: {{ printf "api.%s.svc.cluster.local" $.Release.Namespace | quote }} }
+            - { name: GRAPHVIEW_IDENTITY_UPSTREAM_HOST, value: {{ printf "keycloak.%s.svc.cluster.local" $.Release.Namespace | quote }} }
+          {{- end }}
+          {{- if ne $name "web" }}
+          env:
+{{ include "graphview.runtimeEnv" $ | nindent 12 }}
+          {{- end }}
           resources: {{ toYaml (index $.Values.resources $name) | nindent 12 }}
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
           {{- if eq $name "web" }}
+            - { name: nginx-conf, mountPath: /etc/nginx/conf.d }
           ports: [{ name: http, containerPort: 8080 }]
           readinessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 5, periodSeconds: 10 }
           livenessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 15, periodSeconds: 20 }
@@ -41,18 +88,29 @@ spec:
       volumes:
         - name: tmp
           emptyDir: { sizeLimit: 1Gi }
+        {{- if eq $name "web" }}
+        - name: nginx-conf
+          emptyDir: { sizeLimit: 16Mi }
+        {{- end }}
 {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: {{ .Release.Name }}-web }
 spec:
-  selector: { app.kubernetes.io/name: graphview-web }
+  selector: { app.kubernetes.io/name: graphview-web, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ name: http, port: 8080, targetPort: http }]
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: {{ .Release.Name }}-api }
 spec:
-  selector: { app.kubernetes.io/name: graphview-api }
+  selector: { app.kubernetes.io/name: graphview-api, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ name: http, port: 8000, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api }
+spec:
+  selector: { app.kubernetes.io/name: graphview-api, app.kubernetes.io/instance: {{ .Release.Name }} }
   ports: [{ name: http, port: 8000, targetPort: http }]

@@ -1142,37 +1142,126 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
     def graph_query_context(
         self,
         payload: GraphQueryCreate,
+        *,
+        actor_id: str | None = None,
     ) -> dict:
-        project, nodes, edges = self.graph(payload.graph_id, payload.lens)
-        sources = self.list_sources(query=payload.question, graph_id=payload.graph_id)
-        search_results = self.search(payload.question, payload.graph_id)
-        selected_nodes = []
-        if payload.node_id:
-            selected_nodes = [node for node in nodes if node["id"] == payload.node_id]
-        selected_nodes.extend(search_results.get("nodes", [])[:4])
-        selected_source_ids = {payload.source_id} if payload.source_id else set()
-        selected_source_ids.update(source["id"] for source in sources[:4])
-        for node in selected_nodes:
-            for item in node.get("provenance", []):
-                source_id = item.get("sourceId")
-                if source_id:
-                    selected_source_ids.add(source_id)
-        chunks = [
-            chunk
-            for source_id in selected_source_ids
-            for chunk in self.list_source_chunks(source_id=source_id, graph_id=payload.graph_id)
-        ][:8]
-        citations = self._agent_citations_from_context(
-            nodes=selected_nodes,
-            sources=[source for source in self.list_sources(graph_id=payload.graph_id) if source["id"] in selected_source_ids],
-            chunks=chunks,
-        )
+        spec = self._graph_view_spec(payload.graph_id)
+        from graphview_api.repository_retrieval import RetrievalMatcher
+
+        retrieval = RetrievalMatcher(self)
+        with self.engine.begin() as conn:
+            project = dict(
+                conn.execute(
+                    select(db.graph_projects).where(db.graph_projects.c.id == spec.project_id)
+                ).mappings().one()
+            )
+            if self.engine.dialect.name == "postgresql":
+                matches = retrieval.postgres(conn, spec=spec, payload=payload)
+            else:
+                matches = retrieval.portable(conn, spec=spec, payload=payload)
+
+            node_ids = [match["id"] for match in matches if match["kind"] == "node"]
+            source_ids = {match["source_id"] for match in matches if match.get("source_id")}
+            chunk_ids = [match["id"] for match in matches if match["kind"] == "chunk"]
+            if payload.node_id and payload.node_id not in node_ids:
+                node_ids.insert(0, payload.node_id)
+            if payload.source_id:
+                source_ids.add(payload.source_id)
+            if payload.source_chunk_id and payload.source_chunk_id not in chunk_ids:
+                chunk_ids.insert(0, payload.source_chunk_id)
+
+            node_stmt = select(db.content_nodes).where(db.content_nodes.c.project_id == spec.project_id)
+            node_stmt = node_stmt.where(db.content_nodes.c.id.in_(node_ids[:12])) if node_ids else node_stmt.where(False)
+            selected_nodes = [self._node_from_row(row) for row in conn.execute(node_stmt).mappings()]
+            selected_nodes.sort(key=lambda item: node_ids.index(item["id"]) if item["id"] in node_ids else len(node_ids))
+            if normalize_graph_lens(payload.lens) != "all":
+                selected_nodes = [node for node in selected_nodes if self._node_matches_lens(node, normalize_graph_lens(payload.lens))]
+            for node in selected_nodes:
+                source_ids.update(
+                    item["sourceId"]
+                    for item in node.get("provenance", [])
+                    if item.get("sourceId")
+                )
+
+            allowed_source_ids = set(spec.source_ids) if spec.source_ids else None
+            if allowed_source_ids is not None:
+                source_ids.intersection_update(allowed_source_ids)
+            source_stmt = select(db.sources).where(db.sources.c.project_id == spec.project_id)
+            source_stmt = source_stmt.where(db.sources.c.id.in_(source_ids)) if source_ids else source_stmt.where(False)
+            sources = [self._source_from_row(row) for row in conn.execute(source_stmt).mappings()]
+            sources.sort(key=lambda item: next((index for index, match in enumerate(matches) if match.get("source_id") == item["id"]), len(matches)))
+
+            chunk_stmt = select(db.source_chunks).where(db.source_chunks.c.project_id == spec.project_id)
+            chunk_stmt = chunk_stmt.where(db.source_chunks.c.id.in_(chunk_ids[:12])) if chunk_ids else chunk_stmt.where(False)
+            chunks = [self._source_chunk_from_row(row) for row in conn.execute(chunk_stmt).mappings()]
+            chunks.sort(key=lambda item: chunk_ids.index(item["id"]) if item["id"] in chunk_ids else len(chunk_ids))
+            chunk_source_ids = {chunk["source_id"] for chunk in chunks}
+            for source in sources:
+                if source["id"] in chunk_source_ids or len(chunks) >= 8:
+                    continue
+                fallback_chunks = conn.execute(
+                    select(db.source_chunks)
+                    .where(
+                        and_(
+                            db.source_chunks.c.project_id == spec.project_id,
+                            db.source_chunks.c.source_id == source["id"],
+                        )
+                    )
+                    .order_by(db.source_chunks.c.ordinal, db.source_chunks.c.id)
+                    .limit(2)
+                ).mappings()
+                chunks.extend(self._source_chunk_from_row(row) for row in fallback_chunks)
+
+            selected_node_ids = [node["id"] for node in selected_nodes]
+            edge_stmt = select(db.semantic_edges).where(db.semantic_edges.c.project_id == spec.project_id)
+            if selected_node_ids:
+                edge_stmt = edge_stmt.where(
+                    or_(
+                        db.semantic_edges.c.source_node_id.in_(selected_node_ids),
+                        db.semantic_edges.c.target_node_id.in_(selected_node_ids),
+                    )
+                ).limit(8)
+                edges = [self._edge_from_row(row) for row in conn.execute(edge_stmt).mappings()]
+            else:
+                edges = []
+
+            timestamp = now()
+            conn.execute(
+                insert(db.audit_events).values(
+                    id=new_id("audit"),
+                    project_id=spec.project_id,
+                    actor_id=actor_id,
+                    action="ai.retrieval",
+                    resource_type="graph",
+                    resource_id=spec.id,
+                    outcome="succeeded",
+                    summary=f"Retrieved {len(matches)} bounded graph anchors for cited AI context.",
+                    metadata_json=dump_json(
+                        {
+                            "query_sha256": hashlib.sha256(payload.question.encode("utf-8")).hexdigest(),
+                            "lens": payload.lens,
+                            "node_id": payload.node_id,
+                            "source_id": payload.source_id,
+                            "source_chunk_id": payload.source_chunk_id,
+                            "match_count": len(matches),
+                            "citation_candidate_count": len(selected_nodes) + len(chunks),
+                        }
+                    ),
+                    trace_id=new_id("trace"),
+                    occurred_at=timestamp,
+                )
+            )
+
+        chunks = chunks[:8]
+        sources = sources[:6]
+        selected_nodes = selected_nodes[:6]
+        citations = self._agent_citations_from_context(nodes=selected_nodes, sources=sources, chunks=chunks)
         return {
             "project": project,
             "question": payload.question,
-            "nodes": selected_nodes[:6],
-            "edges": edges[:8],
-            "sources": [source for source in self.list_sources(graph_id=payload.graph_id) if source["id"] in selected_source_ids][:6],
+            "nodes": selected_nodes,
+            "edges": edges,
+            "sources": sources,
             "chunks": chunks,
             "citations": citations,
         }

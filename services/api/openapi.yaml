@@ -24487,6 +24487,17 @@
             ],
             "title": "Source Id"
           },
+          "source_chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Chunk Id"
+          },
           "provider": {
             "anyOf": [
               {
@@ -24544,6 +24555,39 @@
             ],
             "title": "Lens",
             "default": "all"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_chunk_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Chunk Id"
           },
           "provider": {
             "anyOf": [

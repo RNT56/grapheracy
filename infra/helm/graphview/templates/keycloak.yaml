@@ -1,0 +1,73 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-keycloak, labels: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} } }
+spec:
+  selector: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ name: http, port: 80, targetPort: http }, { name: management, port: 9000, targetPort: management }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: keycloak, labels: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} } }
+spec:
+  selector: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: {{ .Release.Name }}-keycloak, labels: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} } }
+spec:
+  replicas: {{ .Values.keycloak.replicas }}
+  selector: { matchLabels: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/instance: {{ .Release.Name }} } }
+  template:
+    metadata: { labels: { app.kubernetes.io/name: graphview-keycloak, app.kubernetes.io/part-of: graphview, app.kubernetes.io/instance: {{ .Release.Name }} } }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+      initContainers:
+        - name: initialize-keycloak-schema
+          image: {{ .Values.database.image | quote }}
+          command: [/bin/sh, -ec]
+          args: ['until pg_isready; do sleep 2; done; psql --set ON_ERROR_STOP=1 --command="CREATE SCHEMA IF NOT EXISTS keycloak AUTHORIZATION {{ .Values.database.auth.username }}"']
+          env:
+            - { name: PGHOST, value: {{ printf "%s-postgresql" .Release.Name | quote }} }
+            - { name: PGUSER, value: {{ .Values.database.auth.username | quote }} }
+            - { name: PGDATABASE, value: {{ .Values.database.auth.database | quote }} }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.auth.existingSecret }}, key: {{ .Values.database.auth.passwordKey }} } }
+          resources: { requests: { cpu: 25m, memory: 64Mi }, limits: { cpu: 250m, memory: 256Mi } }
+          securityContext: { runAsNonRoot: true, runAsUser: 999, runAsGroup: 999, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      containers:
+        - name: keycloak
+          image: {{ .Values.keycloak.image | quote }}
+          args: [start, --optimized, --import-realm, --http-enabled=true]
+          env:
+            - { name: KC_DB_URL, value: {{ printf "jdbc:postgresql://%s-postgresql:5432/%s" .Release.Name .Values.database.auth.database | quote }} }
+            - { name: KC_DB_USERNAME, value: {{ .Values.database.auth.username | quote }} }
+            - name: KC_DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.auth.existingSecret }}, key: {{ .Values.database.auth.passwordKey }} } }
+            - { name: KC_DB_SCHEMA, value: keycloak }
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: {{ .Values.keycloak.auth.adminUser | quote }} }
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.keycloak.auth.existingSecret }}, key: {{ .Values.keycloak.auth.adminPasswordKey }} } }
+            - { name: KC_HOSTNAME, value: {{ printf "%s/identity" .Values.publicUrl | quote }} }
+            - { name: KC_HTTP_RELATIVE_PATH, value: /identity }
+            - { name: KC_PROXY_HEADERS, value: xforwarded }
+            - { name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true" }
+            - name: GRAPHVIEW_SERVICE_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ .Values.keycloak.auth.existingSecret }}, key: {{ .Values.keycloak.auth.serviceClientSecretKey }} } }
+          ports: [{ name: http, containerPort: 8080 }, { name: management, containerPort: 9000 }]
+          readinessProbe: { httpGet: { path: /identity/health/ready, port: management }, initialDelaySeconds: 15, periodSeconds: 10, failureThreshold: 30 }
+          livenessProbe: { httpGet: { path: /identity/health/live, port: management }, initialDelaySeconds: 45, periodSeconds: 20 }
+          resources: {{ toYaml .Values.keycloak.resources | nindent 12 }}
+          securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          volumeMounts:
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+            - { name: data, mountPath: /opt/keycloak/data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: realm, configMap: { name: {{ .Values.keycloak.realmConfigMapName }} } }
+        - { name: data, emptyDir: { sizeLimit: 1Gi } }
+        - { name: tmp, emptyDir: { sizeLimit: 1Gi } }
+{{- end }}

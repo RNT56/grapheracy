@@ -234,7 +234,7 @@ def test_v1_ai_query_and_research_are_durable_cited_worker_jobs() -> None:
     repository = client.app.state.repository
     settings = Settings(database_url="sqlite://", object_store_path=tempfile.mkdtemp(prefix="graphview-ai-objects-"))
     executor = GraphJobExecutor(repository, settings, object_store=client.app.state.object_store)
-    asyncio.run(
+    ingestion = asyncio.run(
         executor.ingestion(
             IngestionCreate(
                 kind="markdown",
@@ -245,23 +245,43 @@ def test_v1_ai_query_and_research_are_durable_cited_worker_jobs() -> None:
             graph_id="project-ios26-swift-demo",
         )
     )
+    source_id = ingestion["source"]["id"]
+    source_chunk_id = repository.list_source_chunks(source_id=source_id, graph_id="project-ios26-swift-demo")[0]["id"]
 
     query_job = client.post(
         "/api/v1/ai/query",
         headers=READER_HEADERS,
-        json={"question": "Liquid Glass evidence", "graph_id": "project-ios26-swift-demo"},
+        json={
+            "question": "What enables adaptive depth-aware interface materials?",
+            "graph_id": "project-ios26-swift-demo",
+            "source_id": source_id,
+            "source_chunk_id": source_chunk_id,
+        },
     )
     assert query_job.status_code == 202
     jobs = JobRepository(repository.engine)
     claimed_query = jobs.claim(query_job.json()["id"], worker_id="ai-test")
     query_result = asyncio.run(executor.execute(claimed_query))
     assert query_result["citations"]
+    assert query_result["citations"][0]["source_id"] == source_id
+    assert query_result["citations"][0]["source_chunk_id"] == source_chunk_id
     assert query_result["agent_run"]["status"] == "completed"
+    with repository.engine.begin() as conn:
+        retrieval_audits = conn.execute(
+            select(db.audit_events).where(db.audit_events.c.action == "ai.retrieval")
+        ).mappings().all()
+    assert retrieval_audits
 
     research_job = client.post(
         "/api/v1/ai/research",
         headers=ADMIN_HEADERS,
-        json={"query": "Liquid Glass evidence", "graph_id": "project-ios26-swift-demo", "lens": "research"},
+        json={
+            "query": "What enables adaptive depth-aware interface materials?",
+            "graph_id": "project-ios26-swift-demo",
+            "lens": "research",
+            "source_id": source_id,
+            "source_chunk_id": source_chunk_id,
+        },
     )
     assert research_job.status_code == 202
     claimed_research = jobs.claim(research_job.json()["id"], worker_id="ai-test")

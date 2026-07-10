@@ -1330,6 +1330,7 @@ class GraphQueryCreate(BaseModel):
     lens: Literal["all", "research", "engineering", "ops"] = "all"
     node_id: str | None = None
     source_id: str | None = None
+    source_chunk_id: str | None = None
     provider: str | None = None
     model: str | None = None
 
@@ -1345,6 +1346,9 @@ class GraphResearchCreate(BaseModel):
     query: str = Field(min_length=1)
     graph_id: str | None = None
     lens: Literal["all", "research", "engineering", "ops"] = "all"
+    node_id: str | None = None
+    source_id: str | None = None
+    source_chunk_id: str | None = None
     provider: str | None = None
     model: str | None = None
     source_policy: Literal["web", "graph", "connectors", "mixed"] = "mixed"
