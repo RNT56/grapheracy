@@ -22,7 +22,7 @@ async function sourceFiles(relativeDir, suffixes) {
 const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
-  "services/api/src/graphview_api/main.py": 450,
+  "services/api/src/graphview_api/main.py": 220,
   "services/api/src/graphview_api/repository.py": 6100
 };
 
@@ -61,6 +61,8 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/ai/tools_router.py",
   "services/api/src/graphview_api/attention/router.py",
   "services/api/src/graphview_api/connector_routes.py",
+  "services/api/src/graphview_api/graph/router.py",
+  "services/api/src/graphview_api/operations/data_router.py",
   "services/api/src/graphview_api/operations/readiness.py",
   "services/api/src/graphview_api/review/router.py",
   "services/api/src/graphview_api/sources/router.py",
@@ -84,6 +86,8 @@ const boundedRoutePrefixes = [
   ["ai", ['"/providers"', '"/planning-sessions"', '"/agent-tool-calls"', '"/graph/query"', '"/graph/research"']],
   ["attention", ['"/signals"', '"/observations"', '"/alerts"', '"/attention"', '"/owners"', '"/routing-policies"']],
   ["connector", ['"/connectors"', '"/connector-accounts"', '"/connector-targets"', '"/connector-sync-runs"']],
+  ["graph", ['"/graph"', '"/graphs"', '"/insights"', '"/extraction-lenses"', '"/graph-lenses"']],
+  ["operations", ['"/search"', '"/export"', '"/backup"', '"/restore"', '"/import"']],
   ["review", ['"/proposals"', '"/review-']],
   ["sources", ['"/sources"', '"/source-chunks"', '"/lineage/', '"/ingestion-runs"']]
 ];
