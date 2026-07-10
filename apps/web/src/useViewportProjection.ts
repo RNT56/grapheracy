@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "@graphview/api-client/schema";
-import { normalizeContentNodeKind, type ContentNode, type ContentNodeId, type GraphProjectId, type SemanticEdge } from "@graphview/shared-types";
+import { normalizeContentNodeKind, type ContentNode, type ContentNodeId, type GraphBounds, type GraphProjectId, type SemanticEdge } from "@graphview/shared-types";
 import type { GraphCanvasEdge } from "./GraphCanvas";
 
 type GraphViewport = components["schemas"]["GraphViewportOut"];
@@ -9,20 +9,55 @@ type FetchJson = <T>(path: string, init?: RequestInit) => Promise<T>;
 export function useViewportProjection(
   graphId: string,
   zoom: number,
+  bounds: GraphBounds,
   fallbackNodes: ContentNode[],
   fallbackEdges: GraphCanvasEdge[],
   fetchJson: FetchJson
 ) {
   const viewport = useQuery({
-    queryKey: ["graph-viewport", graphId, zoom.toFixed(2)],
-    queryFn: () => fetchJson<GraphViewport>(`/graphs/${encodeURIComponent(graphId)}/viewport?zoom=${zoom.toFixed(2)}&max_nodes=5000&max_edges=20000`),
+    queryKey: [
+      "graph-viewport",
+      graphId,
+      zoom.toFixed(2),
+      bounds.minX.toFixed(4),
+      bounds.minY.toFixed(4),
+      bounds.maxX.toFixed(4),
+      bounds.maxY.toFixed(4)
+    ],
+    queryFn: () => {
+      const query = new URLSearchParams({
+        zoom: zoom.toFixed(2),
+        min_x: bounds.minX.toFixed(6),
+        min_y: bounds.minY.toFixed(6),
+        max_x: bounds.maxX.toFixed(6),
+        max_y: bounds.maxY.toFixed(6),
+        max_nodes: "20000",
+        max_edges: "50000"
+      });
+      return fetchJson<GraphViewport>(`/graphs/${encodeURIComponent(graphId)}/viewport?${query}`);
+    },
     placeholderData: (previous) => previous,
     retry: false
   });
-  if (!viewport.data) return { nodes: fallbackNodes, edges: fallbackEdges, omittedNodes: 0, omittedEdges: 0 };
-  const projectId = viewport.data.project_id as GraphProjectId;
+  const projection = viewport.data;
+  if (
+    !projection ||
+    !Array.isArray(projection.nodes) ||
+    !Array.isArray(projection.edges) ||
+    !Array.isArray(projection.clusters)
+  ) {
+    return {
+      nodes: fallbackNodes,
+      edges: fallbackEdges,
+      omittedNodes: 0,
+      omittedEdges: 0,
+      graphVersion: 0,
+      level: "nodes" as const
+    };
+  }
+  const projectId = projection.project_id as GraphProjectId;
   const nodes: ContentNode[] = [
-    ...viewport.data.nodes.map(({ node, x, y, z }) => ({
+    ...projection.nodes.map(({ node, x, y, z }) => ({
       id: node.id as ContentNode["id"],
       projectId: node.project_id as GraphProjectId,
       topicIds: node.topic_ids as ContentNode["topicIds"],
@@ -34,7 +69,7 @@ export function useViewportProjection(
       createdAt: node.created_at,
       updatedAt: node.updated_at
     })),
-    ...viewport.data.clusters.map((cluster) => ({
+    ...projection.clusters.map((cluster) => ({
       id: cluster.id as ContentNode["id"],
       projectId,
       topicIds: [] as ContentNode["topicIds"],
@@ -48,7 +83,7 @@ export function useViewportProjection(
     }))
   ];
   const visible = new Set(nodes.map((node) => node.id));
-  const edges: GraphCanvasEdge[] = viewport.data.edges.flatMap((item) => {
+  const edges: GraphCanvasEdge[] = projection.edges.flatMap((item) => {
     if (!visible.has(item.source_id as ContentNodeId) || !visible.has(item.target_id as ContentNodeId)) return [];
     if (item.edge) {
       return [{
@@ -80,5 +115,12 @@ export function useViewportProjection(
     }];
   });
   const pending = fallbackEdges.filter((edge) => edge.reviewStatus === "pending_review" && visible.has(edge.sourceNodeId) && visible.has(edge.targetNodeId));
-  return { nodes, edges: [...edges, ...pending], omittedNodes: viewport.data.omitted_node_count, omittedEdges: viewport.data.omitted_edge_count };
+  return {
+    nodes,
+    edges: [...edges, ...pending],
+    omittedNodes: projection.omitted_node_count,
+    omittedEdges: projection.omitted_edge_count,
+    graphVersion: projection.graph_version,
+    level: projection.level
+  };
 }

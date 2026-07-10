@@ -179,6 +179,318 @@ test("renders nonblank 2D and 3D living graph surfaces", async ({ page }) => {
   await expectNonBlank(surface, "3D graph");
 });
 
+test("keeps semantic graph state static when reduced motion is requested", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  const root = page.getByTestId("graph-canvas-root");
+  await expect(root).toHaveAttribute("data-motion-tier", "reduced_motion");
+  await expectStablePixels(page.getByTestId("sigma-graph-scene"), "reduced-motion Sigma scene");
+
+  await page.getByRole("button", { name: "3D graph" }).click();
+  await expect(root).toHaveClass(/graph-view-3d/);
+  await expectStablePixels(page.locator(".three-graph-canvas"), "reduced-motion Three.js scene");
+});
+
+test("provides a complete non-WebGL graph fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+      configurable: true,
+      value: function (contextId: string, ...arguments_: unknown[]) {
+        if (contextId === "webgl" || contextId === "webgl2" || contextId === "experimental-webgl") return null;
+        return Reflect.apply(originalGetContext, this, [contextId, ...arguments_]);
+      } as typeof HTMLCanvasElement.prototype.getContext
+    });
+  });
+  await page.goto("/");
+  expect(await page.evaluate(() => Boolean(document.createElement("canvas").getContext("webgl")))).toBe(false);
+
+  const root = page.getByTestId("graph-canvas-root");
+  await expect(root).toHaveClass(/graph-webgl-fallback/);
+  await expect(page.getByRole("img", { name: /3 rendered graph nodes and 2 rendered graph edges/i })).toBeVisible();
+  await expectNonBlank(page.getByTestId("graph-canvas-surface"), "non-WebGL 2D fallback");
+
+  await page.getByRole("button", { name: "3D graph" }).click();
+  await expect(page.getByRole("status", { name: "3D graph unavailable" })).toBeVisible();
+  await expect(root).toHaveClass(/graph-webgl-fallback/);
+  await expectNonBlank(page.getByTestId("graph-canvas-surface"), "non-WebGL 3D fallback");
+});
+
+test("requests bounded viewport projections and preserves state across WebGL recovery", async ({ page }) => {
+  const viewportRequests: URL[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (/^\/api\/v1\/graphs\/[^/]+\/viewport$/.test(url.pathname)) viewportRequests.push(url);
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("sigma-graph-scene")).toBeVisible();
+  await expect.poll(() => viewportRequests.length).toBeGreaterThan(0);
+  const root = page.getByTestId("graph-canvas-root");
+  await expect(root).toHaveAttribute("data-renderer-kind", "sigma-2d");
+  await expect(root).toHaveAttribute("data-renderer-visible-nodes", "3");
+  await expect(root).toHaveAttribute("data-renderer-visible-edges", "2");
+
+  const initialRequest = viewportRequests[0];
+  expect(initialRequest.searchParams.get("max_nodes")).toBe("20000");
+  expect(initialRequest.searchParams.get("max_edges")).toBe("50000");
+  for (const parameter of ["zoom", "min_x", "min_y", "max_x", "max_y"]) {
+    expect(initialRequest.searchParams.has(parameter), `${parameter} should scope the viewport projection`).toBe(true);
+  }
+
+  const isMobile = (page.viewportSize()?.width ?? 1440) <= 820;
+  await selectAccessibleGraphNode(page, "Living Graph Tooltip Node");
+  if (isMobile) {
+    const app = page.getByLabel("Knowledge Graph Builder");
+    await expect(app).toHaveClass(/mobile-section-focus/);
+    await expect(page.getByText("A graph node with tethered Phase 24 tooltip details and a source URL.")).toBeVisible();
+    await page.getByRole("button", { name: "Open graph" }).click();
+    await expect(app).toHaveClass(/mobile-section-graph/);
+  } else {
+    await expect(page.getByTestId("graph-tooltip")).toContainText("Living Graph Tooltip Node");
+  }
+
+  const canLoseContext = await page.evaluate(() => {
+    const canvases = [...document.querySelectorAll<HTMLCanvasElement>('[data-testid="sigma-graph-scene"] canvas')];
+    for (const canvas of canvases) {
+      const context = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+      const extension = context?.getExtension("WEBGL_lose_context");
+      if (!extension) continue;
+      (window as typeof window & { __graphviewWebglExtension?: WEBGL_lose_context }).__graphviewWebglExtension = extension;
+      extension.loseContext();
+      return true;
+    }
+    return false;
+  });
+  test.skip(!canLoseContext, "Chromium did not expose WEBGL_lose_context");
+
+  await expect(root).toHaveClass(/graph-webgl-fallback/);
+  await expect(root).toHaveAttribute("data-renderer-context", "lost");
+  await expect(page.getByRole("img", { name: /3 rendered graph nodes/i })).toBeVisible();
+
+  await page.evaluate(() => {
+    (window as typeof window & { __graphviewWebglExtension?: WEBGL_lose_context }).__graphviewWebglExtension?.restoreContext();
+  });
+  await expect(root).not.toHaveClass(/graph-webgl-fallback/);
+  await expect(root).toHaveAttribute("data-renderer-context", "ready");
+  if (isMobile) {
+    await expect(page.getByLabel("Knowledge Graph Builder")).toHaveClass(/graph-view-focus/);
+  } else {
+    await expect(page.getByTestId("graph-tooltip")).toContainText("Living Graph Tooltip Node");
+  }
+
+  await page.getByRole("button", { name: "3D graph" }).click();
+  await expect(page.locator(".three-graph-canvas")).toBeVisible();
+  const canLoseThreeContext = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(".three-graph-canvas");
+    const context = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl");
+    const extension = context?.getExtension("WEBGL_lose_context");
+    if (!extension) return false;
+    (window as typeof window & { __graphviewThreeWebglExtension?: WEBGL_lose_context }).__graphviewThreeWebglExtension = extension;
+    extension.loseContext();
+    return true;
+  });
+  expect(canLoseThreeContext, "Chromium should expose Three.js context-loss injection").toBe(true);
+  await expect(root).toHaveClass(/graph-webgl-fallback/);
+  await expect(root).toHaveAttribute("data-renderer-kind", "three-3d");
+  await expect(root).toHaveAttribute("data-renderer-context", "lost");
+  await page.evaluate(() => {
+    (window as typeof window & { __graphviewThreeWebglExtension?: WEBGL_lose_context }).__graphviewThreeWebglExtension?.restoreContext();
+  });
+  await expect(root).not.toHaveClass(/graph-webgl-fallback/);
+  await expect(root).toHaveAttribute("data-renderer-context", "ready");
+  await expectBrightPixels(page.locator(".three-graph-canvas"), "restored 3D graph canvas");
+  if (isMobile) {
+    await expect(page.getByLabel("Knowledge Graph Builder")).toHaveClass(/graph-view-focus/);
+  } else {
+    await expect(page.getByTestId("graph-tooltip")).toContainText("Living Graph Tooltip Node");
+  }
+});
+
+test("opens a 100k node and 500k edge project through clustered overview within 2.5 seconds", async ({ page }) => {
+  const clusterCount = 400;
+  const overviewEdgeCount = 1_000;
+  const clusters = Array.from({ length: clusterCount }, (_, index) => ({
+    id: `cluster:${index}`,
+    label: `Knowledge cluster ${index + 1}`,
+    x: -0.96 + (index % 25) * 0.08,
+    y: -0.9 + Math.floor(index / 25) * 0.12,
+    node_count: 250,
+    edge_count: 1_250,
+    dominant_kind: "concept",
+    node_ids: []
+  }));
+  const overviewEdges = Array.from({ length: overviewEdgeCount }, (_, index) => ({
+    id: `cluster-edge:${index}`,
+    source_id: clusters[index % clusterCount].id,
+    target_id: clusters[(index * 11 + 1) % clusterCount].id,
+    relation: "relates_to",
+    weight: 1,
+    count: 500,
+    edge: null
+  }));
+  let projectionReceivedAt = 0;
+  page.on("requestfinished", (request) => {
+    const url = new URL(request.url());
+    if (/^\/api\/v1\/graphs\/[^/]+\/viewport$/.test(url.pathname)) projectionReceivedAt = Date.now();
+  });
+  await page.route("http://127.0.0.1:8000/api/v1/graphs/*/viewport**", async (route) => {
+    const url = new URL(route.request().url());
+    const requestedGraphId = url.pathname.split("/").at(-2) ?? graphId;
+    await fulfillJson(route, {
+      graph_id: requestedGraphId,
+      project_id: requestedGraphId,
+      graph_version: 100_000,
+      etag: '"production-cluster-overview"',
+      zoom: Number(url.searchParams.get("zoom") ?? 0.25),
+      level: "clusters",
+      bounds: { min_x: -1, min_y: -1, max_x: 1, max_y: 1 },
+      nodes: [],
+      edges: overviewEdges,
+      clusters,
+      omitted_node_count: 0,
+      omitted_edge_count: 0,
+      page: { next_cursor: null, has_more: false }
+    });
+  });
+
+  await page.goto("/");
+  const data = page.locator(".graph-accessible-data");
+  await expect(data.getByText(`Accessible graph data (${clusterCount} nodes, ${overviewEdgeCount} relations)`)).toBeVisible();
+  expect(projectionReceivedAt).toBeGreaterThan(0);
+  expect(Date.now() - projectionReceivedAt, "clustered overview should become interactive after the API response").toBeLessThanOrEqual(2_500);
+  await expectBrightPixels(page.getByTestId("sigma-graph-scene"), "Sigma clustered overview");
+});
+
+test("renders an interactive production-sized viewport with bounded accessible data", async ({ page }) => {
+  test.setTimeout(45_000);
+  const isMobile = (page.viewportSize()?.width ?? 1440) <= 820;
+  const nodeCount = isMobile ? 600 : 5_000;
+  const edgeCount = isMobile ? 599 : 20_000;
+  const rowCount = Math.ceil(nodeCount / 100);
+  const largeNodes = Array.from({ length: nodeCount }, (_, index) => ({
+    ...nodes[index % nodes.length],
+    id: `node-scale-${index.toString().padStart(4, "0")}`,
+    label: `Scale node ${index.toString().padStart(4, "0")}`,
+    summary: `Accessible scale fixture ${index}`,
+    metadata: {}
+  }));
+  const largeEdges = Array.from({ length: edgeCount }, (_, index) => ({
+    ...edges[index % edges.length],
+    id: `edge-scale-${index.toString().padStart(4, "0")}`,
+    source_node_id: largeNodes[index % largeNodes.length].id,
+    target_node_id: largeNodes[(index * 17 + 1) % largeNodes.length].id
+  }));
+  let projectionReceivedAt = 0;
+  page.on("requestfinished", (request) => {
+    const url = new URL(request.url());
+    if (/^\/api\/v1\/graphs\/[^/]+\/viewport$/.test(url.pathname)) projectionReceivedAt = Date.now();
+  });
+  await page.route("http://127.0.0.1:8000/api/v1/graphs/*/viewport**", async (route) => {
+    const url = new URL(route.request().url());
+    await fulfillJson(route, {
+      graph_id: graphId,
+      project_id: graphId,
+      graph_version: 2,
+      etag: '"scale-viewport-v2"',
+      zoom: Number(url.searchParams.get("zoom") ?? 0.25),
+      level: "nodes",
+      bounds: { min_x: -1, min_y: -1, max_x: 1, max_y: 1 },
+      nodes: largeNodes.map((node, index) => ({
+        node,
+        x: -0.96 + (index % 100) * (1.92 / 99),
+        y: -0.92 + Math.floor(index / 100) * (1.84 / Math.max(1, rowCount - 1)),
+        z: 0
+      })),
+      edges: largeEdges.map((edge) => ({
+        id: edge.id,
+        source_id: edge.source_node_id,
+        target_id: edge.target_node_id,
+        relation: edge.relation,
+        weight: edge.weight,
+        count: 1,
+        edge: null
+      })),
+      clusters: [],
+      omitted_node_count: 0,
+      omitted_edge_count: 0,
+      page: { next_cursor: null, has_more: false }
+    });
+  });
+
+  await page.goto("/");
+  const data = page.locator(".graph-accessible-data");
+  await expect(data.getByText(`Accessible graph data (${nodeCount} nodes, ${edgeCount} relations)`)).toBeVisible();
+  expect(projectionReceivedAt, "the viewport response should complete before interactivity is measured").toBeGreaterThan(0);
+  await expect(page.getByTestId("graph-canvas-root")).toHaveAttribute("data-renderer-visible-nodes", String(nodeCount));
+  await expect(page.getByTestId("graph-canvas-root")).toHaveAttribute("data-renderer-visible-edges", String(edgeCount));
+  await expectBrightPixels(page.getByTestId("sigma-graph-scene"), "Sigma production viewport");
+
+  const renderedFps = await measureZoomFps(page);
+  expect(renderedFps, "viewport should preserve an interactive frame cadence while zooming").toBeGreaterThanOrEqual(isMobile ? 30 : 45);
+
+  await data.locator("summary").click();
+  await expect(data.getByRole("row")).toHaveCount(502);
+
+  const finalNodeLabel = `Scale node ${(nodeCount - 1).toString().padStart(4, "0")}`;
+  await data.getByRole("searchbox", { name: "Filter visible graph data" }).fill(finalNodeLabel);
+  await expect(data.getByRole("button", { name: finalNodeLabel })).toBeVisible();
+  await expect(data.getByText("Visible graph nodes (1 matches)")).toBeVisible();
+});
+
+test("keeps a 20k node and 50k edge raw viewport above 30 FPS", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes("mobile"), "The 20k raw viewport acceptance target is for the desktop reference machine");
+  test.setTimeout(90_000);
+  const nodeCount = 20_000;
+  const edgeCount = 50_000;
+  const stressNodes = Array.from({ length: nodeCount }, (_, index) => ({
+    ...nodes[index % nodes.length],
+    id: `node-stress-${index.toString().padStart(5, "0")}`,
+    label: `Stress node ${index.toString().padStart(5, "0")}`,
+    summary: undefined,
+    metadata: {}
+  }));
+  const stressEdges = Array.from({ length: edgeCount }, (_, index) => ({
+    id: `edge-stress-${index.toString().padStart(5, "0")}`,
+    source_id: stressNodes[index % nodeCount].id,
+    target_id: stressNodes[(index * 19 + 1) % nodeCount].id,
+    relation: "relates_to",
+    weight: 1,
+    count: 1,
+    edge: null
+  }));
+  await page.route("http://127.0.0.1:8000/api/v1/graphs/*/viewport**", async (route) => {
+    const url = new URL(route.request().url());
+    const requestedGraphId = url.pathname.split("/").at(-2) ?? graphId;
+    await fulfillJson(route, {
+      graph_id: requestedGraphId,
+      project_id: requestedGraphId,
+      graph_version: 3,
+      etag: '"stress-viewport-v3"',
+      zoom: Number(url.searchParams.get("zoom") ?? 8),
+      level: "nodes",
+      bounds: { min_x: -1, min_y: -1, max_x: 1, max_y: 1 },
+      nodes: stressNodes.map((node, index) => ({
+        node,
+        x: -0.97 + (index % 200) * (1.94 / 199),
+        y: -0.94 + Math.floor(index / 200) * (1.88 / 99),
+        z: 0
+      })),
+      edges: stressEdges,
+      clusters: [],
+      omitted_node_count: 0,
+      omitted_edge_count: 0,
+      page: { next_cursor: null, has_more: false }
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator(".graph-accessible-data").getByText(`Accessible graph data (${nodeCount} nodes, ${edgeCount} relations)`)).toBeVisible({ timeout: 30_000 });
+  await expectBrightPixels(page.getByTestId("sigma-graph-scene"), "Sigma stress viewport");
+  expect(await measureZoomFps(page), "20k/50k viewport should remain operational while zooming").toBeGreaterThanOrEqual(30);
+});
+
 test("settings use left navigation and focused pages", async ({ page }) => {
   await page.goto("/");
 
@@ -215,7 +527,7 @@ test("opens active context workspace with mocked live context data", async ({ pa
   await installMockEventSource(page);
   page.on("request", (request) => {
     const url = new URL(request.url());
-    if (url.pathname.startsWith("/agent-context/")) {
+    if (url.pathname.startsWith("/api/v1/agent-context/")) {
       agentContextRequests.push(`${url.pathname}${url.search}`);
     }
   });
@@ -260,7 +572,7 @@ test("opens active context workspace with mocked live context data", async ({ pa
 
   await expect
     .poll(() => page.evaluate(() => window.__agentContextEventSourceUrls?.at(-1) ?? ""))
-    .toBe("http://127.0.0.1:8000/agent-context/sessions/ctxsession-phase27/stream?limit=25");
+    .toBe("http://127.0.0.1:8000/api/v1/agent-context/sessions/ctxsession-phase27/stream?limit=25");
 
   const inspectAppArtifact = timeline
     .locator(".agent-context-event")
@@ -269,7 +581,7 @@ test("opens active context workspace with mocked live context data", async ({ pa
   await expect(inspectAppArtifact).toBeVisible();
   const contentResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return url.pathname === "/agent-context/artifacts/ctxartifact-file/content" && response.ok();
+    return url.pathname === "/api/v1/agent-context/artifacts/ctxartifact-file/content" && response.ok();
   });
   await inspectAppArtifact.evaluate((button: HTMLButtonElement) => button.click());
   await contentResponse;
@@ -281,23 +593,30 @@ test("opens active context workspace with mocked live context data", async ({ pa
   await expect(inspector).toContainText('const apiToken = "[REDACTED]";');
   await expect(inspector).not.toContainText("super-secret-token");
 
-  const graphRequestCount = agentContextRequests.filter((path) => path === "/agent-context/sessions/ctxsession-phase27/graph").length;
-  const contentRequestCount = agentContextRequests.filter((path) => path === "/agent-context/artifacts/ctxartifact-file/content").length;
+  const graphRequestCount = agentContextRequests.filter((path) => path === "/api/v1/agent-context/sessions/ctxsession-phase27/graph").length;
+  const contentRequestCount = agentContextRequests.filter((path) => path === "/api/v1/agent-context/artifacts/ctxartifact-file/content").length;
 
   await page.evaluate(() => window.__dispatchAgentContextEvent?.());
 
   await expect
-    .poll(() => agentContextRequests.filter((path) => path === "/agent-context/sessions/ctxsession-phase27/graph").length)
+    .poll(() => agentContextRequests.filter((path) => path === "/api/v1/agent-context/sessions/ctxsession-phase27/graph").length)
     .toBeGreaterThan(graphRequestCount);
   await expect
-    .poll(() => agentContextRequests.filter((path) => path === "/agent-context/artifacts/ctxartifact-file/content").length)
+    .poll(() => agentContextRequests.filter((path) => path === "/api/v1/agent-context/artifacts/ctxartifact-file/content").length)
     .toBeGreaterThan(contentRequestCount);
 });
 
 test("shows tethered node tooltip with safe source URL behavior", async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   await page.goto("/");
 
-  await hoverGraphNode(page, "Living Graph Tooltip Node");
+  await selectAccessibleGraphNode(page, "Living Graph Tooltip Node");
+  if ((page.viewportSize()?.width ?? 1440) <= 820) {
+    await page.getByRole("button", { name: "Open graph" }).click();
+  }
 
   const tooltip = page.getByTestId("graph-tooltip");
   await expect(tooltip).toBeVisible();
@@ -328,14 +647,16 @@ test("shows tethered node tooltip with safe source URL behavior", async ({ page 
   const popup = await popupPromise;
   await expect(popup).toHaveURL(sourceUrl);
   await popup.close();
+  expect(consoleErrors.filter((message) => message.includes("Maximum update depth"))).toEqual([]);
 });
 
-async function hoverGraphNode(page: Page, label: string) {
-  const node = page.getByRole("button", { name: label });
+async function selectAccessibleGraphNode(page: Page, label: string) {
+  const data = page.locator(".graph-accessible-data");
+  if (!(await data.getAttribute("open"))) await data.locator("summary").click();
+  const node = data.getByRole("button", { name: label });
   await expect(node).toBeVisible();
-  const box = await node.boundingBox();
-  expect(box, `Expected ${label} graph node box`).not.toBeNull();
-  await page.mouse.move(box!.x + Math.min(12, box!.width / 2), box!.y + box!.height / 2);
+  await node.focus();
+  await node.press("Enter");
 }
 
 async function installMockEventSource(page: Page) {
@@ -404,6 +725,53 @@ async function expectBrightPixels(locator: Locator, label: string) {
   expect(brightPixels, `${label} should contain rendered node or edge pixels`).toBeGreaterThan(30);
 }
 
+async function expectStablePixels(locator: Locator, label: string) {
+  await expect(locator).toBeVisible();
+  const before = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
+  await new Promise((resolve) => setTimeout(resolve, 280));
+  const after = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
+  expect(after.width).toBe(before.width);
+  expect(after.height).toBe(before.height);
+  let changedPixels = 0;
+  for (let index = 0; index < before.data.length; index += 4) {
+    const difference =
+      Math.abs(before.data[index] - after.data[index]) +
+      Math.abs(before.data[index + 1] - after.data[index + 1]) +
+      Math.abs(before.data[index + 2] - after.data[index + 2]);
+    if (difference > 8) changedPixels += 1;
+  }
+  expect(changedPixels, `${label} should not use continuous semantic motion`).toBeLessThanOrEqual(12);
+}
+
+async function measureZoomFps(page: Page) {
+  return page.evaluate(async () => {
+    const target = document.querySelector<HTMLCanvasElement>('[data-testid="sigma-graph-scene"] canvas');
+    if (!target) return 0;
+    let frames = 0;
+    const startedAt = performance.now();
+    const wheel = window.setInterval(() => {
+      const rect = target.getBoundingClientRect();
+      target.dispatchEvent(new WheelEvent("wheel", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+        deltaY: frames % 2 === 0 ? -24 : 24
+      }));
+    }, 80);
+    await new Promise<void>((resolve) => {
+      const sample = (timestamp: number) => {
+        frames += 1;
+        if (timestamp - startedAt >= 1_000) resolve();
+        else requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
+    window.clearInterval(wheel);
+    return frames / ((performance.now() - startedAt) / 1_000);
+  });
+}
+
 async function installApiFixtures(page: Page) {
   await page.route("https://example.com/**", async (route) => {
     await route.fulfill({
@@ -419,7 +787,7 @@ async function installApiFixtures(page: Page) {
     }
 
     const url = new URL(route.request().url());
-    const path = url.pathname;
+    const path = url.pathname.replace(/^\/api\/v1(?=\/)/, "");
 
     if (path === "/health") {
       await fulfillJson(route, { status: "ok", service: "graphview-api" });
@@ -453,6 +821,43 @@ async function installApiFixtures(page: Page) {
         },
         nodes,
         edges
+      });
+      return;
+    }
+    if (/^\/graphs\/[^/]+\/viewport$/.test(path)) {
+      const requestedGraphId = path.split("/")[2] || graphId;
+      await fulfillJson(route, {
+        graph_id: requestedGraphId,
+        project_id: requestedGraphId,
+        graph_version: 1,
+        etag: '"phase24-viewport-v1"',
+        zoom: Number(url.searchParams.get("zoom") ?? 0.25),
+        level: "nodes",
+        bounds: {
+          min_x: Number(url.searchParams.get("min_x") ?? -1),
+          min_y: Number(url.searchParams.get("min_y") ?? -1),
+          max_x: Number(url.searchParams.get("max_x") ?? 1),
+          max_y: Number(url.searchParams.get("max_y") ?? 1)
+        },
+        nodes: nodes.map((node, index) => ({
+          node,
+          x: -0.62 + index * 0.62,
+          y: index % 2 === 0 ? -0.32 : 0.32,
+          z: index * 12
+        })),
+        edges: edges.map((edge) => ({
+          id: edge.id,
+          source_id: edge.source_node_id,
+          target_id: edge.target_node_id,
+          relation: edge.relation,
+          weight: edge.weight,
+          count: 1,
+          edge
+        })),
+        clusters: [],
+        omitted_node_count: 0,
+        omitted_edge_count: 0,
+        page: { next_cursor: null, has_more: false }
       });
       return;
     }
@@ -915,13 +1320,16 @@ async function installApiFixtures(page: Page) {
 }
 
 async function fulfillJson(route: Route, body: unknown, status = 200) {
+  const requestOrigin = await route.request().headerValue("origin");
   await route.fulfill({
     status,
     contentType: "application/json",
     headers: {
       "Access-Control-Allow-Headers": "*",
       "Access-Control-Allow-Methods": "GET,POST,PATCH,OPTIONS",
-      "Access-Control-Allow-Origin": "*"
+      "Access-Control-Allow-Origin": requestOrigin ?? "http://127.0.0.1:5173",
+      "Access-Control-Allow-Credentials": "true",
+      Vary: "Origin"
     },
     body: body === undefined ? "" : JSON.stringify(body)
   });

@@ -67,13 +67,13 @@ before it is allowed.
 
 ## Phase 24 Dependency Approval Notes
 
-Phase 24 introduces browser and graphics QA needs for the living graph UI. Package/catalog and lockfile edits remain a
-coordinator-owned change, but the dependency approval record is:
+Phase 24 introduced the browser and graphics dependencies now retained by Graphview 1.0. The current dependency
+approval record is:
 
-- `three`: runtime candidate for a true 3D renderer boundary if the current SVG projection cannot support Phase 24
-  hit-testing, orbit, depth-aware labels, tooltip projection, and tethers. It is mature, widely used, MIT licensed, and
-  does not require install scripts or native builds. The implementation should keep graph semantics renderer-agnostic so
-  Three.js can be isolated or removed if SVG remains sufficient.
+- `three`: lazy runtime for the isolated 3D renderer boundary, including hit-testing, orbit, tooltip projection, and
+  context recovery. It is not loaded by default 2D sessions and does not own graph domain state.
+- `sigma` and `graphology`: the primary 2D WebGL renderer and canonical in-browser graph model. Incremental lifecycle,
+  reducers, camera state, and WebGL picking remain isolated behind the shared renderer scene contract.
 - `@types/three`: development-only TypeScript types for `three`. It has no runtime footprint and should stay scoped to
   the web package.
 - `@playwright/test`: development-only browser automation for nonblank 2D/3D graph rendering, tooltip/tether behavior,

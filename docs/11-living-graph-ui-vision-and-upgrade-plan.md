@@ -412,14 +412,13 @@ Acceptance criteria:
 - Citation selection highlights the source chunk and graph path.
 - Adding a passage to the graph creates a visible candidate proposal.
 
-### Track 7: True 3D Interaction Upgrade
+### Track 7: True 3D Interaction Upgrade (Implemented)
 
-Goal: Upgrade 3D from projected mode to a true spatial graph experience when justified by interaction requirements.
+Goal: Keep the delivered true spatial 3D graph semantically aligned with the primary Sigma 2D renderer.
 
 Work:
 
-- Evaluate whether the current SVG projection remains enough for Phase 24.
-- If not, introduce a dedicated 3D renderer boundary with Three.js.
+- Retain the dedicated, lazy Three.js renderer boundary and the non-WebGL SVG fallback.
 - Keep the existing graph-core layout contracts and visual state model renderer-agnostic.
 - Add 3D hit testing, depth-aware labels, camera orbit, tooltip projection, and tether projection.
 - Add pixel/screenshot checks for nonblank 3D rendering.

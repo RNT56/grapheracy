@@ -831,6 +831,13 @@ button:disabled {
   opacity: 0;
 }
 
+.graph-view-3d.graph-webgl-fallback .graph-canvas-overlay .graph-edge-layer,
+.graph-view-3d.graph-webgl-fallback .graph-canvas-overlay .graph-node-halo,
+.graph-view-3d.graph-webgl-fallback .graph-canvas-overlay .graph-node,
+.graph-view-3d.graph-webgl-fallback .graph-canvas-overlay .graph-node-label {
+  opacity: 1;
+}
+
 .three-graph-scene {
   position: absolute;
   inset: 0;
@@ -867,10 +874,11 @@ button:disabled {
 
 .graph-accessible-data {
   position: absolute;
-  left: 18px;
-  bottom: 18px;
+  top: 88px;
+  right: 18px;
+  bottom: auto;
   z-index: 8;
-  max-width: min(680px, calc(100% - 36px));
+  max-width: min(620px, calc(100% - 36px));
   color: var(--text, #edf1fb);
 }
 
@@ -891,6 +899,24 @@ button:disabled {
   border: 1px solid rgba(150, 165, 199, 0.24);
   border-radius: 10px;
   background: rgba(8, 10, 16, 0.97);
+}
+
+.graph-accessible-search { display: grid; gap: 6px; margin-bottom: 10px; font-size: 11px; }
+.graph-accessible-search input { min-height: 34px; border: 1px solid rgba(150, 165, 199, 0.28); border-radius: 7px; padding: 5px 8px; color: inherit; background: rgba(18, 23, 34, 0.96); }
+
+.graph-webgl-unavailable {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 4;
+  max-width: 360px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 176, 92, 0.35);
+  border-radius: 8px;
+  color: var(--text, #edf1fb);
+  background: rgba(8, 10, 14, 0.92);
+  text-align: center;
+  pointer-events: none;
 }
 
 .graph-accessible-tables table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -5089,6 +5115,14 @@ button:disabled {
   .graph-canvas {
     min-height: 0;
     height: 100%;
+  }
+
+  .graph-accessible-data {
+    top: auto;
+    right: 12px;
+    bottom: 90px;
+    left: 12px;
+    max-width: none;
   }
 
   .stage-metrics {

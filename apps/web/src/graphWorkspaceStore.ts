@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ContentNode, GraphLensId } from "@graphview/shared-types";
+import type { ContentNode, GraphBounds, GraphLensId } from "@graphview/shared-types";
 
 type GraphLayout = "force" | "radial" | "arc";
 type GraphDimension = "2d" | "3d";
@@ -14,6 +14,7 @@ interface GraphWorkspaceState {
   showContents: boolean;
   fitSequence: number;
   viewportZoom: number;
+  viewportBounds: GraphBounds;
   selectedGraphNodeId?: ContentNode["id"];
   selectedSourceId?: string;
   setSelectedGraphLensId: (value: GraphLensId) => void;
@@ -23,7 +24,7 @@ interface GraphWorkspaceState {
   setGraphViewMode: (value: GraphView) => void;
   toggleContents: () => void;
   fitGraph: () => void;
-  setViewportZoom: (value: number) => void;
+  setViewportProjection: (zoom: number, bounds: GraphBounds) => void;
   setSelectedGraphNodeId: (value?: ContentNode["id"]) => void;
   setSelectedSourceId: (value?: string) => void;
 }
@@ -44,6 +45,7 @@ export const useGraphWorkspaceStore = create<GraphWorkspaceState>((set) => ({
   showContents: false,
   fitSequence: 0,
   viewportZoom: 0.25,
+  viewportBounds: { minX: -1, minY: -1, maxX: 1, maxY: 1 },
   setSelectedGraphLensId: (selectedGraphLensId) => set({ selectedGraphLensId }),
   setSearchText: (searchText) => set({ searchText }),
   setGraphLayout: (graphLayout) => set({ graphLayout }),
@@ -51,7 +53,7 @@ export const useGraphWorkspaceStore = create<GraphWorkspaceState>((set) => ({
   setGraphViewMode: (graphViewMode) => set({ graphViewMode }),
   toggleContents: () => set((state) => ({ showContents: !state.showContents })),
   fitGraph: () => set((state) => ({ fitSequence: state.fitSequence + 1 })),
-  setViewportZoom: (viewportZoom) => set({ viewportZoom }),
+  setViewportProjection: (viewportZoom, viewportBounds) => set({ viewportZoom, viewportBounds }),
   setSelectedGraphNodeId: (selectedGraphNodeId) => set({ selectedGraphNodeId }),
   setSelectedSourceId: (selectedSourceId) => set({ selectedSourceId })
 }));

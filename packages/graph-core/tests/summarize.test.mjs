@@ -27,6 +27,11 @@ test("graph-core keeps renderer data typed through RenderableGraph", async () =>
   assert.match(source, /buildGraphTooltipModel/);
   assert.match(source, /buildGraphTetherPlan/);
   assert.match(source, /GraphAnimationBudget/);
+  assert.match(source, /GraphRendererAdapter/);
+  assert.match(source, /applyDelta\(delta: GraphDelta\)/);
+  assert.match(source, /hitTest\(point:/);
+  assert.match(source, /fitGraph\(options\?:/);
+  assert.match(source, /GraphRendererMetrics/);
   assert.match(source, /GraphVisualStateOptions/);
   assert.match(source, /GraphActivityDerivationInput/);
   assert.match(source, /GraphTetherPlan/);

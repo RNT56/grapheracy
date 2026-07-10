@@ -22,8 +22,8 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
 | V1 API and compatibility aliases | implemented | 87 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
-| Graph viewport, LOD, layouts, and replay | active | pending | pending | Graph |
-| Sigma/Graphology 2D and Three.js parity | active | pending | pending | Web |
+| Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | Production-size PostgreSQL p95 and live progressive-expansion proof pending | Graph |
+| Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, and no-op Helm upgrade proven | Persistence |
 | Arq queues, scheduling, retries, and outbox | implemented | 6 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
@@ -35,7 +35,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | OpenTelemetry metrics and traces | active | pending | pending | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 38-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | pending | pending | Release |
-| 100k-node/500k-edge acceptance | active | pending | pending | Performance |
+| 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Seeded live PostgreSQL p95 and documented reference-machine rerun pending | Performance |
 
 ## Recorded Evidence
 
@@ -51,6 +51,11 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.
+- `pnpm run test:performance` retained complete 5k/20k and 20k/50k visible projections and bounded a 100k/500k
+  project overview well under its 2.5-second budget on the development machine. Chromium browser acceptance separately proved clustered
+  overview latency, nonblank WebGL output, the 5k/20k and 20k/50k frame gates, viewport bounds, context recovery,
+  mobile rendering, and a 250-row accessible projection window. These are integration results, not the remaining
+  live-dataset/reference-machine production sign-off.
 
 ## Acceptance Rule
 

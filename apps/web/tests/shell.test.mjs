@@ -245,8 +245,10 @@ test("living graph contracts are exposed for web integration", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const apiSource = await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8");
   const canvasSource = await readFile(new URL("../src/GraphCanvas.tsx", import.meta.url), "utf8");
+  const tooltipSource = await readFile(new URL("../src/GraphTooltipLayer.tsx", import.meta.url), "utf8");
+  const rendererContract = await readFile(new URL("../src/graphRendererContract.ts", import.meta.url), "utf8");
   const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
-  const webSource = `${appSource}\n${canvasSource}`;
+  const webSource = `${appSource}\n${canvasSource}\n${tooltipSource}\n${rendererContract}`;
 
   assertSourceIncludes(sharedTypes, /export interface GraphVisualState/, "shared visual state contract");
   assertSourceIncludes(sharedTypes, /export interface GraphTooltipModel/, "shared tooltip contract");
@@ -265,6 +267,7 @@ test("living graph contracts are exposed for web integration", async () => {
   assertSourceIncludes(appSource, /Graph agent activity/, "app graph agent activity panel");
 
   assertSourceIncludes(webSource, /GraphVisualState/, "web visual state usage");
+  assertSourceIncludes(rendererContract, /GraphRendererSceneProps/, "shared renderer scene contract");
   assertSourceIncludes(webSource, /GraphTooltipModel/, "web tooltip model usage");
   assertSourceIncludes(webSource, /GraphTooltipLayer/, "web tooltip layer");
   assertSourceIncludes(webSource, /graph-tooltip/, "web tooltip class");

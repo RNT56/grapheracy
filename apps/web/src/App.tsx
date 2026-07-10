@@ -1024,7 +1024,8 @@ function Shell() {
   const fitSequence = useGraphWorkspaceStore((state) => state.fitSequence);
   const fitGraph = useGraphWorkspaceStore((state) => state.fitGraph);
   const viewportZoom = useGraphWorkspaceStore((state) => state.viewportZoom);
-  const setViewportZoom = useGraphWorkspaceStore((state) => state.setViewportZoom);
+  const viewportBounds = useGraphWorkspaceStore((state) => state.viewportBounds);
+  const setViewportProjection = useGraphWorkspaceStore((state) => state.setViewportProjection);
   const selectedGraphNodeId = useGraphWorkspaceStore((state) => state.selectedGraphNodeId);
   const setSelectedGraphNodeId = useGraphWorkspaceStore((state) => state.setSelectedGraphNodeId);
   const selectedSourceId = useGraphWorkspaceStore((state) => state.selectedSourceId);
@@ -2020,7 +2021,14 @@ function Shell() {
   );
   const contentGraphNodes = showContents ? [...graphNodes, ...contentExpansion.nodes] : graphNodes;
   const contentGraphEdges = showContents ? [...graphEdges, ...contentExpansion.edges] : graphEdges;
-  const canvasGraph = useViewportProjection(selectedGraphId, viewportZoom, contentGraphNodes, contentGraphEdges, fetchJson);
+  const canvasGraph = useViewportProjection(
+    selectedGraphId,
+    viewportZoom,
+    viewportBounds,
+    contentGraphNodes,
+    contentGraphEdges,
+    fetchJson
+  );
   const sourceContentText = buildSourceContentText(contextSource, contextBlocks);
   const contextPulse = selectedGraphNode
     ? "Focus"
@@ -2613,8 +2621,12 @@ function Shell() {
           query={graphQuery}
           selectedNodeId={selectedGraphNodeId}
           fitSequence={fitSequence}
+          graphVersion={canvasGraph.graphVersion}
+          projectionLevel={canvasGraph.level}
+          serverOmittedNodeCount={canvasGraph.omittedNodes}
+          serverOmittedEdgeCount={canvasGraph.omittedEdges}
           onSelectNode={handleSelectGraphNode}
-          onViewportZoom={setViewportZoom}
+          onViewportProjection={setViewportProjection}
         />
         <div className="stage-metrics" aria-label="Current project metrics">
           <span><strong>{graphData.nodes.length}</strong> nodes</span>

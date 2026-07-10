@@ -247,6 +247,23 @@ presence, and the product-first web shell.
 - Living graph animation, tooltips, tethers, graph activity replay, candidate proposal previews, and 2D/3D browser
   rendering. Initial source and browser scaffold coverage exists in Phase 24.
 
+## Graphview 1.0 Renderer Acceptance
+
+`pnpm run test:performance` exercises client projection planning at the complete 5k/20k and 20k/50k visible budgets
+and bounds a 100k-node/500k-edge stored project overview. The Chromium living-graph suite additionally enforces:
+
+- a clustered 100k/500k overview becoming interactive within 2.5 seconds after the viewport response;
+- nonblank Sigma 2D and lazy Three.js 3D output;
+- at least 45 FPS for the 5k/20k integrated-GPU browser fixture and at least 30 FPS for 20k/50k while zoom events run;
+- stable selection and viewport state through injected Sigma and Three.js `WEBGL_lose_context` cycles;
+- a forced no-WebGL startup path that keeps the SVG graph and accessible data usable in both dimension modes;
+- a mobile renderer lifecycle that tolerates zero-width hidden workspaces; and
+- a filterable list/table equivalent capped at 250 node rows and 250 relation rows per page.
+
+These deterministic fixtures are integration gates. Final production acceptance still requires `test:performance:live`
+against the seeded PostgreSQL/pgvector dataset on the documented reference machine; fixture results must not be
+reported as that live sign-off.
+
 ## Failure Modes
 
 - Placeholder tests mistaken for feature coverage.

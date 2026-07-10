@@ -1,42 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { GraphVisualStatus } from "@graphview/shared-types";
+import { supportsWebGL } from "./graphRendererContract";
+import type {
+  GraphRendererActiveNodePosition,
+  GraphRendererEdge,
+  GraphRendererNode,
+  GraphRendererSceneProps
+} from "./graphRendererContract";
 
-export interface ThreeGraphNode {
-  id: string;
-  label: string;
-  kind: string;
-  x: number;
-  y: number;
-  z: number;
-  radius: number;
-  statuses: GraphVisualStatus[];
-}
+type Props = GraphRendererSceneProps;
 
-export interface ThreeGraphEdge {
-  id: string;
-  sourceNodeId: string;
-  targetNodeId: string;
-  relation: string;
-  statuses: GraphVisualStatus[];
-}
-
-interface Props {
-  nodes: ThreeGraphNode[];
-  edges: ThreeGraphEdge[];
-  selectedNodeId?: string;
+interface ThreeGraphHandlers {
   activeNodeId?: string;
-  reducedMotion: boolean;
-  onHoverObject?: (objectId?: string) => void;
-  onSelectNode?: (nodeId: string) => void;
-  onActiveNodePosition?: (position?: ThreeGraphNodeScreenPosition) => void;
-}
-
-export interface ThreeGraphNodeScreenPosition {
-  nodeId: string;
-  x: number;
-  y: number;
-  visible: boolean;
+  selectedNodeId?: string;
+  onActiveNodePosition: (position?: GraphRendererActiveNodePosition) => void;
+  onHoverObject: (objectId?: string) => void;
+  onSelectNode: (nodeId: string) => void;
+  onRenderMetrics: GraphRendererSceneProps["onRenderMetrics"];
+  visualSignature: string;
+  currentNodes: Map<string, GraphRendererNode>;
+  currentEdges: Map<string, GraphRendererEdge>;
 }
 
 const NODE_COLORS: Record<string, number> = {
@@ -59,19 +43,49 @@ export function ThreeGraphScene({
   edges,
   selectedNodeId,
   activeNodeId,
+  fitSequence,
   reducedMotion,
+  onAvailabilityChange,
   onHoverObject,
   onSelectNode,
-  onActiveNodePosition
+  onActiveNodePosition,
+  onRenderMetrics
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const handlersRef = useRef({ activeNodeId, onActiveNodePosition, onHoverObject, onSelectNode });
+  const orbitRef = useRef({ yaw: -0.36, pitch: 0.36 });
+  const fitSequenceRef = useRef(fitSequence);
+  if (fitSequenceRef.current !== fitSequence) {
+    fitSequenceRef.current = fitSequence;
+    orbitRef.current = { yaw: -0.36, pitch: 0.36 };
+  }
   const [rendererUnavailable, setRendererUnavailable] = useState(false);
+  const [contextLost, setContextLost] = useState(false);
   const graphSignature = useMemo(() => sceneSignature(nodes, edges), [edges, nodes]);
-
-  useEffect(() => {
-    handlersRef.current = { activeNodeId, onActiveNodePosition, onHoverObject, onSelectNode };
-  }, [activeNodeId, onActiveNodePosition, onHoverObject, onSelectNode]);
+  const visualSignature = useMemo(() => sceneVisualSignature(nodes, edges), [edges, nodes]);
+  const currentNodes = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const currentEdges = useMemo(() => new Map(edges.map((edge) => [edge.id, edge])), [edges]);
+  const handlersRef = useRef<ThreeGraphHandlers>({
+    activeNodeId,
+    selectedNodeId,
+    onActiveNodePosition,
+    onHoverObject,
+    onSelectNode,
+    onRenderMetrics,
+    visualSignature,
+    currentNodes,
+    currentEdges
+  });
+  handlersRef.current = {
+    activeNodeId,
+    selectedNodeId,
+    onActiveNodePosition,
+    onHoverObject,
+    onSelectNode,
+    onRenderMetrics,
+    visualSignature,
+    currentNodes,
+    currentEdges
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -80,6 +94,13 @@ export function ThreeGraphScene({
 
     if (!supportsWebGL()) {
       setRendererUnavailable(true);
+      onAvailabilityChange(false);
+      handlersRef.current.onRenderMetrics({
+        kind: "three-3d",
+        visibleNodes: nodes.length,
+        visibleEdges: edges.length,
+        contextLost: true
+      });
       return;
     }
 
@@ -91,8 +112,16 @@ export function ThreeGraphScene({
       renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     } catch {
       setRendererUnavailable(true);
+      onAvailabilityChange(false);
+      handlersRef.current.onRenderMetrics({
+        kind: "three-3d",
+        visibleNodes: nodes.length,
+        visibleEdges: edges.length,
+        contextLost: true
+      });
       return;
     }
+    onAvailabilityChange(true);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setClearColor(0x080a0e, 1);
     renderer.domElement.className = "three-graph-canvas";
@@ -107,7 +136,10 @@ export function ThreeGraphScene({
     const root = new THREE.Group();
     scene.add(root);
     const nodeObjects: THREE.Mesh[] = [];
+    const semanticNodeObjects: THREE.Mesh[] = [];
+    const semanticEdgeMaterials: THREE.LineBasicMaterial[] = [];
     const nodeObjectById = new Map<string, THREE.Mesh>();
+    const edgeMaterialById = new Map<string, THREE.LineBasicMaterial>();
     const nodePositions = new Map<string, THREE.Vector3>();
 
     const normalizeX = (value: number) => value - 450;
@@ -129,7 +161,12 @@ export function ThreeGraphScene({
       const mesh = new THREE.Mesh(sphere, material);
       mesh.position.copy(position);
       mesh.userData = { id: node.id };
-      if (node.id === selectedNodeId || node.statuses.includes("focus")) mesh.scale.setScalar(1.32);
+      const baseScale = node.id === selectedNodeId || node.statuses.includes("focus") ? 1.32 : 1;
+      mesh.scale.setScalar(baseScale);
+      mesh.userData.baseScale = baseScale;
+      if (node.statuses.some((status) => ["scanning", "incoming", "action_running", "outcome_waiting"].includes(status))) {
+        semanticNodeObjects.push(mesh);
+      }
       root.add(mesh);
       nodeObjects.push(mesh);
       nodeObjectById.set(node.id, mesh);
@@ -141,10 +178,14 @@ export function ThreeGraphScene({
       if (!source || !target) continue;
       const geometry = new THREE.BufferGeometry().setFromPoints([source, target]);
       const material = new THREE.LineBasicMaterial({
-        color: edge.statuses.includes("candidate") ? 0xf2cf7b : edge.statuses.includes("cited") ? 0x8fe2ce : 0x788493,
+        color: colorForEdge(edge),
         transparent: true,
-        opacity: edge.statuses.includes("dimmed") ? 0.16 : edge.statuses.includes("related") ? 0.78 : 0.42
+        opacity: opacityForEdge(edge)
       });
+      if (edge.statuses.some((status) => ["scanning", "cited", "action_running"].includes(status))) {
+        semanticEdgeMaterials.push(material);
+      }
+      edgeMaterialById.set(edge.id, material);
       root.add(new THREE.Line(geometry, material));
     }
 
@@ -166,11 +207,14 @@ export function ThreeGraphScene({
     const pointer = new THREE.Vector2();
     let width = 1;
     let height = 1;
-    let yaw = -0.36;
-    let pitch = 0.36;
+    let { yaw, pitch } = orbitRef.current;
     let dragStart: { x: number; y: number } | undefined;
     let frame = 0;
     let lastActivePositionKey = "";
+    let lastSelectedNodeId = selectedNodeId;
+    let appliedVisualSignature = visualSignature;
+    let metricWindowStartedAt = performance.now();
+    let metricFrameCount = 0;
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -194,6 +238,7 @@ export function ThreeGraphScene({
         dragStart = { x: event.clientX, y: event.clientY };
         yaw += deltaX * 0.006;
         pitch = Math.max(-0.9, Math.min(0.9, pitch + deltaY * 0.004));
+        orbitRef.current = { yaw, pitch };
         return;
       }
       updatePointer(event);
@@ -219,7 +264,25 @@ export function ThreeGraphScene({
     const handlePointerLeave = () => handlersRef.current.onHoverObject?.(undefined);
     const handleContextLost = (event: Event) => {
       event.preventDefault();
-      setRendererUnavailable(true);
+      setContextLost(true);
+      onAvailabilityChange(false);
+      handlersRef.current.onRenderMetrics({
+        kind: "three-3d",
+        visibleNodes: nodeObjects.length,
+        visibleEdges: edgeMaterialById.size,
+        contextLost: true
+      });
+    };
+    const handleContextRestored = () => {
+      setContextLost(false);
+      onAvailabilityChange(true);
+      handlersRef.current.onRenderMetrics({
+        kind: "three-3d",
+        visibleNodes: nodeObjects.length,
+        visibleEdges: edgeMaterialById.size,
+        contextLost: false
+      });
+      resize();
     };
 
     renderer.domElement.addEventListener("pointermove", handlePointerMove);
@@ -227,6 +290,7 @@ export function ThreeGraphScene({
     renderer.domElement.addEventListener("pointerup", handlePointerUp);
     renderer.domElement.addEventListener("pointerleave", handlePointerLeave);
     renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
+    renderer.domElement.addEventListener("webglcontextrestored", handleContextRestored);
     resize();
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(container);
@@ -270,12 +334,65 @@ export function ThreeGraphScene({
     const render = () => {
       if (disposed) return;
       frame = requestAnimationFrame(render);
+      if (handlersRef.current.visualSignature !== appliedVisualSignature) {
+        for (const [nodeId, mesh] of nodeObjectById) {
+          const node = handlersRef.current.currentNodes.get(nodeId);
+          if (!node || !(mesh.material instanceof THREE.MeshStandardMaterial)) continue;
+          const color = colorForNode(node);
+          mesh.material.color.setHex(color);
+          mesh.material.emissive.copy(new THREE.Color(color).multiplyScalar(statusBoost(node.statuses)));
+          mesh.material.opacity = node.statuses.includes("dimmed") ? 0.26 : 0.96;
+        }
+        for (const [edgeId, material] of edgeMaterialById) {
+          const edge = handlersRef.current.currentEdges.get(edgeId);
+          if (!edge) continue;
+          material.color.setHex(colorForEdge(edge));
+          material.opacity = opacityForEdge(edge);
+        }
+        appliedVisualSignature = handlersRef.current.visualSignature;
+      }
+      const currentSelectedNodeId = handlersRef.current.selectedNodeId;
+      if (currentSelectedNodeId !== lastSelectedNodeId) {
+        if (lastSelectedNodeId) {
+          const previous = nodeObjectById.get(lastSelectedNodeId);
+          if (previous) {
+            previous.userData.baseScale = 1;
+            previous.scale.setScalar(1);
+          }
+        }
+        if (currentSelectedNodeId) {
+          const selected = nodeObjectById.get(currentSelectedNodeId);
+          if (selected) {
+            selected.userData.baseScale = 1.32;
+            selected.scale.setScalar(1.32);
+          }
+        }
+        lastSelectedNodeId = currentSelectedNodeId;
+      }
       root.rotation.y = yaw;
       root.rotation.x = pitch;
-      if (!reducedMotion) root.rotation.z = Math.sin(performance.now() / 4200) * 0.035;
+      if (!reducedMotion && semanticNodeObjects.length > 0) {
+        const pulse = 1 + Math.sin(performance.now() / 180) * 0.1;
+        for (const mesh of semanticNodeObjects) mesh.scale.setScalar(Number(mesh.userData.baseScale || 1) * pulse);
+        const edgeOpacity = 0.58 + Math.sin(performance.now() / 140) * 0.2;
+        for (const material of semanticEdgeMaterials) material.opacity = edgeOpacity;
+      }
       root.updateMatrixWorld(true);
       emitActiveNodePosition();
       renderer.render(scene, camera);
+      metricFrameCount += 1;
+      const now = performance.now();
+      if (now - metricWindowStartedAt >= 1_000) {
+        handlersRef.current.onRenderMetrics({
+          kind: "three-3d",
+          visibleNodes: nodeObjects.length,
+          visibleEdges: edgeMaterialById.size,
+          framesPerSecond: metricFrameCount / ((now - metricWindowStartedAt) / 1_000),
+          contextLost: false
+        });
+        metricWindowStartedAt = now;
+        metricFrameCount = 0;
+      }
     };
     render();
 
@@ -288,6 +405,7 @@ export function ThreeGraphScene({
       renderer.domElement.removeEventListener("pointerup", handlePointerUp);
       renderer.domElement.removeEventListener("pointerleave", handlePointerLeave);
       renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", handleContextRestored);
       if (renderer.domElement.parentElement === container) container.removeChild(renderer.domElement);
       scene.traverse((object) => {
         if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
@@ -299,29 +417,36 @@ export function ThreeGraphScene({
       });
       renderer.dispose();
     };
-  }, [graphSignature, reducedMotion, selectedNodeId]);
+  }, [fitSequence, graphSignature, onAvailabilityChange, reducedMotion]);
 
   if (rendererUnavailable) {
     return <div className="three-graph-unavailable" role="status" aria-label="3D graph unavailable" />;
   }
 
-  return <div className="three-graph-scene" data-renderer="three" ref={containerRef} />;
+  return (
+    <div className="three-graph-scene" data-renderer="three" ref={containerRef}>
+      {contextLost && <div className="graph-webgl-unavailable" role="status">WebGL context lost. Restoring graph state…</div>}
+    </div>
+  );
 }
 
-function supportsWebGL() {
-  try {
-    const canvas = document.createElement("canvas");
-    return Boolean(window.WebGLRenderingContext && (canvas.getContext("webgl2") || canvas.getContext("webgl")));
-  } catch {
-    return false;
-  }
-}
-
-function colorForNode(node: ThreeGraphNode) {
+function colorForNode(node: GraphRendererNode) {
   if (node.statuses.includes("blocked") || node.statuses.includes("rejected")) return 0xff8f7b;
   if (node.statuses.includes("candidate") || node.statuses.includes("ready")) return 0xf2cf7b;
   if (node.statuses.includes("incoming") || node.statuses.includes("cited")) return 0x8fe2ce;
   return NODE_COLORS[node.kind] ?? 0xb6d3ff;
+}
+
+function colorForEdge(edge: GraphRendererEdge) {
+  if (edge.statuses.includes("candidate")) return 0xf2cf7b;
+  if (edge.statuses.includes("cited")) return 0x8fe2ce;
+  return 0x788493;
+}
+
+function opacityForEdge(edge: GraphRendererEdge) {
+  if (edge.statuses.includes("dimmed")) return 0.16;
+  if (edge.statuses.includes("related")) return 0.78;
+  return 0.42;
 }
 
 function statusBoost(statuses: GraphVisualStatus[]) {
@@ -330,7 +455,7 @@ function statusBoost(statuses: GraphVisualStatus[]) {
   return 0.08;
 }
 
-function sceneSignature(nodes: ThreeGraphNode[], edges: ThreeGraphEdge[]) {
+function sceneSignature(nodes: GraphRendererNode[], edges: GraphRendererEdge[]) {
   const nodeSignature = nodes
     .map((node) =>
       [
@@ -347,6 +472,12 @@ function sceneSignature(nodes: ThreeGraphNode[], edges: ThreeGraphEdge[]) {
   const edgeSignature = edges
     .map((edge) => [edge.id, edge.sourceNodeId, edge.targetNodeId, stableStatusKey(edge.statuses)].join(":"))
     .join("|");
+  return `${nodeSignature}::${edgeSignature}`;
+}
+
+function sceneVisualSignature(nodes: GraphRendererNode[], edges: GraphRendererEdge[]) {
+  const nodeSignature = nodes.map((node) => `${node.id}:${node.statuses.join(",")}`).join("|");
+  const edgeSignature = edges.map((edge) => `${edge.id}:${edge.statuses.join(",")}`).join("|");
   return `${nodeSignature}::${edgeSignature}`;
 }
 

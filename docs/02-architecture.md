@@ -2,17 +2,20 @@
 
 ## Purpose
 
-Define Phase 1 service boundaries, contracts, data model, event model, worker lifecycle, and deployment direction.
+Define the current Graphview 1.0 service boundaries, contracts, data model, event model, worker lifecycle, and
+deployment architecture.
 
 ## Stack
 
 - Frontend: React 19.2, TypeScript, Vite 8, React Router, TanStack Query, Zustand.
-- Graph rendering: typed Canvas/WebGL abstraction first; evaluate Sigma.js and Cosmograph in Phase 2.
+- Graph rendering: Graphology browser model with Sigma 3 WebGL for primary 2D, a lazy Three.js 3D scene, and a
+  bounded accessible list/table fallback behind one semantic renderer contract.
 - Backend: FastAPI, Pydantic, SQLAlchemy 2, Alembic, Uvicorn/Gunicorn.
-- Workers: Python async workers; Arq is the default Phase 1 queue direction unless enterprise queue needs force Celery.
+- Workers: durable Arq queues over authenticated Redis, populated through the transactional outbox.
 - Storage: PostgreSQL 18 with pgvector and S3-compatible object storage; MinIO for local development.
-- Search: Postgres full-text search in V1.
-- Auth: internal OIDC/SSO-ready interface with a local dev adapter and seeded users.
+- Search: hybrid PostgreSQL full-text and pgvector retrieval with scoped filters and retrieval audit records.
+- Auth: OIDC Authorization Code + PKCE browser sessions, discovered/JWKS-validated service JWTs, CSRF protection, and
+  a seeded-header adapter restricted to explicit development mode.
 - Runtime defaults: Node 24 Active LTS, Python 3.14, pnpm 10.27+, uv.
 
 ## Service Boundaries
@@ -172,7 +175,11 @@ Phase 16 keeps the API surface stable and replaces the compact web shell with a 
 uses the Knowledge Graph Builder layout pattern from the preserved prototype: floating outline, central reviewed graph
 stage, inspector, ingest controls, review operations, and layout dock while remaining backed by live API data. The
 graph renderer supports deterministic Force, Radial, Arc, 2D, and 3D view modes plus graph search, node selection,
-relationship labels, content-density controls, and collapsible workspace chrome.
+relationship labels, content-density controls, and collapsible workspace chrome. Graphview 1.0 upgrades the primary
+2D path to incremental Graphology/Sigma rendering, keeps Three.js lazy, persists normalized coordinates, and requests
+bounded cluster or raw projections from `/api/v1/graphs/{id}/viewport` as camera bounds change. Both renderers consume
+the same typed nodes, edges, semantic statuses, selection, active-tooltip, availability, and runtime-metrics contract;
+the graph-core adapter additionally standardizes deltas, camera state, fit, hit testing, export, recovery, and cleanup.
 
 Phase 17 adds connector-backed graph building. The API stores connector accounts, connector targets, sync runs, source
 chunks, graph settings, source origin metadata, and topics. Upload, URL, repository, Google Workspace, and Notion

@@ -10,15 +10,17 @@ import {
   NODE_KIND_DEFINITIONS,
   type AgentCitation,
   type ContentNode,
+  type GraphBounds,
   type GraphActivityEvent,
-  type GraphTooltipModel,
   type GraphVisualState,
   type GraphVisualStatus,
   type SemanticEdge
 } from "@graphview/shared-types";
 import { SigmaGraphScene } from "./SigmaGraphScene";
 import { AccessibleGraphData } from "./AccessibleGraphData";
+import { GraphTooltipLayer } from "./GraphTooltipLayer";
 import { projectedGraphPositions } from "./projectedGraphPositions";
+import type { GraphRendererEdge, GraphRendererNode, GraphRendererRuntimeMetrics } from "./graphRendererContract";
 
 export type GraphLayoutMode = "force" | "radial" | "arc";
 export type GraphDimensionMode = "2d" | "3d";
@@ -47,8 +49,12 @@ interface Props {
   query: string;
   selectedNodeId?: ContentNode["id"];
   fitSequence: number;
+  graphVersion?: number;
+  projectionLevel?: "clusters" | "mixed" | "nodes";
+  serverOmittedNodeCount?: number;
+  serverOmittedEdgeCount?: number;
   onSelectNode?: (nodeId: ContentNode["id"]) => void;
-  onViewportZoom?: (zoom: number) => void;
+  onViewportProjection?: (zoom: number, bounds: GraphBounds) => void;
 }
 
 interface ViewNode {
@@ -142,15 +148,30 @@ export function GraphCanvas({
   query,
   selectedNodeId,
   fitSequence,
+  graphVersion = 0,
+  projectionLevel = "nodes",
+  serverOmittedNodeCount = 0,
+  serverOmittedEdgeCount = 0,
   onSelectNode,
-  onViewportZoom
+  onViewportProjection
 }: Props) {
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | undefined>();
   const [keyboardFocusObjectId, setKeyboardFocusObjectId] = useState<string | undefined>();
   const [threeActiveNodePosition, setThreeActiveNodePosition] = useState<ThreeActiveNodePosition | undefined>();
+  const [rendererAvailable, setRendererAvailable] = useState<boolean>();
+  const [rendererMetrics, setRendererMetrics] = useState<GraphRendererRuntimeMetrics>();
   const dragRef = useRef<DragState | null>(null);
-  const renderBudget = useMemo(() => planGraphRender({ nodes, edges }), [edges, nodes]);
+  const effectiveDimension = layout === "arc" ? "2d" : dimension;
+  const use3d = effectiveDimension === "3d";
+  const useSigma2d = !use3d;
+  const renderLimits = useMemo(
+    () => effectiveDimension === "2d"
+      ? { maxNodes: 20_000, maxEdges: 50_000, labelMaxLength: 64 }
+      : { maxNodes: 2_000, maxEdges: 5_000, labelMaxLength: 48 },
+    [effectiveDimension]
+  );
+  const renderBudget = useMemo(() => planGraphRender({ nodes, edges }, renderLimits), [edges, nodes, renderLimits]);
   const animationBudget = useMemo(
     () =>
       selectGraphAnimationBudget(
@@ -159,9 +180,13 @@ export function GraphCanvas({
       ),
     [edges, nodes]
   );
-  const effectiveDimension = layout === "arc" ? "2d" : dimension;
-  const use3d = effectiveDimension === "3d";
-  const useSigma2d = !use3d;
+  const hasPersistedPositions = useMemo(
+    () => nodes.length > 0 && nodes.every((node) => {
+      const position = node.metadata?.graphviewPosition as { x?: unknown; y?: unknown } | undefined;
+      return typeof position?.x === "number" && typeof position.y === "number";
+    }),
+    [nodes]
+  );
   const activityHints = useMemo(() => graphActivityHints(activityEvents, edges), [activityEvents, edges]);
   const visualStates = useMemo(
     () =>
@@ -187,7 +212,7 @@ export function GraphCanvas({
   useEffect(() => {
     setCamera(DEFAULT_CAMERA);
     dragRef.current = null;
-  }, [dimension, edges.length, fitSequence, layout, nodes.length]);
+  }, [dimension, fitSequence, layout]);
 
   const view = useMemo(
     () =>
@@ -198,14 +223,40 @@ export function GraphCanvas({
         dimension,
         showContents,
         query,
-	        selectedNodeId,
-	        camera,
-	        visualStateById
-	      }),
-	    [camera, dimension, layout, query, renderBudget.edges, renderBudget.nodes, selectedNodeId, showContents, visualStateById]
-	  );
+        selectedNodeId,
+        camera,
+        visualStateById
+      }),
+    [camera, dimension, layout, query, renderBudget.edges, renderBudget.nodes, selectedNodeId, showContents, visualStateById]
+  );
   const hasOmissions =
+    serverOmittedNodeCount > 0 || serverOmittedEdgeCount > 0 ||
     renderBudget.omittedNodeCount > 0 || renderBudget.omittedEdgeCount > 0 || renderBudget.orphanEdgeCount > 0;
+  const rendererNodes = useMemo<GraphRendererNode[]>(
+    () =>
+      view.nodes.map((viewNode) => ({
+        id: viewNode.node.id,
+        label: viewNode.node.label,
+        kind: viewNode.node.kind,
+        x: viewNode.x,
+        y: viewNode.y,
+        z: viewNode.z,
+        radius: viewNode.radius,
+        statuses: viewNode.statuses
+      })),
+    [view.nodes]
+  );
+  const rendererEdges = useMemo<GraphRendererEdge[]>(
+    () =>
+      view.edges.map((viewEdge) => ({
+        id: viewEdge.edge.id,
+        sourceNodeId: viewEdge.edge.sourceNodeId,
+        targetNodeId: viewEdge.edge.targetNodeId,
+        relation: viewEdge.edge.relation,
+        statuses: viewEdge.statuses
+      })),
+    [view.edges]
+  );
   const worldTransform = `translate(${camera.panX.toFixed(1)} ${camera.panY.toFixed(1)}) scale(${camera.zoom.toFixed(3)})`;
   const activeTooltipNode = useMemo(
     () => view.nodes.find((node) => node.node.id === hoveredObjectId) ?? view.nodes.find((node) => node.node.id === selectedNodeId),
@@ -213,27 +264,25 @@ export function GraphCanvas({
   );
   const activeTooltipPoint = useMemo<TooltipSourcePoint | undefined>(() => {
     if (!activeTooltipNode) return undefined;
-    if (use3d) {
-      if (
-        threeActiveNodePosition?.visible &&
-        threeActiveNodePosition.nodeId === activeTooltipNode.node.id
-      ) {
-        return {
-          nodeId: activeTooltipNode.node.id,
-          sx: threeActiveNodePosition.x,
-          sy: threeActiveNodePosition.y,
-          radius: activeTooltipNode.radius * activeTooltipNode.scale
-        };
-      }
-      return undefined;
+    if (
+      threeActiveNodePosition?.visible &&
+      threeActiveNodePosition.nodeId === activeTooltipNode.node.id
+    ) {
+      return {
+        nodeId: activeTooltipNode.node.id,
+        sx: threeActiveNodePosition.x,
+        sy: threeActiveNodePosition.y,
+        radius: activeTooltipNode.radius * activeTooltipNode.scale
+      };
     }
+    if (use3d || useSigma2d) return undefined;
     return {
       nodeId: activeTooltipNode.node.id,
       sx: activeTooltipNode.sx,
       sy: activeTooltipNode.sy,
       radius: activeTooltipNode.radius * activeTooltipNode.scale
     };
-  }, [activeTooltipNode, threeActiveNodePosition, use3d]);
+  }, [activeTooltipNode, threeActiveNodePosition, use3d, useSigma2d]);
   const tooltip = useMemo(
     () =>
       activeTooltipNode
@@ -325,10 +374,17 @@ export function GraphCanvas({
 
   return (
     <div
-      className={`graph-canvas-wrap graph-view-${layout} graph-view-${effectiveDimension} ${use3d ? "can-orbit" : "has-sigma can-pan"}`}
+      className={`graph-canvas-wrap graph-view-${layout} graph-view-${effectiveDimension} ${rendererAvailable === false ? "graph-webgl-fallback" : ""} ${use3d ? "can-orbit" : `${rendererAvailable === false ? "" : "has-sigma"} can-pan`}`}
       data-testid="graph-canvas-root"
       data-fit-sequence={fitSequence}
+      data-graph-version={graphVersion}
+      data-projection-level={projectionLevel}
       data-motion-tier={animationBudget.tier}
+      data-renderer-kind={rendererMetrics?.kind ?? (use3d ? "three-3d" : "sigma-2d")}
+      data-renderer-fps={rendererMetrics?.framesPerSecond?.toFixed(1)}
+      data-renderer-context={rendererMetrics?.contextLost ? "lost" : "ready"}
+      data-renderer-visible-nodes={rendererMetrics?.visibleNodes}
+      data-renderer-visible-edges={rendererMetrics?.visibleEdges}
       role="region"
       aria-label="Interactive graph viewer"
       onPointerLeave={() => setHoveredObjectId(undefined)}
@@ -336,56 +392,35 @@ export function GraphCanvas({
       {use3d && (
         <Suspense fallback={<div className="three-graph-loading" role="status" aria-label="Preparing 3D graph" />}>
           <LazyThreeGraphScene
-            nodes={view.nodes.map((viewNode) => ({
-              id: viewNode.node.id,
-              label: viewNode.node.label,
-              kind: viewNode.node.kind,
-              x: viewNode.x,
-              y: viewNode.y,
-              z: viewNode.z,
-              radius: viewNode.radius,
-              statuses: viewNode.statuses
-            }))}
-            edges={view.edges.map((viewEdge) => ({
-              id: viewEdge.edge.id,
-              sourceNodeId: viewEdge.edge.sourceNodeId,
-              targetNodeId: viewEdge.edge.targetNodeId,
-              relation: viewEdge.edge.relation,
-              statuses: viewEdge.statuses
-            }))}
+            nodes={rendererNodes}
+            edges={rendererEdges}
             selectedNodeId={selectedNodeId}
             activeNodeId={activeTooltipNode?.node.id}
+            fitSequence={fitSequence}
             reducedMotion={animationBudget.tier !== "full_motion"}
+            onAvailabilityChange={setRendererAvailable}
             onHoverObject={setHoveredObjectId}
             onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
             onActiveNodePosition={setThreeActiveNodePosition}
+            onRenderMetrics={setRendererMetrics}
           />
         </Suspense>
       )}
       {useSigma2d && (
         <SigmaGraphScene
-          nodes={view.nodes.map((viewNode) => ({
-            id: viewNode.node.id,
-            label: viewNode.node.label,
-            x: viewNode.x,
-            y: viewNode.y,
-            radius: viewNode.radius,
-            statuses: viewNode.statuses
-          }))}
-          edges={view.edges.map((viewEdge) => ({
-            id: viewEdge.edge.id,
-            sourceNodeId: viewEdge.edge.sourceNodeId,
-            targetNodeId: viewEdge.edge.targetNodeId,
-            statuses: viewEdge.statuses
-          }))}
+          nodes={rendererNodes}
+          edges={rendererEdges}
           selectedNodeId={selectedNodeId}
           activeNodeId={activeTooltipNode?.node.id}
-          runForceLayout={layout === "force"}
+          fitSequence={fitSequence}
+          runForceLayout={layout === "force" && !hasPersistedPositions}
           reducedMotion={animationBudget.tier !== "full_motion"}
+          onAvailabilityChange={setRendererAvailable}
           onHoverObject={setHoveredObjectId}
           onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
           onActiveNodePosition={setThreeActiveNodePosition}
-          onCameraRatio={(ratio) => onViewportZoom?.(clamp(2 - Math.log2(ratio), 0, 16))}
+          onRenderMetrics={setRendererMetrics}
+          onViewportProjection={onViewportProjection}
         />
       )}
       <svg
@@ -411,20 +446,20 @@ export function GraphCanvas({
         </defs>
 
         <g className="graph-world" transform={worldTransform}>
-          {layout === "arc" && <ArcRuler nodes={view.nodes} />}
-          {layout === "radial" && !use3d && <RadialRings />}
+          {rendererAvailable === false && layout === "arc" && <ArcRuler nodes={view.nodes} />}
+          {rendererAvailable === false && layout === "radial" && !use3d && <RadialRings />}
 
           <g className="graph-edge-layer">
-            {view.edges.map((viewEdge) => (
+            {(rendererAvailable === false ? view.edges : []).map((viewEdge) => (
               <g
                 className={[
-	                  "relationship",
-	                  viewEdge.edge.reviewStatus === "pending_review" ? "is-proposed" : "",
-	                  contentExpansionRole(viewEdge.edge) ? "is-content-edge" : "",
-	                  viewEdge.selected ? "is-selected" : "",
-	                  viewEdge.dimmed ? "is-muted" : "",
-	                  ...viewEdge.statuses.map((status) => `is-${status}`)
-	                ].join(" ")}
+                  "relationship",
+                  viewEdge.edge.reviewStatus === "pending_review" ? "is-proposed" : "",
+                  contentExpansionRole(viewEdge.edge) ? "is-content-edge" : "",
+                  viewEdge.selected ? "is-selected" : "",
+                  viewEdge.dimmed ? "is-muted" : "",
+                  ...viewEdge.statuses.map((status) => `is-${status}`)
+                ].join(" ")}
                 key={viewEdge.edge.id}
               >
                 <path className="graph-edge" d={viewEdge.path} />
@@ -434,7 +469,7 @@ export function GraphCanvas({
             ))}
           </g>
           <g className="graph-activity-layer" aria-hidden="true">
-            {view.edges
+            {(rendererAvailable === false ? view.edges : [])
               .filter((viewEdge) =>
                 viewEdge.statuses.some((status) =>
                   [
@@ -464,7 +499,7 @@ export function GraphCanvas({
               ))}
           </g>
           <g className="graph-candidate-layer" aria-hidden="true">
-            {view.edges
+            {(rendererAvailable === false ? view.edges : [])
               .filter((viewEdge) => viewEdge.statuses.includes("candidate"))
               .map((viewEdge) => (
                 <path className="graph-candidate-path" d={viewEdge.path} key={`candidate-${viewEdge.edge.id}`} />
@@ -472,18 +507,18 @@ export function GraphCanvas({
           </g>
 
           <g className="graph-node-layer">
-            {view.nodes.map((viewNode) => {
+            {(rendererAvailable === false ? view.nodes : []).map((viewNode) => {
               return (
                 <g
                   aria-label={viewNode.node.label}
-	                  className={[
-	                    "graph-node-item",
-	                    `graph-kind-${viewNode.node.kind}`,
-	                    viewNode.contentRole ? "is-content-node" : "",
-	                    viewNode.contentRole ? `content-role-${viewNode.contentRole}` : "",
-		                    viewNode.selected ? "is-selected" : "",
-		                    viewNode.related ? "is-related" : "",
-		                    viewNode.matched ? "is-matched" : "",
+                  className={[
+                    "graph-node-item",
+                    `graph-kind-${viewNode.node.kind}`,
+                    viewNode.contentRole ? "is-content-node" : "",
+                    viewNode.contentRole ? `content-role-${viewNode.contentRole}` : "",
+                    viewNode.selected ? "is-selected" : "",
+                    viewNode.related ? "is-related" : "",
+                    viewNode.matched ? "is-matched" : "",
                     viewNode.dimmed ? "is-muted" : "",
                     ...viewNode.statuses.map((status) => `is-${status}`)
                   ].join(" ")}
@@ -556,63 +591,12 @@ export function GraphCanvas({
       {hasOmissions && (
         <div className="graph-render-budget" aria-label="Graph render budget">
           <strong>{renderBudget.nodes.length} shown</strong>
-          <span>{renderBudget.omittedNodeCount} nodes hidden</span>
-          <span>{renderBudget.omittedEdgeCount + renderBudget.orphanEdgeCount} edges hidden</span>
+          <span>{serverOmittedNodeCount + renderBudget.omittedNodeCount} nodes hidden</span>
+          <span>{serverOmittedEdgeCount + renderBudget.omittedEdgeCount + renderBudget.orphanEdgeCount} edges hidden</span>
+          <small>Zoom or focus to load more.</small>
         </div>
       )}
     </div>
-  );
-}
-
-function GraphTooltipLayer({
-  tooltip,
-  left,
-  top,
-  placement
-}: {
-  tooltip: GraphTooltipModel;
-  left: number;
-  top: number;
-  placement: TooltipAnchor["placement"];
-}) {
-  return (
-    <aside
-      className={`graph-tooltip graph-object-tooltip ${tooltip.statuses.map((status) => `is-${status}`).join(" ")}`}
-      style={{ left: `${left}%`, top: `${top}%` }}
-      data-placement={placement}
-      aria-live="polite"
-      data-testid="graph-tooltip"
-    >
-      <header>
-        <span>{tooltip.kindLabel}</span>
-        <strong>{tooltip.title}</strong>
-      </header>
-      {tooltip.summary && <p>{tooltip.summary}</p>}
-      {tooltip.url && (
-        <a
-          className="graph-tooltip-source-url"
-          data-testid="graph-tooltip-source-url"
-          href={tooltip.url}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {tooltip.url}
-        </a>
-      )}
-      {tooltip.contains && tooltip.contains.length > 0 && (
-        <ul>
-          {tooltip.contains.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      )}
-      {tooltip.citations.length > 0 && (
-        <footer>
-          <span>{tooltip.citations.length} citations</span>
-          <span>{tooltip.citations[0].locator ?? tooltip.citations[0].sourceTitle ?? "Graph evidence"}</span>
-        </footer>
-      )}
-    </aside>
   );
 }
 
@@ -879,7 +863,7 @@ function buildGraphView({
     }
   }
 
-  const visibleNodes = selectVisibleNodes(nodes, degreeByNodeId, showContents, matchedIds, relatedIds, selectedNodeId);
+  const visibleNodes = selectVisibleNodes(nodes, showContents, matchedIds, relatedIds, selectedNodeId);
   const visibleIds = new Set(visibleNodes.map((node) => node.id));
   const positions = computePositions(visibleNodes, validEdges.filter((edge) => visibleIds.has(edge.sourceNodeId) && visibleIds.has(edge.targetNodeId)), layout);
   const maxDegree = Math.max(1, ...visibleNodes.map((node) => degreeByNodeId.get(node.id) ?? 0));
@@ -894,10 +878,10 @@ function buildGraphView({
     const projected = use3d
       ? project3d(point.x, point.y, point.z, camera.yaw, camera.pitch)
       : { sx: point.x, sy: point.y, scale: 1, depth: 0 };
-	    const degree = degreeByNodeId.get(node.id) ?? 0;
-	    const kindIndex = kindIndexFor(node.kind);
-	    const contentRole = contentExpansionRole(node);
-	    const matched = matchedIds.has(node.id);
+    const degree = degreeByNodeId.get(node.id) ?? 0;
+    const kindIndex = kindIndexFor(node.kind);
+    const contentRole = contentExpansionRole(node);
+    const matched = matchedIds.has(node.id);
     const selected = node.id === selectedNodeId;
     const related = relatedIds.has(node.id);
     const statuses = visualStateById.get(node.id)?.statuses ?? [];
@@ -907,15 +891,19 @@ function buildGraphView({
     const baseRadius = use3d ? (dense ? 3.6 : 5.4) : (dense ? 4.2 : 6.4);
     const maxRadius = use3d ? (dense ? 7.2 : 11) : (dense ? 8.6 : 13);
     const degreeBoost = (degree / maxDegree) * (use3d ? 3.2 : 4.4);
-	    const rawRadius = clamp(baseRadius + degreeBoost + kindWeight(node.kind) * (use3d ? 0.18 : 0.28), baseRadius, maxRadius);
-	    const radius = contentRole ? Math.max(baseRadius * 0.62, rawRadius * 0.68) : rawRadius;
+    const rawRadius = clamp(
+      baseRadius + degreeBoost + kindWeight(node.kind) * (use3d ? 0.18 : 0.28),
+      baseRadius,
+      maxRadius
+    );
+    const radius = contentRole ? Math.max(baseRadius * 0.62, rawRadius * 0.68) : rawRadius;
     const label = truncateLabel(node.label, use3d ? 24 : dense ? 24 : 36);
     const compact3dLabels = use3d;
     const priorityLabelLimit = compact3dLabels ? 5 : dense ? 8 : 10;
     const kindLabel = !compact3dLabels && kindWeight(node.kind) >= 5.4;
     const labelVisible =
-	      Boolean(contentRole && showContents) ||
-	      showContents ||
+      Boolean(contentRole && showContents) ||
+      showContents ||
       selected ||
       matched ||
       related ||
@@ -938,12 +926,12 @@ function buildGraphView({
       matched,
       selected,
       related,
-	      dimmed,
-	      labelVisible,
-	      kindIndex,
-	      statuses,
-	      contentRole
-	    };
+      dimmed,
+      labelVisible,
+      kindIndex,
+      statuses,
+      contentRole
+    };
   });
   const nodeById = new Map(viewNodes.map((node) => [node.node.id, node]));
   const viewEdges = validEdges
@@ -964,23 +952,15 @@ function buildGraphView({
 
 function selectVisibleNodes(
   nodes: ContentNode[],
-  degreeByNodeId: Map<ContentNode["id"], number>,
   showContents: boolean,
   matchedIds: Set<ContentNode["id"]>,
   relatedIds: Set<ContentNode["id"]>,
   selectedNodeId?: ContentNode["id"]
 ) {
-  if (showContents || nodes.length <= 64) return nodes;
   const mustKeep = new Set<ContentNode["id"]>([...matchedIds, ...relatedIds]);
   if (selectedNodeId) mustKeep.add(selectedNodeId);
-  const ranked = [...nodes].sort((left, right) => {
-    if (mustKeep.has(left.id) && !mustKeep.has(right.id)) return -1;
-    if (!mustKeep.has(left.id) && mustKeep.has(right.id)) return 1;
-    const degreeDelta = (degreeByNodeId.get(right.id) ?? 0) - (degreeByNodeId.get(left.id) ?? 0);
-    if (degreeDelta !== 0) return degreeDelta;
-    return left.label.localeCompare(right.label) || left.id.localeCompare(right.id);
-  });
-  return ranked.slice(0, 64);
+  if (showContents) return nodes;
+  return nodes.filter((node) => !contentExpansionRole(node) || mustKeep.has(node.id));
 }
 
 function contentExpansionRole(entity: ContentNode | SemanticEdge): string | undefined {
@@ -1014,6 +994,10 @@ function forcePositions(nodes: ContentNode[], edges: SemanticEdge[]) {
       vz: 0
     });
   });
+
+  // Large unsaved graphs receive deterministic seeds and move immediately to the
+  // ForceAtlas2 worker. The quadratic refinement below is reserved for small graphs.
+  if (nodes.length > 400) return stripVelocity(points);
 
   for (let tick = 0; tick < 82; tick += 1) {
     const alpha = 1 - tick / 90;

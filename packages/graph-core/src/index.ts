@@ -7,6 +7,7 @@ import type {
   GraphActivityEvent,
   GraphActivityEventKind,
   GraphActivityEventStatus,
+  GraphDelta,
   GraphLensId,
   GraphObjectRef,
   GraphProjectId,
@@ -120,17 +121,28 @@ export interface GraphPath {
 }
 
 export interface GraphRendererAdapter {
+  readonly kind: "sigma-2d" | "three-3d" | "accessible";
   mount(container: HTMLElement): void;
   unmount(): void;
   setData(data: RenderableGraph): void;
   focusNode(nodeId: string): void;
-  applyDelta?(delta: { addedNodes?: ContentNode[]; updatedNodes?: ContentNode[]; removedNodeIds?: string[]; addedEdges?: SemanticEdge[]; updatedEdges?: SemanticEdge[]; removedEdgeIds?: string[] }): void;
-  setVisualStates?(states: GraphVisualState[]): void;
-  getCameraState?(): { x: number; y: number; ratio: number; angle?: number };
-  setCameraState?(state: { x: number; y: number; ratio: number; angle?: number }): void;
-  exportImage?(): Promise<Blob>;
-  recoverContext?(): void;
-  metrics?(): { visibleNodes: number; visibleEdges: number; framesPerSecond?: number };
+  fitGraph(options?: { animated?: boolean }): void;
+  hitTest(point: { x: number; y: number }): GraphObjectRef | undefined;
+  applyDelta(delta: GraphDelta): void;
+  setVisualStates(states: GraphVisualState[]): void;
+  getCameraState(): { x: number; y: number; ratio: number; angle?: number };
+  setCameraState(state: { x: number; y: number; ratio: number; angle?: number }): void;
+  exportImage(options?: { pixelRatio?: number; background?: string }): Promise<Blob>;
+  recoverContext(): void | Promise<void>;
+  metrics(): GraphRendererMetrics;
+}
+
+export interface GraphRendererMetrics {
+  visibleNodes: number;
+  visibleEdges: number;
+  framesPerSecond?: number;
+  renderDurationMs?: number;
+  contextLost: boolean;
 }
 
 export type GraphMotionTier = "full_motion" | "reduced_motion" | "static_state" | "sampled_graph";
