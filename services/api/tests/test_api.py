@@ -908,8 +908,100 @@ def test_connector_and_provider_secrets_use_authenticated_envelopes() -> None:
     assert "top-secret-provider-key" not in settings_json
     assert "gvsecret:local-aead:v1:" in settings_json
     encrypted_files = list(client.app.state.repository.secret_store.root.glob("*.aead"))
-    assert encrypted_files
+    assert len(encrypted_files) == 2
     assert all("top-secret" not in path.read_text() for path in encrypted_files)
+
+    provider_reference = json.loads(settings_json)["ai_provider_credentials"]["openai"]["encrypted_api_key"]
+    rotated_account = client.patch(
+        f"/api/v1/connector-accounts/{account.json()['id']}/credentials",
+        headers=ADMIN_HEADERS,
+        json={"token_json": {"access_token": "rotated-connector-token"}},
+    )
+    assert rotated_account.status_code == 200
+    assert "rotated-connector-token" not in rotated_account.text
+    rotated_provider = client.patch(
+        "/api/v1/providers/openai/credentials",
+        headers=ADMIN_HEADERS,
+        json={"api_key": "rotated-provider-key", "make_default": True},
+    )
+    assert rotated_provider.status_code == 200
+
+    with client.app.state.repository.engine.begin() as connection:
+        rotated_token_reference = connection.execute(
+            select(db.connector_accounts.c.encrypted_token_json).where(
+                db.connector_accounts.c.id == account.json()["id"]
+            )
+        ).scalar_one()
+        rotated_settings = json.loads(
+            connection.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == "project-default")
+            ).scalar_one()
+        )
+    assert rotated_token_reference == token_envelope
+    assert rotated_settings["ai_provider_credentials"]["openai"]["encrypted_api_key"] == provider_reference
+    assert client.app.state.repository.secret_store.get(token_envelope) == {
+        "access_token": "rotated-connector-token"
+    }
+    assert client.app.state.repository.secret_store.get(provider_reference) == {"api_key": "rotated-provider-key"}
+    assert len(list(client.app.state.repository.secret_store.root.glob("*.aead"))) == 2
+
+    cleared_account = client.delete(
+        f"/api/v1/connector-accounts/{account.json()['id']}/credentials",
+        headers=ADMIN_HEADERS,
+    )
+    assert cleared_account.status_code == 200
+    assert cleared_account.json()["status"] == "error"
+    cleared_provider = client.delete("/api/v1/providers/openai/credentials", headers=ADMIN_HEADERS)
+    assert cleared_provider.status_code == 200
+    assert list(client.app.state.repository.secret_store.root.glob("*.aead")) == []
+
+    repository = client.app.state.repository
+    external_store = repository.secret_store
+    repository.secret_store = None
+    legacy_connector = repository._encrypt_json({"access_token": "legacy-connector-token"})
+    legacy_provider = repository._encrypt_json({"api_key": "legacy-provider-key"})
+    repository.secret_store = external_store
+    with repository.engine.begin() as connection:
+        connection.execute(
+            update(db.connector_accounts)
+            .where(db.connector_accounts.c.id == account.json()["id"])
+            .values(encrypted_token_json=legacy_connector)
+        )
+        connection.execute(
+            update(db.graph_settings)
+            .where(db.graph_settings.c.project_id == "project-default")
+            .values(
+                settings_json=json.dumps(
+                    {
+                        "ai_default_provider": "openai",
+                        "ai_provider_credentials": {
+                            "openai": {
+                                "encrypted_api_key": legacy_provider,
+                                "updated_at": datetime.now(tz=UTC).isoformat(),
+                            }
+                        },
+                    }
+                )
+            )
+        )
+    repository.initialize(create_schema=False)
+
+    with repository.engine.begin() as connection:
+        migrated_connector = connection.execute(
+            select(db.connector_accounts.c.encrypted_token_json).where(
+                db.connector_accounts.c.id == account.json()["id"]
+            )
+        ).scalar_one()
+        migrated_settings = json.loads(
+            connection.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == "project-default")
+            ).scalar_one()
+        )
+    migrated_provider = migrated_settings["ai_provider_credentials"]["openai"]["encrypted_api_key"]
+    assert migrated_connector.startswith("gvsecret:local-aead:v1:")
+    assert migrated_provider.startswith("gvsecret:local-aead:v1:")
+    assert repository.secret_store.get(migrated_connector) == {"access_token": "legacy-connector-token"}
+    assert repository.secret_store.get(migrated_provider) == {"api_key": "legacy-provider-key"}
 
 
 def test_lenses_expose_extraction_and_graph_descriptors() -> None:

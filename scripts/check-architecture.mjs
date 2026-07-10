@@ -23,7 +23,7 @@ const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
   "services/api/src/graphview_api/main.py": 1500,
-  "services/api/src/graphview_api/repository.py": 6200
+  "services/api/src/graphview_api/repository.py": 6100
 };
 
 for (const [relativePath, maximumLines] of Object.entries(boundedLegacyFiles)) {

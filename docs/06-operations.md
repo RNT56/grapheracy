@@ -165,6 +165,18 @@ To register a Notion webhook without exposing its verification token:
 5. Subsequent events must carry Notion's HMAC-SHA256 signature over the exact body. Graphview also checks configured
    workspace/integration IDs and retains only a redacted event summary in the durable job.
 
+## Secret Rotation And Removal
+
+- `PATCH /api/v1/connector-accounts/{account_id}/credentials` rotates connector credentials at the existing opaque
+  Vault reference and returns only the redacted account descriptor.
+- `DELETE /api/v1/connector-accounts/{account_id}/credentials` disconnects the account and permanently deletes the
+  Vault KV metadata and versions. Provider credential PATCH/DELETE routes use the same lifecycle.
+- API startup migrates legacy database AES-GCM or reversible envelopes to the configured external store. It never
+  rewrites an already opaque reference.
+- Run `GRAPHVIEW_COMPOSE_PROJECT=graphview-live-ci pnpm run test:secrets:live` against candidate images. The proof
+  checks Vault version increments, stable references, legacy migration after restart, response redaction, database
+  neutralization, and permanent Vault purge.
+
 ## Active Agent Context Connectors
 
 Phase 27 adds active context capture for external agents and editor adapters:

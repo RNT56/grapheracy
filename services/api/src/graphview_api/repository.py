@@ -21,10 +21,7 @@ from graphview_api.lenses import normalize_graph_lens
 from graphview_api.json_compat import json_value, normalize_json_row
 from graphview_api.repository_actions import ActionRepositoryMixin
 from graphview_api.repository_connectors import ConnectorRepositoryMixin
-from graphview_api.repository_serialization import (
-    AI_PROVIDER_CREDENTIALS_KEY,
-    RepositorySerializationMixin,
-)
+from graphview_api.repository_serialization import RepositorySerializationMixin
 from graphview_api.repository_secrets import SecretRepositoryMixin
 from graphview_api.redaction import redact_sensitive_text
 from graphview_api.schemas import (
@@ -45,7 +42,6 @@ from graphview_api.schemas import (
     GraphBuildSpecCreate,
     GraphQueryCreate,
     GraphResearchCreate,
-    GraphSettingsUpdate,
     ObservationCreate,
     OutcomeCreate,
     OwnerCreate,
@@ -100,8 +96,6 @@ RESEARCH_RELATIONS = {"supports", "contradicts", "causes", "mentions", "defines"
 GRAPH_LENSES = ("research", "engineering", "ops")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credentials"}
-AI_PROVIDER_IDS = {"openai", "anthropic", "gemini"}
-AI_DEFAULT_PROVIDER_KEY = "ai_default_provider"
 AGENT_CONTEXT_CAPTURE_SCOPE = "context:capture"
 AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS = (".env", "id_rsa", "id_ed25519", ".pem", ".p12")
 
@@ -740,135 +734,6 @@ class GraphRepository(
                 )
             )
             return result.rowcount > 0
-
-    def graph_settings(self) -> dict:
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.graph_settings).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-            ).mappings().one()
-            return self._settings_from_row(row)
-
-    def graph_settings_with_secrets(self) -> dict:
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.graph_settings).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-            ).mappings().one()
-            return self._settings_from_row(row, redact=False)
-
-    def update_graph_settings(self, payload: GraphSettingsUpdate) -> dict:
-        values = payload.model_dump(exclude_unset=True)
-        if not values:
-            return self.graph_settings()
-        values["updated_at"] = now()
-        with self.engine.begin() as conn:
-            if "settings" in values:
-                settings_payload = values.pop("settings") or {}
-                row = conn.execute(
-                    select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-                ).mappings().one()
-                merged_settings = load_json(json_value(row, "settings_json"), {})
-                for key, value in settings_payload.items():
-                    if key == "llm_api_key":
-                        credentials = dict(merged_settings.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
-                        if value:
-                            credentials["openai"] = {
-                                "encrypted_api_key": self._encrypt_json({"api_key": str(value)}),
-                                "updated_at": now().isoformat(),
-                            }
-                        else:
-                            credentials.pop("openai", None)
-                        merged_settings[AI_PROVIDER_CREDENTIALS_KEY] = credentials
-                        merged_settings.pop("llm_api_key", None)
-                        continue
-                    if value is None:
-                        merged_settings.pop(key, None)
-                    else:
-                        merged_settings[key] = value
-                values["settings_json"] = dump_json(merged_settings)
-            conn.execute(
-                update(db.graph_settings)
-                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-                .values(**values)
-            )
-        return self.graph_settings()
-
-    def ai_provider_api_keys(self) -> dict[str, str]:
-        settings_doc = self.graph_settings_with_secrets()["settings"]
-        credentials = settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY)
-        if not isinstance(credentials, dict):
-            return {}
-        api_keys: dict[str, str] = {}
-        for provider_id, credential in credentials.items():
-            if provider_id not in AI_PROVIDER_IDS or not isinstance(credential, dict):
-                continue
-            encrypted_api_key = credential.get("encrypted_api_key")
-            if not encrypted_api_key:
-                continue
-            try:
-                decrypted = self._decrypt_json(str(encrypted_api_key))
-            except Exception:
-                continue
-            api_key = decrypted.get("api_key")
-            if isinstance(api_key, str) and api_key:
-                api_keys[provider_id] = api_key
-        return api_keys
-
-    def ai_default_provider(self) -> str | None:
-        provider_id = self.graph_settings_with_secrets()["settings"].get(AI_DEFAULT_PROVIDER_KEY)
-        if provider_id == "graphview-local" or provider_id in AI_PROVIDER_IDS:
-            return str(provider_id)
-        return None
-
-    def upsert_ai_provider_api_key(self, provider_id: str, api_key: str, *, make_default: bool = True) -> dict:
-        if provider_id not in AI_PROVIDER_IDS:
-            raise ValueError(f"Provider {provider_id} does not accept user API keys")
-        cleaned_key = api_key.strip()
-        if not cleaned_key:
-            raise ValueError("API key is required")
-        timestamp = now()
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-            ).mappings().one()
-            settings_doc = load_json(json_value(row, "settings_json"), {})
-            credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
-            credentials[provider_id] = {
-                "encrypted_api_key": self._encrypt_json({"api_key": cleaned_key}),
-                "updated_at": timestamp.isoformat(),
-            }
-            settings_doc[AI_PROVIDER_CREDENTIALS_KEY] = credentials
-            if make_default:
-                settings_doc[AI_DEFAULT_PROVIDER_KEY] = provider_id
-            conn.execute(
-                update(db.graph_settings)
-                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-                .values(settings_json=dump_json(settings_doc), updated_at=timestamp)
-            )
-        return self.graph_settings()
-
-    def delete_ai_provider_api_key(self, provider_id: str) -> dict:
-        if provider_id not in AI_PROVIDER_IDS:
-            raise ValueError(f"Provider {provider_id} does not accept user API keys")
-        timestamp = now()
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-            ).mappings().one()
-            settings_doc = load_json(json_value(row, "settings_json"), {})
-            credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
-            credentials.pop(provider_id, None)
-            if credentials:
-                settings_doc[AI_PROVIDER_CREDENTIALS_KEY] = credentials
-            else:
-                settings_doc.pop(AI_PROVIDER_CREDENTIALS_KEY, None)
-            if settings_doc.get(AI_DEFAULT_PROVIDER_KEY) == provider_id:
-                settings_doc[AI_DEFAULT_PROVIDER_KEY] = "graphview-local"
-            conn.execute(
-                update(db.graph_settings)
-                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
-                .values(settings_json=dump_json(settings_doc), updated_at=timestamp)
-            )
-        return self.graph_settings()
 
     def create_planning_session(self, payload: PlanningSessionCreate, actor_id: str) -> dict:
         spec = self._graph_view_spec(payload.graph_id)

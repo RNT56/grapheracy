@@ -1089,6 +1089,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/connector-accounts/{account_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Connector Account Credentials */
+        delete: operations["delete_connector_account_credentials_connector_accounts__account_id__credentials_delete"];
+        options?: never;
+        head?: never;
+        /** Update Connector Account Credentials */
+        patch: operations["update_connector_account_credentials_connector_accounts__account_id__credentials_patch"];
+        trace?: never;
+    };
     "/connector-targets": {
         parameters: {
             query?: never;
@@ -2881,6 +2899,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connector-accounts/{account_id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** V1-Delete Connector Account Credentials */
+        delete: operations["v1_delete_connector_account_credentials_api_v1_connector_accounts__account_id__credentials_delete"];
+        options?: never;
+        head?: never;
+        /** V1-Update Connector Account Credentials */
+        patch: operations["v1_update_connector_account_credentials_api_v1_connector_accounts__account_id__credentials_patch"];
+        trace?: never;
+    };
     "/api/v1/connector-targets": {
         parameters: {
             query?: never;
@@ -4367,6 +4403,13 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** ConnectorCredentialUpdate */
+        ConnectorCredentialUpdate: {
+            /** Token Json */
+            token_json: {
+                [key: string]: unknown;
+            };
         };
         /** ConnectorCursorOut */
         ConnectorCursorOut: {
@@ -9520,6 +9563,78 @@ export interface operations {
             };
         };
     };
+    delete_connector_account_credentials_connector_accounts__account_id__credentials_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_connector_account_credentials_connector_accounts__account_id__credentials_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCredentialUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     connector_targets_connector_targets_get: {
         parameters: {
             query?: never;
@@ -14094,6 +14209,78 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_delete_connector_account_credentials_api_v1_connector_accounts__account_id__credentials_delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectorAccountOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_update_connector_account_credentials_api_v1_connector_accounts__account_id__credentials_patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectorCredentialUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -21,6 +21,10 @@ class SecretStore(Protocol):
 
     def get(self, reference: str) -> dict[str, Any]: ...
 
+    def replace(self, reference: str, value: dict[str, Any]) -> str: ...
+
+    def delete(self, reference: str) -> None: ...
+
 
 class LocalAeadSecretStore:
     """Development-only opaque references backed by permission-restricted AES-GCM files."""
@@ -36,6 +40,18 @@ class LocalAeadSecretStore:
 
     def put(self, value: dict[str, Any]) -> str:
         secret_id = secrets.token_urlsafe(24)
+        self._write(secret_id, value)
+        return f"{self.reference_prefix}{secret_id}"
+
+    def replace(self, reference: str, value: dict[str, Any]) -> str:
+        secret_id = self._reference_id(reference)
+        self._write(secret_id, value)
+        return reference
+
+    def delete(self, reference: str) -> None:
+        (self.root / f"{self._reference_id(reference)}.aead").unlink(missing_ok=True)
+
+    def _write(self, secret_id: str, value: dict[str, Any]) -> None:
         nonce = os.urandom(12)
         plaintext = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ciphertext = AESGCM(self.key).encrypt(nonce, plaintext, b"graphview-local-secret-v1")
@@ -52,14 +68,9 @@ class LocalAeadSecretStore:
             os.chmod(destination, 0o600)
         finally:
             Path(temporary_name).unlink(missing_ok=True)
-        return f"{self.reference_prefix}{secret_id}"
 
     def get(self, reference: str) -> dict[str, Any]:
-        if not reference.startswith(self.reference_prefix):
-            raise ValueError("Unsupported local secret reference")
-        secret_id = reference.removeprefix(self.reference_prefix)
-        if not self._secret_id.fullmatch(secret_id):
-            raise ValueError("Invalid local secret reference")
+        secret_id = self._reference_id(reference)
         envelope = base64.urlsafe_b64decode((self.root / f"{secret_id}.aead").read_bytes())
         plaintext = AESGCM(self.key).decrypt(
             envelope[:12],
@@ -71,11 +82,20 @@ class LocalAeadSecretStore:
             raise ValueError("Local secret payload must be a JSON object")
         return value
 
+    def _reference_id(self, reference: str) -> str:
+        if not reference.startswith(self.reference_prefix):
+            raise ValueError("Unsupported local secret reference")
+        secret_id = reference.removeprefix(self.reference_prefix)
+        if not self._secret_id.fullmatch(secret_id):
+            raise ValueError("Invalid local secret reference")
+        return secret_id
+
 
 class VaultSecretStore:
     """Minimal Vault KV v2 adapter; database fields retain only opaque references."""
 
     reference_prefix = "gvsecret:vault:v1:"
+    _secret_id = re.compile(r"^[A-Za-z0-9_-]{20,100}$")
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         if not settings.vault_address:
@@ -93,18 +113,36 @@ class VaultSecretStore:
 
     def put(self, value: dict[str, Any]) -> str:
         secret_id = secrets.token_urlsafe(24)
-        response = self.client.post(f"/v1/{self.mount}/data/graphview/{secret_id}", json={"data": value})
-        response.raise_for_status()
+        self._write(secret_id, value)
         return f"{self.reference_prefix}{secret_id}"
 
     def get(self, reference: str) -> dict[str, Any]:
-        if not reference.startswith(self.reference_prefix):
-            raise ValueError("Unsupported Vault secret reference")
-        secret_id = reference.removeprefix(self.reference_prefix)
+        secret_id = self._reference_id(reference)
         response = self.client.get(f"/v1/{self.mount}/data/graphview/{secret_id}")
         response.raise_for_status()
         document = response.json()
         return dict(document["data"]["data"])
+
+    def replace(self, reference: str, value: dict[str, Any]) -> str:
+        self._write(self._reference_id(reference), value)
+        return reference
+
+    def delete(self, reference: str) -> None:
+        secret_id = self._reference_id(reference)
+        response = self.client.delete(f"/v1/{self.mount}/metadata/graphview/{secret_id}")
+        response.raise_for_status()
+
+    def _write(self, secret_id: str, value: dict[str, Any]) -> None:
+        response = self.client.post(f"/v1/{self.mount}/data/graphview/{secret_id}", json={"data": value})
+        response.raise_for_status()
+
+    def _reference_id(self, reference: str) -> str:
+        if not reference.startswith(self.reference_prefix):
+            raise ValueError("Unsupported Vault secret reference")
+        secret_id = reference.removeprefix(self.reference_prefix)
+        if not self._secret_id.fullmatch(secret_id):
+            raise ValueError("Invalid Vault secret reference")
+        return secret_id
 
 
 def build_secret_store(settings: Settings) -> SecretStore | None:

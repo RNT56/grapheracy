@@ -39,13 +39,15 @@
     metadata audit record.
 28. Verify `GET /backup` omits active-context encrypted content by default and
     `GET /backup?include_agent_context_content=true` includes encrypted blob envelopes only when explicitly requested.
-29. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider
+29. Run `pnpm run test:secrets:live` against the exact candidate images and confirm stable-reference Vault rotation,
+    legacy database-envelope migration, response redaction, database neutralization, and permanent Vault purge.
+30. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider
     credentials, adapter sessions, Redis sessions, jobs, outbox events, and actions are inert.
-30. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
+31. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
-31. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
-32. Run full CI security gates.
-33. Generate SBOMs for all release images and packaged gateway/extension artifacts.
-34. Confirm no release-blocking security criteria in `../../SECURITY.md`.
-35. Confirm runtime image users are non-root.
-36. Tag release after coordinator approval.
+32. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
+33. Run full CI security gates.
+34. Generate SBOMs for all release images and packaged gateway/extension artifacts.
+35. Confirm no release-blocking security criteria in `../../SECURITY.md`.
+36. Confirm runtime image users are non-root.
+37. Tag release after coordinator approval.

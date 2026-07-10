@@ -36,6 +36,7 @@
     "test:e2e:live": "pnpm --filter @graphview/web exec playwright test tests/browser/live-stack.spec.ts --project=chromium-desktop --config playwright.config.ts",
     "test:observability:live": "bash scripts/check-live-observability.sh",
     "test:agent-context:live": "bash scripts/test-live-agent-context.sh",
+    "test:secrets:live": "bash scripts/test-live-secret-lifecycle.sh",
     "test:backup-restore:live": "bash scripts/test-live-backup-restore.sh",
     "test:performance": "node --experimental-strip-types scripts/check-performance-contract.mjs",
     "test:performance:live": "uv run --package graphview-api python scripts/benchmark-viewport.py",

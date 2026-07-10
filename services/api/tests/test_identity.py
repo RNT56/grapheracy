@@ -77,8 +77,14 @@ def test_vault_store_returns_opaque_reference_and_reads_kv_v2_value() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
+            written.clear()
             written.update(json.loads(request.content)["data"])
             return httpx.Response(200, json={"data": {}})
+        if request.method == "DELETE":
+            written.clear()
+            return httpx.Response(204)
+        if not written:
+            return httpx.Response(404)
         return httpx.Response(200, json={"data": {"data": written}})
 
     settings = Settings(vault_address="https://vault.example.test", vault_token="test-token")
@@ -90,6 +96,13 @@ def test_vault_store_returns_opaque_reference_and_reads_kv_v2_value() -> None:
     assert reference.startswith("gvsecret:vault:v1:")
     assert "access-token-value" not in reference
     assert store.get(reference) == {"access_token": "access-token-value"}
+    assert store.replace(reference, {"access_token": "rotated-token-value"}) == reference
+    assert store.get(reference) == {"access_token": "rotated-token-value"}
+    store.delete(reference)
+    with pytest.raises(httpx.HTTPStatusError):
+        store.get(reference)
+    with pytest.raises(ValueError):
+        store.get("gvsecret:vault:v1:../../outside")
 
 
 def test_local_aead_store_returns_opaque_authenticated_reference(tmp_path) -> None:
@@ -107,3 +120,10 @@ def test_local_aead_store_returns_opaque_authenticated_reference(tmp_path) -> No
     secret_file = next((tmp_path / "secrets").glob("*.aead"))
     assert "local-secret-value" not in secret_file.read_text()
     assert secret_file.stat().st_mode & 0o777 == 0o600
+    assert store.replace(reference, {"secret": "rotated-local-value"}) == reference
+    assert store.get(reference) == {"secret": "rotated-local-value"}
+    assert len(list((tmp_path / "secrets").glob("*.aead"))) == 1
+    store.delete(reference)
+    assert list((tmp_path / "secrets").glob("*.aead")) == []
+    with pytest.raises(ValueError):
+        store.replace("gvsecret:local-aead:v1:../../outside", {"secret": "nope"})

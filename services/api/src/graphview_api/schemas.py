@@ -1598,6 +1598,10 @@ class ConnectorAccountCreate(BaseModel):
     settings: dict[str, Any] = Field(default_factory=dict)
 
 
+class ConnectorCredentialUpdate(BaseModel):
+    token_json: dict[str, Any] = Field(min_length=1)
+
+
 class ConnectorAccountOut(BaseModel):
     id: str
     project_id: str

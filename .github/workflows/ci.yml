@@ -164,6 +164,10 @@ jobs:
         run: pnpm run test:agent-context:live
         env:
           GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
+      - name: Prove Vault credential lifecycle
+        run: pnpm run test:secrets:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
       - name: Prove destructive backup and inert restore
         run: pnpm run test:backup-restore:live
         env:

@@ -58,15 +58,62 @@ class ConnectorRepositoryMixin:
             connection.execute(insert(db.connector_accounts).values(**account))
         return self._connector_account_from_row(account)
 
-    def update_connector_account_tokens(self, account_id: str, token_json: dict, *, project_id: str) -> None:
+    def get_connector_account(self, account_id: str, *, project_id: str = DEFAULT_PROJECT_ID) -> dict | None:
         with self.engine.begin() as connection:
-            result = connection.execute(
+            row = connection.execute(
+                select(db.connector_accounts).where(
+                    and_(db.connector_accounts.c.id == account_id, db.connector_accounts.c.project_id == project_id)
+                )
+            ).mappings().first()
+            return self._connector_account_from_row(row) if row else None
+
+    def update_connector_account_tokens(self, account_id: str, token_json: dict, *, project_id: str) -> dict:
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(db.connector_accounts).where(
+                    and_(db.connector_accounts.c.id == account_id, db.connector_accounts.c.project_id == project_id)
+                )
+            ).mappings().first()
+            if row is None:
+                raise KeyError(account_id)
+            current = json_value(row, "encrypted_token_json")
+            connection.execute(
                 update(db.connector_accounts)
                 .where(and_(db.connector_accounts.c.id == account_id, db.connector_accounts.c.project_id == project_id))
-                .values(encrypted_token_json=self._encrypt_json(token_json), updated_at=_now())
+                .values(
+                    encrypted_token_json=self._replace_encrypted_json(str(current) if current else None, token_json),
+                    status="connected",
+                    updated_at=_now(),
+                )
             )
-            if result.rowcount != 1:
+            updated = connection.execute(
+                select(db.connector_accounts).where(db.connector_accounts.c.id == account_id)
+            ).mappings().one()
+            return self._connector_account_from_row(updated)
+
+    def clear_connector_account_tokens(self, account_id: str, *, project_id: str) -> dict:
+        current: str | None = None
+        with self.engine.begin() as connection:
+            row = connection.execute(
+                select(db.connector_accounts).where(
+                    and_(db.connector_accounts.c.id == account_id, db.connector_accounts.c.project_id == project_id)
+                )
+            ).mappings().first()
+            if row is None:
                 raise KeyError(account_id)
+            envelope = json_value(row, "encrypted_token_json")
+            current = str(envelope) if envelope else None
+            connection.execute(
+                update(db.connector_accounts)
+                .where(and_(db.connector_accounts.c.id == account_id, db.connector_accounts.c.project_id == project_id))
+                .values(encrypted_token_json=None, status="error", updated_at=_now())
+            )
+            updated = connection.execute(
+                select(db.connector_accounts).where(db.connector_accounts.c.id == account_id)
+            ).mappings().one()
+            account = self._connector_account_from_row(updated)
+        self._delete_encrypted_json(current)
+        return account
 
     def list_connector_targets(self, *, project_id: str | None = DEFAULT_PROJECT_ID) -> list[dict]:
         statement = select(db.connector_targets)

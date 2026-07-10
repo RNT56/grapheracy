@@ -52,6 +52,7 @@ from graphview_api.schemas import (
     BackupBundle,
     ConnectorAccountCreate,
     ConnectorAccountOut,
+    ConnectorCredentialUpdate,
     ConnectorSyncCreate,
     ConnectorSyncRunOut,
     ConnectorTargetCreate,
@@ -1131,6 +1132,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository: GraphRepository = Depends(repo),
     ) -> dict:
         return repository.create_connector_account(payload, user.id)
+
+    @app.patch("/connector-accounts/{account_id}/credentials", response_model=ConnectorAccountOut)
+    async def update_connector_account_credentials(
+        account_id: str,
+        payload: ConnectorCredentialUpdate,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            return repository.update_connector_account_tokens(
+                account_id,
+                payload.token_json,
+                project_id="project-default",
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector account not found") from error
+
+    @app.delete("/connector-accounts/{account_id}/credentials", response_model=ConnectorAccountOut)
+    async def delete_connector_account_credentials(
+        account_id: str,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        repository: GraphRepository = Depends(repo),
+    ) -> dict:
+        try:
+            return repository.clear_connector_account_tokens(account_id, project_id="project-default")
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector account not found") from error
 
     @app.get("/connector-targets")
     async def connector_targets(

@@ -31,7 +31,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Attention, actions, outcomes, and feedback | active | Internal nervous-system loop plus GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, and redaction tests | Secret-backed GitHub/SMTP/webhook action and callback canaries pending | Actions |
 | Active agent context capture and retention | implemented | API lifecycle/replay/retention tests plus gateway and extension offline-outbox tests | OIDC service auth, ordered offline replay, MinIO-encrypted capture, resumable SSE, redaction, purge, and metadata preservation production-proven | Context |
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
-| Vault-backed secrets and encrypted object storage | active | Local atomic AES-GCM reference-store and Vault KV v2 opaque-reference tests; S3 retained-blob coverage | Vault/MinIO services live-proven; production credential rotation and purge canary pending | Security |
+| Vault-backed secrets and encrypted object storage | implemented | Local atomic AEAD and Vault KV v2 create/read/replace/delete tests plus legacy-envelope migration and S3 retained-blob coverage | Stable-reference Vault rotation, legacy database migration, permanent purge, and MinIO-encrypted context production-proven | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | Production database/object manifest verification, destructive Compose round trip, inert-state SQL assertions, and image SBOM/signing workflows | Exact-stack database/object deletion and restore production-proven with credential/session purge and no worker side-effect replay; final signed tag verification pending | Release |
@@ -57,6 +57,10 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
   a capture-only adapter, replayed two ordered gateway events queued while the API endpoint was unavailable, persisted
   redacted encrypted content in MinIO, resumed SSE after a stable event ID, purged the expired object, retained the
   metadata audit record, and completed the session.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:secrets:live`: connector and provider credentials
+  rotated as new Vault KV versions without changing their opaque database references, a legacy database AES-GCM
+  credential migrated to Vault on restart, API responses remained redacted, and deletion removed Vault metadata and
+  all versions.
 - `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the ops image verified database and
   object manifests, survived destructive record/object deletion, restored the complete PostgreSQL/S3 canary set,
   removed usable connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis,

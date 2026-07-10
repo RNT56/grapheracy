@@ -228,6 +228,15 @@ presence, and the product-first web shell.
   MinIO content, stable `Last-Event-ID` SSE resume, secret redaction, object deletion at retention expiry, preserved
   metadata, and terminal session state.
 
+## Production Secret Lifecycle Checks
+
+- `pnpm run test:secrets:live` creates connector and provider credentials through an OIDC service client against the
+  exact production images.
+- The gate verifies opaque Vault KV v2 references, stable-reference version rotation, redacted API responses, startup
+  migration of a legacy database AES-GCM envelope, and permanent metadata/version purge after credential removal.
+- Unit tests run the same replace/delete contract against Vault's HTTP boundary and the development-only atomic local
+  AEAD store. Invalid references cannot escape the configured path or Vault mount.
+
 ## Production Backup And Restore Checks
 
 - `pnpm run test:backup-restore:live` runs only against the production Compose stack and exact candidate images.
