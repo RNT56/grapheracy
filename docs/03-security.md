@@ -83,7 +83,7 @@ approval record is:
   deterministic without adding native image-processing dependencies.
 
 Approval is conditional on the coordinator reviewing `pnpm-workspace.yaml` and `pnpm-lock.yaml`, confirming no package
-lifecycle allowlist expansion, and recording moderate `pnpm audit`, OSV, signature, and license results before Phase 24
+lifecycle allowlist expansion, and recording moderate `pnpm audit`, OSV, lockfile integrity/trust, and license results before Phase 24
 is released.
 
 ## Phase 27 Dependency Approval Notes
@@ -102,15 +102,18 @@ Phase 27 adds active agent context capture and approved connector dependencies:
 
 Lifecycle scripts remain denied by `.npmrc`. No package-specific lifecycle allowlist is added. Release requires the
 normal security, license, changelog, typecheck, test, browser, and release-readiness gates through `pnpm run
-phase27:check`; external audit, OSV, signature, and secret scans remain CI/release gates.
+phase27:check`; external audit, OSV, lockfile integrity/trust, and secret scans remain CI/release gates.
 
 ## Required Gates
 
 - JS audit: `pnpm audit --audit-level=moderate`.
-- npm package signatures where applicable: `npm audit signatures`.
+- pnpm supply-chain integrity: enforce the release-age and provenance no-downgrade policies, require sha512-pinned
+  registry resolutions with no exotic dependencies, and verify the frozen lockfile offline through
+  `pnpm run security:signatures`.
 - OSV lockfile scan: `osv-scanner scan source -r .`.
 - Python dependency audit after service dependencies are added.
-- Secret scan: `pnpm run security:secrets`; it uses an installed `gitleaks` binary or the official Go module fallback.
+- Secret scan: `pnpm run security:secrets`; it uses an installed `gitleaks` binary or the pinned official Go module
+  fallback, and always redacts findings from console output.
 - License check.
 - Typecheck, lint, and tests.
 - Docs hygiene and changelog validation.
@@ -173,7 +176,10 @@ Completed external receipts remain audit evidence and are never enqueued again.
 - Use minimal base images.
 - Pin major runtime image lines.
 - Do not bake secrets into image layers.
-- Generate SBOMs for app, API, and worker images before release.
+- Generate SBOMs for all eight release images plus the packaged gateway and editor extension before release.
+- Tag publication requires GitHub's cryptographic annotated-tag verification, digest-pinned image signatures and
+  provenance attestations, client-artifact provenance attestations, a complete image digest manifest, and a keyless
+  Sigstore bundle over the SHA-256 manifest.
 
 ## Failure Modes
 

@@ -28,6 +28,8 @@ for (const file of [
   "infra/compose/docker-compose.production.yml",
   "infra/helm/graphview/Chart.yaml",
   "infra/scripts/graphview-ops.sh",
+  "scripts/build-release-artifacts.mjs",
+  "scripts/verify-release-artifacts.mjs",
   ".github/workflows/ci.yml",
   ".github/workflows/security.yml",
   ".github/workflows/release.yml"
@@ -39,11 +41,47 @@ for (const file of [
   }
 }
 
+for (const command of ["release:artifacts", "release:artifacts:verify"]) {
+  if (!packageJson.scripts?.[command]) failures.push(`package.json missing ${command}`);
+}
+
+const versionFiles = [
+  "apps/docs-app/package.json",
+  "apps/vscode-extension/package.json",
+  "apps/web/package.json",
+  "packages/api-client/package.json",
+  "packages/design-system/package.json",
+  "packages/graph-core/package.json",
+  "packages/shared-types/package.json",
+  "services/agent-gateway/package.json",
+  "services/api/package.json",
+  "services/worker/package.json"
+];
+for (const file of versionFiles) {
+  const document = JSON.parse(await read(file));
+  if (document.version !== packageJson.version) failures.push(`${file} version differs from root package.json`);
+}
+for (const file of ["pyproject.toml", "services/api/pyproject.toml", "services/worker/pyproject.toml"]) {
+  const match = (await read(file)).match(/^version = "([^"]+)"/m);
+  if (match?.[1] !== packageJson.version) failures.push(`${file} version differs from root package.json`);
+}
+
 const architecture = await read("docs/02-architecture.md");
 const operations = await read("docs/06-operations.md");
 const ledger = await read("docs/14-graphview-1.0-upgrade-ledger.md");
+const releaseWorkflow = await read(".github/workflows/release.yml");
 for (const required of ["/api/v1", "PostgreSQL", "Redis", "S3", "OIDC", "Sigma", "Graphology"]) {
   if (!`${architecture}\n${operations}\n${ledger}`.includes(required)) failures.push(`1.0 documentation missing ${required}`);
+}
+for (const required of [
+  "client-artifacts:",
+  "release:artifacts:verify",
+  "cosign sign-blob",
+  ".verification.verified",
+  "subject-path: dist/release/*",
+  "image-manifest.json"
+]) {
+  if (!releaseWorkflow.includes(required)) failures.push(`release workflow missing ${required}`);
 }
 for (const forbidden of ["production stub", "mocked-only critical flow", "seeded authentication fallback in production"]) {
   if (ledger.toLowerCase().includes(`${forbidden}: complete`)) failures.push(`upgrade ledger overclaims ${forbidden}`);

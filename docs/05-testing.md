@@ -248,6 +248,16 @@ presence, and the product-first web shell.
 - Backup verification fails independently for a corrupt database checksum, corrupt manifest checksum, missing object,
   extra object, unsafe prefix, invalid database confirmation, or active database client.
 
+## Release Artifact Checks
+
+- `pnpm run release:artifacts` packages the MCP agent gateway and an installable VS Code/Cursor VSIX, then emits an SPDX
+  2.3 SBOM containing the complete pnpm lockfile inventory, a commit-bound release manifest, and sorted SHA-256 checksums.
+- `pnpm run release:artifacts:verify` validates every size and digest, requires the current Git commit and workspace
+  version, tests the ZIP/TGZ containers, and asserts their runtime manifests and entrypoints are present.
+- Pull-request CI runs both commands. Tag CI additionally records all eight immutable image digests, verifies GitHub's
+  annotated-tag signature result, signs the complete checksum manifest with keyless Sigstore, attaches provenance to
+  images and client artifacts, and publishes exactly those files.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.

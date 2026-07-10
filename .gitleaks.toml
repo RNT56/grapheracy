@@ -4,6 +4,6 @@ title = "Graphview secret scanning policy"
 useDefault = true
 
 [allowlist]
-description = "Documented local-only placeholders in .env.example"
-paths = ['''^\.env\.example$''']
+description = "Documented local placeholders and encrypted runtime ciphertext"
+paths = ['''^\.env\.example$''', '''^\.graphview/objects/.*\.gvenc$''']
 regexes = ['''graphview-local-only|local-only''']

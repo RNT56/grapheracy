@@ -33,7 +33,7 @@ pnpm run phase27:check
 | `pnpm run security:local` | Runnable | Check repository security policy configuration. |
 | `pnpm run security:licenses` | Runnable | Check license policy metadata. |
 | `pnpm run security:audit` | Runnable after install | Run pnpm audit at moderate severity. |
-| `pnpm run security:signatures` | CI gate | Verify npm registry signatures where package metadata supports it. |
+| `pnpm run security:signatures` | CI gate | Enforce pnpm release-age/trust policies, sha512-pinned registry resolutions, no exotic dependencies, and a frozen offline lockfile verification. |
 | `pnpm run security:osv` | CI gate | Run OSV-Scanner against the source tree and lockfiles. |
 | `pnpm run security:secrets` | CI gate | Run Gitleaks secret scanning with an installed binary or Go module fallback. |
 | `pnpm run typecheck` | Runnable placeholder | Runs package type checks as implementations appear. |

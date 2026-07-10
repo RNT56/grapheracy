@@ -10,9 +10,9 @@ dependencies = [
   "fastapi",
   "httpx",
   "pyjwt[crypto]>=2.10.1",
-  "pydantic-settings",
+  "pydantic-settings>=2.14.2",
   "psycopg[binary]",
-  "pypdf",
+  "pypdf>=6.13.3",
   "pgvector",
   "python-docx",
   "python-multipart",
@@ -25,6 +25,7 @@ dependencies = [
   "opentelemetry-sdk",
   "redis>=5.2.1,<6.0.0",
   "sqlalchemy",
+  "starlette>=1.3.1",
   "uvicorn",
 ]
 

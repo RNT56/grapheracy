@@ -47,7 +47,8 @@
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
 32. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
 33. Run full CI security gates.
-34. Generate SBOMs for all release images and packaged gateway/extension artifacts.
+34. Run `pnpm run release:artifacts:verify`, then confirm tag CI generates SBOMs for all release images and packaged
+    gateway/extension artifacts, records all image digests, verifies the annotated tag, and signs the checksum manifest.
 35. Confirm no release-blocking security criteria in `../../SECURITY.md`.
 36. Confirm runtime image users are non-root.
 37. Tag release after coordinator approval.

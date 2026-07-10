@@ -4,14 +4,15 @@ import { delimiter, join } from "node:path";
 import { spawn } from "node:child_process";
 
 const gitleaks = await findExecutable("gitleaks");
+const gitleaksModule = "github.com/zricethezav/gitleaks/v8@v8.30.1";
 if (gitleaks) {
-  await run(gitleaks, ["detect", "--source", ".", "--no-git"]);
+  await run(gitleaks, ["detect", "--source", ".", "--no-git", "--redact"]);
   process.exit(0);
 }
 
 const go = await findExecutable("go");
 if (go) {
-  await run(go, ["run", "github.com/zricethezav/gitleaks/v8@latest", "detect", "--source", ".", "--no-git"]);
+  await run(go, ["run", gitleaksModule, "detect", "--source", ".", "--no-git", "--redact"]);
   process.exit(0);
 }
 

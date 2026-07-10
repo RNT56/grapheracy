@@ -356,12 +356,15 @@ attributes, and no injected acceptance secret in Collector output.
 3. Run the unmocked production-stack browser job with `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live` against the
    exact candidate images.
 4. Run `pnpm run test:observability:live` against the same Compose project and retain its trace/metric/redaction proof.
-5. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
-6. Run full CI gates, including moderate audit, signature, OSV, and secret scans.
-7. Generate SBOMs for release images, including the Graphview-owned non-root Collector image.
-8. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
+5. Run `pnpm run release:artifacts && pnpm run release:artifacts:verify`; inspect the gateway TGZ, installable VSIX,
+   SPDX SBOM, commit-bound manifest, and SHA-256 list.
+6. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
+7. Run full CI gates, including moderate audit, integrity, OSV, and secret scans.
+8. Generate SBOMs for all eight release images, including the Graphview-owned non-root Collector image.
+9. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
    observability status, and restore plan.
-9. Tag a SemVer release after V1 release policy is defined.
+10. Create an annotated signed SemVer tag only after staging acceptance. Tag CI verifies GitHub's cryptographic tag
+    result, signs and attests image digests, signs the full artifact checksum list, and publishes the immutable bundle.
 
 ## Failure Modes
 
