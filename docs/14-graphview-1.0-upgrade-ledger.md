@@ -21,7 +21,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| Bounded backend architecture | active | Identity, operations/readiness, connector, sources/ingestion, review, Attention, actions/outcomes, agent-context, and V1 graph routers pass the 102-test API suite with exact OpenAPI/client parity | Assembly reduced from 1,486 to 869 lines with a 900-line regression ceiling; AI/planning extraction still pending | Architecture |
+| Bounded backend architecture | active | Identity, operations/readiness, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, and V1 graph routers pass the 102-test API suite with exact OpenAPI/client parity | Assembly reduced from 1,486 to 416 lines with a 450-line regression ceiling; legacy graph compatibility and backup/import extraction remain | Architecture |
 | V1 API and compatibility aliases | implemented | 102 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
@@ -45,9 +45,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
   structure, and production web-build gates passed; the API suite reported 102 tests and the worker suite reported 8.
 - The bounded-router extraction retained the committed OpenAPI and generated TypeScript client byte-for-byte while
-  moving connector, source/ingestion, review, Attention, and actions/outcomes endpoints out of application assembly.
-  Architecture checks now require those module boundaries, reject route migration back into `main.py`, and cap
-  assembly at 900 lines.
+  moving connector, source/ingestion, review, Attention, actions/outcomes, and all AI planning/tool/retrieval endpoints
+  out of application assembly. Architecture checks now require those module boundaries, reject route migration back
+  into `main.py`, and cap assembly at 450 lines.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
