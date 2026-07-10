@@ -160,6 +160,10 @@ jobs:
         run: pnpm run test:observability:live
         env:
           GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
+      - name: Prove destructive backup and inert restore
+        run: pnpm run test:backup-restore:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
       - name: Capture stack logs
         if: failure()
         run: docker compose -p graphview-live-ci -f infra/compose/docker-compose.production.yml logs --no-color --tail=400

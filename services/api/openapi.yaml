@@ -23246,6 +23246,23 @@
             "type": "array",
             "title": "Source Chunks"
           },
+          "graph_version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GraphVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "graph_layouts": {
+            "items": {
+              "$ref": "#/components/schemas/GraphLayoutOut"
+            },
+            "type": "array",
+            "title": "Graph Layouts"
+          },
           "graph_settings": {
             "anyOf": [
               {
@@ -25225,6 +25242,40 @@
           "omitted_edge_count"
         ],
         "title": "GraphSubgraphOut"
+      },
+      "GraphVersionOut": {
+        "properties": {
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "node_count": {
+            "type": "integer",
+            "title": "Node Count"
+          },
+          "edge_count": {
+            "type": "integer",
+            "title": "Edge Count"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project_id",
+          "version",
+          "node_count",
+          "edge_count",
+          "updated_at"
+        ],
+        "title": "GraphVersionOut"
       },
       "GraphViewOut": {
         "properties": {

@@ -1,7 +1,8 @@
 # Release Checklist
 
 1. Consolidate `docs/changelog/unreleased/` into `CHANGELOG.md`.
-2. Capture a `GET /backup` bundle and confirm the restore target and rollback owner.
+2. Capture a logical `GET /backup` bundle, run the production `graphview-ops backup` plus `verify`, and confirm the
+   maintenance window, restore target, object manifest, and rollback owner.
 3. Verify `GET /observability/ready` and admin-only `GET /observability/metrics`.
 4. Verify `GET /extraction-lenses` includes Research, Engineering, and Ops, and `GET /graph-lenses` includes All.
 5. Verify repository ingestion produces at least one Engineering-tagged `semantic_edge` proposal.
@@ -36,14 +37,13 @@
 27. Verify `POST /agent-context/retention/run` purges expired encrypted blobs while preserving metadata audit records.
 28. Verify `GET /backup` omits active-context encrypted content by default and
     `GET /backup?include_agent_context_content=true` includes encrypted blob envelopes only when explicitly requested.
-29. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
+29. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider
+    credentials, adapter sessions, Redis sessions, jobs, outbox events, and actions are inert.
+30. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
-30. Run `pnpm run phase22:check` only when comparing against the historical AI V1 baseline.
-31. Run `pnpm run phase27:smoke`.
-32. Run `pnpm run phase27:check`.
-33. Run `pnpm run release:check`.
-34. Run full CI security gates.
-35. Generate SBOMs for app, API, worker, gateway, and extension packages.
-36. Confirm no release-blocking security criteria in `../../SECURITY.md`.
-37. Confirm runtime image users are non-root.
-38. Tag release after coordinator approval.
+31. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
+32. Run full CI security gates.
+33. Generate SBOMs for all release images and packaged gateway/extension artifacts.
+34. Confirm no release-blocking security criteria in `../../SECURITY.md`.
+35. Confirm runtime image users are non-root.
+36. Tag release after coordinator approval.

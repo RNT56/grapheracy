@@ -34,40 +34,6 @@ class GraphBounds(BaseModel):
         return self
 
 
-class GraphPositionIn(BaseModel):
-    node_id: str = Field(min_length=1, max_length=128)
-    x: float
-    y: float
-    z: float | None = None
-    cluster_key: str | None = Field(default=None, max_length=160)
-
-
-class GraphLayoutUpsert(BaseModel):
-    name: str = Field(default="default", min_length=1, max_length=160)
-    algorithm: str = Field(default="forceatlas2", min_length=1, max_length=80)
-    graph_version: int | None = Field(default=None, ge=1)
-    settings: dict[str, Any] = Field(default_factory=dict)
-    positions: list[GraphPositionIn] = Field(min_length=1, max_length=100_000)
-
-
-class GraphPositionOut(GraphPositionIn):
-    pass
-
-
-class GraphLayoutOut(BaseModel):
-    id: str
-    project_id: str
-    name: str
-    algorithm: str
-    graph_version: int
-    settings: dict[str, Any]
-    position_count: int
-    positions: list[GraphPositionOut] = Field(default_factory=list)
-    created_by: str
-    created_at: datetime
-    updated_at: datetime
-
-
 class GraphViewportNode(BaseModel):
     node: ContentNodeOut
     x: float

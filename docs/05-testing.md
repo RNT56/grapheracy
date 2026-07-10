@@ -224,6 +224,17 @@ presence, and the product-first web shell.
   and existing 2D/3D browser graph QA mocks.
 - Worker tests cover the context normalization, enrichment, and retention stage plan.
 
+## Production Backup And Restore Checks
+
+- `pnpm run test:backup-restore:live` runs only against the production Compose stack and exact candidate images.
+- The test stops API, worker, and Keycloak, creates a referenced object plus database/credential/session/job/outbox/action
+  canaries, captures and verifies a database-and-object archive, deletes the canaries, and performs the real restore.
+- Post-restore assertions require record/object recovery, connector and provider credential removal, adapter revocation,
+  Redis invalidation, terminal job/outbox/action state, blocked Attention, healthy service restart, and no delayed worker
+  replay.
+- Backup verification fails independently for a corrupt database checksum, corrupt manifest checksum, missing object,
+  extra object, unsafe prefix, invalid database confirmation, or active database client.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.

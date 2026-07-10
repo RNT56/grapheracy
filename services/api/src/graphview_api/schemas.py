@@ -1680,6 +1680,48 @@ class SourceChunkOut(BaseModel):
     created_at: datetime
 
 
+class GraphPositionIn(BaseModel):
+    node_id: str = Field(min_length=1, max_length=128)
+    x: float
+    y: float
+    z: float | None = None
+    cluster_key: str | None = Field(default=None, max_length=160)
+
+
+class GraphLayoutUpsert(BaseModel):
+    name: str = Field(default="default", min_length=1, max_length=160)
+    algorithm: str = Field(default="forceatlas2", min_length=1, max_length=80)
+    graph_version: int | None = Field(default=None, ge=1)
+    settings: dict[str, Any] = Field(default_factory=dict)
+    positions: list[GraphPositionIn] = Field(min_length=1, max_length=100_000)
+
+
+class GraphPositionOut(GraphPositionIn):
+    pass
+
+
+class GraphLayoutOut(BaseModel):
+    id: str
+    project_id: str
+    name: str
+    algorithm: str
+    graph_version: int
+    settings: dict[str, Any]
+    position_count: int
+    positions: list[GraphPositionOut] = Field(default_factory=list)
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class GraphVersionOut(BaseModel):
+    project_id: str
+    version: int
+    node_count: int
+    edge_count: int
+    updated_at: datetime
+
+
 class ExportBundle(BaseModel):
     project: GraphProjectOut
     sources: list[SourceOut]
@@ -1694,6 +1736,8 @@ class ExportBundle(BaseModel):
     connector_targets: list[ConnectorTargetOut] = Field(default_factory=list)
     connector_sync_runs: list[ConnectorSyncRunOut] = Field(default_factory=list)
     source_chunks: list[SourceChunkOut] = Field(default_factory=list)
+    graph_version: GraphVersionOut | None = None
+    graph_layouts: list[GraphLayoutOut] = Field(default_factory=list)
     graph_settings: GraphSettingsOut | None = None
     planning_sessions: list[PlanningSessionOut] = Field(default_factory=list)
     agent_runs: list[AgentRunOut] = Field(default_factory=list)

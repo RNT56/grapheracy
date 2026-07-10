@@ -210,18 +210,59 @@ The worker writes the action-run before calling an external system. Retries reus
 and block linked Attention. Expired worker leases are reclaimed up to the configured job attempt limit. Provider error
 text is redacted before job storage, connector health, action audit, or OpenTelemetry exception recording.
 
-## Backup And Restore
+## Logical Project Export
 
-The API exposes full graph-state backup and restore endpoints for the active project:
+The API exposes a redacted logical graph-state export and import for the active project:
 
 - `GET /backup` requires the admin local user and returns metadata plus the complete export bundle.
 - `POST /restore` requires the admin local user and replaces the active project state with a backup bundle.
 - `GET /export` remains an operator-only raw bundle export for debugging and integration handoff.
 - `POST /import` remains an operator-only seed import for sources and proposals, not a full restore.
 
-Backups preserve project, sources, reviewed nodes, semantic edges, ingestion runs, proposals, embeddings, review
-decisions, provenance, timestamps, and original IDs. Restore is destructive for the active project and should only run
-after a fresh backup has been captured.
+Logical exports preserve project, sources, reviewed nodes, semantic edges, ingestion runs, proposals, embeddings, review
+decisions, provenance, connector metadata, graph versions, saved layout coordinates, timestamps, and original IDs.
+Restore revokes imported connector/context credentials, cancels unfinished logical work, suppresses pending project
+jobs/outbox events, and writes an immutable restore audit event. It is destructive for the active project and should
+only run after a fresh backup has been captured.
+
+These endpoints are not the production disaster-recovery mechanism: they intentionally omit usable connector/provider
+credentials, Redis sessions, queue state, audit internals, and normal object payloads.
+
+## Production Disaster Recovery
+
+The `graphview-ops` image backs up the complete PostgreSQL database and every non-backup object in the Graphview S3
+bucket. Each archive contains the custom-format database dump, its SHA-256 file, a sorted object-key/size manifest, its
+SHA-256 file, and an isolated object payload prefix. `verify` checks both manifest files, compares the archive object set,
+and parses the database archive before a restore is allowed.
+
+```sh
+docker compose -p graphview -f infra/compose/docker-compose.production.yml run --rm ops backup --retention-days 30
+BACKUP_PREFIX=backups/20260710T194032Z \
+  docker compose -p graphview -f infra/compose/docker-compose.production.yml run --rm -e BACKUP_PREFIX ops verify
+```
+
+Restore is a maintenance-window operation. Stop every PostgreSQL client owned by Graphview—including Keycloak—then
+pass both the database-name confirmation and the explicit maintenance acknowledgement:
+
+```sh
+docker compose -p graphview -f infra/compose/docker-compose.production.yml stop api worker keycloak
+docker compose -p graphview -f infra/compose/docker-compose.production.yml run --rm \
+  -e RESTORE_MAINTENANCE_CONFIRMED=1 ops restore \
+  --backup-prefix backups/20260710T194032Z --confirm graphview
+docker compose -p graphview -f infra/compose/docker-compose.production.yml up -d keycloak api worker
+```
+
+Restore refuses unsafe prefixes, invalid confirmation, missing maintenance acknowledgement, corrupt/incomplete
+archives, or any remaining database client. After the database and object set are restored, it removes connector and AI
+provider credential references, revokes active-context clients, cancels active context sessions, neutralizes unfinished
+ingestion/connector/AI/action work, marks pending outbox events as suppressed, blocks linked Attention, clears connector
+leases, and requires the authenticated Redis session flush to return `OK`. It never restores Vault itself. Reauthorize
+connectors/providers and create new context clients after validation; never copy credentials from the backup archive.
+
+Run `GRAPHVIEW_COMPOSE_PROJECT=graphview-live-ci pnpm run test:backup-restore:live` against the exact candidate images.
+The gate creates credential, context, job, outbox, action, database, Redis, and object canaries; deletes the database and
+object records; performs the real restore; proves every canary is restored inertly; restarts services; and confirms the
+worker cannot replay the suppressed action.
 
 ## Compose
 
@@ -273,6 +314,8 @@ attributes, and no injected acceptance secret in Collector output.
 | `MINIO_*` | api/worker | `.env.example` | Keys yes | Object storage. |
 | `OIDC_*` | api | `.env.example` | Secret yes | Internal SSO adapter. |
 | `ARQ_REDIS_URL` | worker | `redis://localhost:6379/0` | No locally | Worker queue. |
+| `REDIS_HOST` / `REDIS_PASSWORD` | ops | `redis` / unset | Password yes | Explicit authenticated Redis session invalidation during production restore. |
+| `RESTORE_MAINTENANCE_CONFIRMED` | ops | unset | No | Must be `1` only after API, worker, and Keycloak database clients are stopped. |
 | `GRAPHVIEW_DATABASE_URL` | api | `sqlite:///./.graphview/graphview.sqlite` | No locally | API persistence URL. |
 | `GRAPHVIEW_SECRET_KEY` | api | `local-dev-graphview-secret` | Yes outside local | Authenticated local AEAD key for development-only secret storage. Production connector/action credentials use external Vault references. |
 | `GRAPHVIEW_LOCAL_SECRET_STORE_PATH` | api/worker | `./.graphview/secrets` | No | Development-only directory for atomic mode-0600 AES-GCM secret envelopes shared by local API and worker processes. |

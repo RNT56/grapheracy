@@ -19,8 +19,6 @@ from graphview_api.api_v1.repository import GraphProjectionRepository
 from graphview_api.api_v1.schemas import (
     GraphActivityPage,
     GraphBounds,
-    GraphLayoutOut,
-    GraphLayoutUpsert,
     GraphSearchOut,
     GraphSubgraphOut,
     GraphViewportOut,
@@ -35,7 +33,16 @@ from graphview_api.jobs.schemas import JobCreate, JobOut, JobPage
 from graphview_api.malware import scan_with_clamd
 from graphview_api.observability import observe_sse_stream
 from graphview_api.repository import GraphRepository
-from graphview_api.schemas import AgentRunCreate, GraphQueryCreate, GraphResearchCreate, IngestionCreate, OutcomeCreate, PlanningMessageCreate
+from graphview_api.schemas import (
+    AgentRunCreate,
+    GraphLayoutOut,
+    GraphLayoutUpsert,
+    GraphQueryCreate,
+    GraphResearchCreate,
+    IngestionCreate,
+    OutcomeCreate,
+    PlanningMessageCreate,
+)
 from graphview_api.resumable_uploads import create_resumable_upload_router
 
 SUPPORTED_DURABLE_JOBS = {

@@ -21,6 +21,10 @@ from graphview_api.lenses import normalize_graph_lens
 from graphview_api.json_compat import json_value, normalize_json_row
 from graphview_api.repository_actions import ActionRepositoryMixin
 from graphview_api.repository_connectors import ConnectorRepositoryMixin
+from graphview_api.repository_serialization import (
+    AI_PROVIDER_CREDENTIALS_KEY,
+    RepositorySerializationMixin,
+)
 from graphview_api.repository_secrets import SecretRepositoryMixin
 from graphview_api.redaction import redact_sensitive_text
 from graphview_api.schemas import (
@@ -97,14 +101,7 @@ GRAPH_LENSES = ("research", "engineering", "ops")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credentials"}
 AI_PROVIDER_IDS = {"openai", "anthropic", "gemini"}
-AI_PROVIDER_CREDENTIALS_KEY = "ai_provider_credentials"
 AI_DEFAULT_PROVIDER_KEY = "ai_default_provider"
-SENSITIVE_SETTINGS_KEYS = SENSITIVE_PAYLOAD_KEYS | {
-    "access_token",
-    "encrypted_api_key",
-    "llm_api_key",
-    "refresh_token",
-}
 AGENT_CONTEXT_CAPTURE_SCOPE = "context:capture"
 AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS = (".env", "id_rsa", "id_ed25519", ".pem", ".p12")
 
@@ -141,7 +138,12 @@ def load_json(value: str | None, fallback: object):
     return json.loads(value)
 
 
-class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRepositoryMixin):
+class GraphRepository(
+    ActionRepositoryMixin,
+    ConnectorRepositoryMixin,
+    SecretRepositoryMixin,
+    RepositorySerializationMixin,
+):
     def __init__(
         self,
         engine: Engine,
@@ -4733,10 +4735,15 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
         return {"sources": sources, "nodes": nodes}
 
     def export_bundle(self, graph_id: str | None = None, *, include_agent_context_content: bool = False) -> dict:
+        from graphview_api.api_v1.repository import GraphProjectionRepository
+
         spec = self._graph_view_spec(graph_id)
         project, nodes, edges = self.graph(graph_id)
         proposals = self.list_proposals(graph_id=graph_id)
         proposal_ids = {proposal["id"] for proposal in proposals}
+        projection = GraphProjectionRepository(self)
+        graph_version = projection.graph_version(spec.project_id) if not spec.source_ids else None
+        graph_layouts = projection.list_layouts(spec.project_id, include_positions=True) if not spec.source_ids else []
         with self.engine.begin() as conn:
             exported_at = now()
             source_ids = {source["id"] for source in self.list_sources(graph_id=graph_id)}
@@ -4783,6 +4790,8 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     ).mappings()
                     if row["source_id"] in source_ids
                 ],
+                "graph_version": graph_version,
+                "graph_layouts": graph_layouts,
                 "graph_settings": self.graph_settings() if spec.project_id == DEFAULT_PROJECT_ID else None,
                 "planning_sessions": [
                     self._planning_session_from_row(row)
@@ -4949,9 +4958,47 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
             "bundle": bundle,
         }
 
-    def restore_bundle(self, bundle: ExportBundle) -> dict:
+    def restore_bundle(self, bundle: ExportBundle, *, actor_id: str = "system-restore") -> dict:
         project_id = bundle.project.id
+        restore_timestamp = now()
         with self.engine.begin() as conn:
+            conn.execute(
+                delete(db.upload_parts).where(
+                    db.upload_parts.c.session_id.in_(
+                        select(db.upload_sessions.c.id).where(db.upload_sessions.c.project_id == project_id)
+                    )
+                )
+            )
+            conn.execute(
+                delete(db.graph_layout_positions).where(
+                    db.graph_layout_positions.c.layout_id.in_(
+                        select(db.graph_layouts.c.id).where(db.graph_layouts.c.project_id == project_id)
+                    )
+                )
+            )
+            conn.execute(
+                update(db.durable_jobs)
+                .where(
+                    and_(
+                        db.durable_jobs.c.project_id == project_id,
+                        db.durable_jobs.c.status.in_(["queued", "retry", "running", "cancelling"]),
+                    )
+                )
+                .values(
+                    status="cancelled",
+                    leased_until=None,
+                    worker_id=None,
+                    error_code="RestoreSuppressed",
+                    error="Suppressed during logical restore",
+                    updated_at=restore_timestamp,
+                    finished_at=restore_timestamp,
+                )
+            )
+            conn.execute(
+                update(db.event_outbox)
+                .where(and_(db.event_outbox.c.project_id == project_id, db.event_outbox.c.status == "pending"))
+                .values(status="suppressed", published_at=restore_timestamp)
+            )
             for table in [
                 db.agent_context_events,
                 db.agent_context_blobs,
@@ -4985,16 +5032,90 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                 db.content_nodes,
                 db.source_chunks,
                 db.sources,
+                db.upload_sessions,
+                db.connector_cursors,
                 db.connector_sync_runs,
                 db.connector_targets,
                 db.connector_accounts,
                 db.topics,
+                db.graph_layouts,
+                db.graph_versions,
                 db.graph_settings,
             ]:
                 conn.execute(delete(table).where(table.c.project_id == project_id))
             conn.execute(delete(db.graph_projects).where(db.graph_projects.c.id == project_id))
 
             conn.execute(insert(db.graph_projects).values(**bundle.project.model_dump()))
+            connector_accounts = [
+                {
+                    "id": account.id,
+                    "project_id": account.project_id,
+                    "kind": account.kind,
+                    "display_name": account.display_name,
+                    "status": "error",
+                    "created_by": account.created_by,
+                    "encrypted_token_json": None,
+                    "scopes_json": dump_json(account.scopes),
+                    "settings_json": dump_json(account.settings),
+                    "created_at": account.created_at,
+                    "updated_at": restore_timestamp,
+                }
+                for account in bundle.connector_accounts
+            ]
+            connector_targets = [
+                {
+                    "id": target.id,
+                    "project_id": target.project_id,
+                    "account_id": target.account_id,
+                    "connector_kind": target.connector_kind,
+                    "target_type": target.target_type,
+                    "remote_id": target.remote_id,
+                    "title": target.title,
+                    "parent_remote_id": target.parent_remote_id,
+                    "sync_settings_json": dump_json(target.sync_settings),
+                    "last_synced_at": target.last_synced_at,
+                    "created_at": target.created_at,
+                    "updated_at": restore_timestamp,
+                }
+                for target in bundle.connector_targets
+            ]
+            connector_sync_runs = [
+                {
+                    **sync_run.model_dump(),
+                    "status": "failed" if sync_run.status == "running" else sync_run.status,
+                    "stage": "restore_suppressed" if sync_run.status == "running" else sync_run.stage,
+                    "error": "Suppressed during restore" if sync_run.status == "running" else sync_run.error,
+                    "finished_at": restore_timestamp if sync_run.status == "running" else sync_run.finished_at,
+                }
+                for sync_run in bundle.connector_sync_runs
+            ]
+            graph_version = bundle.graph_version.model_dump() if bundle.graph_version else None
+            graph_layouts = [
+                {
+                    "id": layout.id,
+                    "project_id": layout.project_id,
+                    "name": layout.name,
+                    "algorithm": layout.algorithm,
+                    "graph_version": layout.graph_version,
+                    "settings_json": dump_json(layout.settings),
+                    "created_by": layout.created_by,
+                    "created_at": layout.created_at,
+                    "updated_at": layout.updated_at,
+                }
+                for layout in bundle.graph_layouts
+            ]
+            graph_layout_positions = [
+                {
+                    "layout_id": layout.id,
+                    "node_id": position.node_id,
+                    "x": position.x,
+                    "y": position.y,
+                    "z": position.z,
+                    "cluster_key": position.cluster_key,
+                }
+                for layout in bundle.graph_layouts
+                for position in layout.positions
+            ]
             sources = []
             for source in bundle.sources:
                 dumped = source.model_dump()
@@ -5031,7 +5152,15 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                 }
                 for edge in bundle.edges
             ]
-            ingestion_runs = [run.model_dump() for run in bundle.ingestion_runs]
+            ingestion_runs = [
+                {
+                    **run.model_dump(),
+                    "status": "cancelled" if run.status in {"queued", "running"} else run.status,
+                    "finished_at": restore_timestamp if run.status in {"queued", "running"} else run.finished_at,
+                    "error_code": "RestoreSuppressed" if run.status in {"queued", "running"} else run.error_code,
+                }
+                for run in bundle.ingestion_runs
+            ]
             proposals = [
                 {
                     "id": proposal.id,
@@ -5149,7 +5278,7 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "project_id": run.project_id,
                     "planning_session_id": run.planning_session_id,
                     "kind": run.kind,
-                    "status": run.status,
+                    "status": "cancelled" if run.status in {"queued", "running"} else run.status,
                     "provider": run.provider,
                     "model": run.model,
                     "input_json": dump_json(run.input),
@@ -5157,8 +5286,8 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "trace_id": run.trace_id,
                     "created_by": run.created_by,
                     "started_at": run.started_at,
-                    "finished_at": run.finished_at,
-                    "error": run.error,
+                    "finished_at": restore_timestamp if run.status in {"queued", "running"} else run.finished_at,
+                    "error": "Suppressed during restore" if run.status in {"queued", "running"} else run.error,
                 }
                 for run in bundle.agent_runs
             ]
@@ -5168,14 +5297,14 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "project_id": step.project_id,
                     "agent_run_id": step.agent_run_id,
                     "name": step.name,
-                    "status": step.status,
+                    "status": "failed" if step.status == "running" else step.status,
                     "input_summary": step.input_summary,
                     "output_summary": step.output_summary,
-                    "error": step.error,
+                    "error": "Suppressed during restore" if step.status == "running" else step.error,
                     "trace_id": step.trace_id,
                     "metadata_json": dump_json(step.metadata),
                     "started_at": step.started_at,
-                    "finished_at": step.finished_at,
+                    "finished_at": restore_timestamp if step.status == "running" else step.finished_at,
                 }
                 for run in bundle.agent_runs
                 for step in run.steps
@@ -5187,15 +5316,17 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "agent_run_id": task.agent_run_id,
                     "planning_session_id": task.planning_session_id,
                     "query": task.query,
-                    "status": task.status,
+                    "status": "failed" if task.status in {"queued", "running"} else task.status,
                     "provider": task.provider,
                     "model": task.model,
                     "source_policy": task.source_policy,
                     "idempotency_key": task.idempotency_key,
-                    "result_json": dump_json(task.result),
+                    "result_json": dump_json({"restore_suppressed": True})
+                    if task.status in {"queued", "running"}
+                    else dump_json(task.result),
                     "created_by": task.created_by,
                     "created_at": task.created_at,
-                    "updated_at": task.updated_at,
+                    "updated_at": restore_timestamp if task.status in {"queued", "running"} else task.updated_at,
                 }
                 for task in bundle.research_tasks
             ]
@@ -5332,12 +5463,18 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                 }
                 for alert in bundle.alerts
             ]
+            suppressed_action_run_ids = {
+                run.id for run in bundle.action_runs if run.status in {"queued", "running"}
+            }
             attention_items = [
                 {
                     "id": item.id,
                     "project_id": item.project_id,
                     "kind": item.kind,
-                    "status": item.status,
+                    "status": "blocked"
+                    if item.action_run_id in suppressed_action_run_ids
+                    and item.status in {"waiting_for_action", "waiting_for_outcome"}
+                    else item.status,
                     "severity": item.severity,
                     "sla_status": item.sla_status,
                     "title": item.title,
@@ -5360,7 +5497,9 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "suggested_actions_json": dump_json(item.suggested_actions),
                     "blockers_json": dump_json(item.blockers),
                     "created_at": item.created_at,
-                    "updated_at": item.updated_at,
+                    "updated_at": restore_timestamp
+                    if item.action_run_id in suppressed_action_run_ids
+                    else item.updated_at,
                     "resolved_at": item.resolved_at,
                 }
                 for item in bundle.attention_items
@@ -5389,7 +5528,9 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "alert_id": action.alert_id,
                     "attention_item_id": action.attention_item_id,
                     "action_type": action.action_type,
-                    "status": action.status,
+                    "status": "cancelled"
+                    if action.status in {"approved", "queued", "running"}
+                    else action.status,
                     "title": action.title,
                     "summary": action.summary,
                     "payload_json": dump_json(action.redacted_payload),
@@ -5401,7 +5542,9 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "rejected_by": action.rejected_by,
                     "rationale": action.rationale,
                     "created_at": action.created_at,
-                    "updated_at": action.updated_at,
+                    "updated_at": restore_timestamp
+                    if action.status in {"approved", "queued", "running"}
+                    else action.updated_at,
                     "decided_at": action.decided_at,
                 }
                 for action in bundle.action_proposals
@@ -5412,17 +5555,23 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "project_id": run.project_id,
                     "action_proposal_id": run.action_proposal_id,
                     "action_type": run.action_type,
-                    "status": run.status,
+                    "status": "cancelled" if run.status in {"queued", "running"} else run.status,
                     "executor_id": run.executor_id,
                     "target": run.target,
                     "payload_json": dump_json(run.redacted_payload),
                     "redacted_payload_json": dump_json(run.redacted_payload),
                     "external_id": run.external_id,
                     "trace_id": run.trace_id,
-                    "error_code": run.error_code,
-                    "error": run.error,
+                    "error_code": "RestoreSuppressed"
+                    if run.status in {"queued", "running"}
+                    else run.error_code,
+                    "error": "Suppressed during restore"
+                    if run.status in {"queued", "running"}
+                    else run.error,
                     "started_at": run.started_at,
-                    "finished_at": run.finished_at,
+                    "finished_at": restore_timestamp
+                    if run.status in {"queued", "running"}
+                    else run.finished_at,
                 }
                 for run in bundle.action_runs
             ]
@@ -5465,15 +5614,15 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "project_id": client.project_id,
                     "display_name": client.display_name,
                     "runtime_kind": client.runtime_kind,
-                    "status": client.status,
+                    "status": "revoked",
                     "created_by": client.created_by,
-                    "token_hash": f"restored:{client.id}",
+                    "token_hash": "restored:revoked",
                     "scopes_json": dump_json(client.scopes),
                     "settings_json": dump_json(client.settings),
                     "created_at": client.created_at,
-                    "updated_at": client.updated_at,
+                    "updated_at": restore_timestamp,
                     "last_seen_at": client.last_seen_at,
-                    "revoked_at": client.revoked_at,
+                    "revoked_at": restore_timestamp,
                 }
                 for client in bundle.agent_context_clients
             ]
@@ -5484,7 +5633,7 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "client_id": session.client_id,
                     "runtime_kind": session.runtime_kind,
                     "authority": session.authority,
-                    "status": session.status,
+                    "status": "cancelled" if session.status == "running" else session.status,
                     "title": session.title,
                     "workspace_root": session.workspace_root,
                     "repository_uri": session.repository_uri,
@@ -5492,8 +5641,8 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                     "commit_sha": session.commit_sha,
                     "metadata_json": dump_json(session.metadata),
                     "started_at": session.started_at,
-                    "ended_at": session.ended_at,
-                    "updated_at": session.updated_at,
+                    "ended_at": restore_timestamp if session.status == "running" else session.ended_at,
+                    "updated_at": restore_timestamp if session.status == "running" else session.updated_at,
                 }
                 for session in bundle.agent_context_sessions
             ]
@@ -5577,11 +5726,18 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                 for event in bundle.agent_context_events
             ]
 
+            if graph_version:
+                conn.execute(insert(db.graph_versions).values(**graph_version))
             for table, rows in [
                 (db.topics, topics),
+                (db.connector_accounts, connector_accounts),
+                (db.connector_targets, connector_targets),
+                (db.connector_sync_runs, connector_sync_runs),
+                (db.graph_layouts, graph_layouts),
                 (db.sources, sources),
                 (db.source_chunks, source_chunks),
                 (db.content_nodes, nodes),
+                (db.graph_layout_positions, graph_layout_positions),
                 (db.semantic_edges, edges),
                 (db.ingestion_runs, ingestion_runs),
                 (db.extraction_proposals, proposals),
@@ -5630,6 +5786,30 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
                         updated_at=timestamp,
                     )
                 )
+
+            conn.execute(
+                insert(db.audit_events).values(
+                    id=new_id("audit"),
+                    project_id=project_id,
+                    actor_id=actor_id,
+                    action="project.restore",
+                    resource_type="project",
+                    resource_id=project_id,
+                    outcome="succeeded",
+                    summary="Restored a logical project bundle with side effects suppressed.",
+                    metadata_json=dump_json(
+                        {
+                            "source_count": len(bundle.sources),
+                            "node_count": len(bundle.nodes),
+                            "edge_count": len(bundle.edges),
+                            "layout_count": len(bundle.graph_layouts),
+                            "connector_account_count": len(bundle.connector_accounts),
+                        }
+                    ),
+                    trace_id=new_id("trace"),
+                    occurred_at=restore_timestamp,
+                )
+            )
 
         return self.export_bundle()
 
@@ -6002,142 +6182,4 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
         data = normalize_json_row(row)
         data["effect"] = load_json(data.pop("effect_json"), {})
         data["proposed_value"] = load_json(data.pop("proposed_value_json"), None)
-        return data
-
-    def _agent_context_client_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data.pop("token_hash", None)
-        data["scopes"] = load_json(data.pop("scopes_json"), [])
-        data["settings"] = self._redact_payload(load_json(data.pop("settings_json"), {}))
-        return data
-
-    def _agent_context_session_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["metadata"] = load_json(data.pop("metadata_json"), {})
-        return data
-
-    def _agent_context_artifact_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["metadata"] = load_json(data.pop("metadata_json"), {})
-        return data
-
-    def _agent_context_blob_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data.pop("encrypted_content", None)
-        data.pop("object_key", None)
-        data["metadata"] = load_json(data.pop("metadata_json"), {})
-        return data
-
-    def _agent_context_event_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["payload"] = load_json(data.pop("payload_json"), {})
-        data["object_refs"] = load_json(data.pop("object_refs_json"), [])
-        return data
-
-    def _activity_event_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["object_refs"] = load_json(data.pop("object_refs_json"), [])
-        data["payload"] = load_json(data.pop("payload_json"), {})
-        data["lenses"] = load_json(data.pop("lenses_json"), [])
-        return data
-
-    def _settings_from_row(self, row, *, redact: bool = True) -> dict:
-        data = normalize_json_row(row)
-        settings = load_json(data.pop("settings_json"), {})
-        data["settings"] = self._redact_settings(settings) if redact else settings
-        return data
-
-    def _redact_settings(self, value):
-        if isinstance(value, dict):
-            redacted = {}
-            for key, item in value.items():
-                key_lower = key.lower()
-                if key == AI_PROVIDER_CREDENTIALS_KEY and isinstance(item, dict):
-                    redacted[key] = {
-                        provider_id: {
-                            "configured": isinstance(credential, dict) and bool(credential.get("encrypted_api_key")),
-                            "updated_at": credential.get("updated_at") if isinstance(credential, dict) else None,
-                        }
-                        for provider_id, credential in item.items()
-                    }
-                elif key_lower in SENSITIVE_SETTINGS_KEYS:
-                    continue
-                else:
-                    redacted[key] = self._redact_settings(item)
-            return redacted
-        if isinstance(value, list):
-            return [self._redact_settings(item) for item in value]
-        return value
-
-    def _connector_account_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data.pop("encrypted_token_json", None)
-        data["scopes"] = load_json(data.pop("scopes_json"), [])
-        data["settings"] = load_json(data.pop("settings_json"), {})
-        return data
-
-    def _connector_target_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["sync_settings"] = load_json(data.pop("sync_settings_json"), {})
-        return data
-
-    def _connector_sync_run_from_row(self, row) -> dict:
-        return normalize_json_row(row)
-
-    def _source_chunk_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["heading_path"] = load_json(data.pop("heading_path_json"), [])
-        data["links"] = load_json(data.pop("links_json"), [])
-        data["mentions"] = load_json(data.pop("mentions_json"), [])
-        return data
-
-    def _topic_from_row(self, row) -> dict:
-        return normalize_json_row(row)
-
-    def _proposal_status(self, decision: str) -> str:
-        return {
-            "accept": "accepted",
-            "reject": "rejected",
-            "edit": "edited",
-            "defer": "deferred",
-        }[decision]
-
-    def _proposal_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["proposed_value"] = load_json(data.pop("proposed_value_json"), {})
-        data["provenance"] = load_json(data.pop("provenance_json"), [])
-        return data
-
-    def _decision_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["edited_value"] = load_json(data.pop("edited_value_json"), None)
-        return data
-
-    def _embedding_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["vector"] = load_json(data.pop("vector_json"), [])
-        return data
-
-    def _source_values_from_payload(self, payload: SourceCreate | SourceUpdate, *, exclude_unset: bool = False) -> dict:
-        values = payload.model_dump(exclude_unset=exclude_unset)
-        if "metadata" in values:
-            values["metadata_json"] = dump_json(values.pop("metadata") or {})
-        return values
-
-    def _source_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["metadata"] = load_json(data.pop("metadata_json", None), {})
-        return data
-
-    def _node_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["topic_ids"] = load_json(data.pop("topic_ids_json"), [])
-        data["metadata"] = load_json(data.pop("metadata_json", None), {})
-        data["provenance"] = load_json(data.pop("provenance_json"), [])
-        return data
-
-    def _edge_from_row(self, row) -> dict:
-        data = normalize_json_row(row)
-        data["metadata"] = load_json(data.pop("metadata_json", None), {})
-        data["provenance"] = load_json(data.pop("provenance_json"), [])
         return data

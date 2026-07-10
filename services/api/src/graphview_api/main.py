@@ -1565,10 +1565,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/restore", response_model=ExportBundle)
     async def restore(
         payload: BackupBundle,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
         repository: GraphRepository = Depends(repo),
     ) -> dict:
-        return repository.restore_bundle(payload.bundle)
+        return repository.restore_bundle(payload.bundle, actor_id=user.id)
 
     @app.post("/import", response_model=ExportBundle)
     async def import_bundle(

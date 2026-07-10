@@ -1106,6 +1106,7 @@ def test_connector_account_target_crud_redacts_tokens_and_enforces_roles() -> No
             "display_name": "Workspace Notion",
             "token_json": {"access_token": "secret-token"},
             "scopes": ["read_content"],
+            "settings": {"region": "eu", "api_key": "must-not-be-exported"},
         },
     )
     assert account_response.status_code == 201
@@ -1113,6 +1114,7 @@ def test_connector_account_target_crud_redacts_tokens_and_enforces_roles() -> No
     assert account["kind"] == "notion"
     assert "token_json" not in account
     assert "encrypted_token_json" not in account
+    assert account["settings"] == {"region": "eu"}
 
     listed = client.get("/connector-accounts", headers=READER_HEADERS).json()["connector_accounts"]
     assert listed[0]["id"] == account["id"]
@@ -1131,6 +1133,20 @@ def test_connector_account_target_crud_redacts_tokens_and_enforces_roles() -> No
     )
     assert target.status_code == 201
     assert target.json()["connector_kind"] == "notion"
+
+    backup = client.get("/backup", headers=ADMIN_HEADERS)
+    restored_client = make_client()
+    restored = restored_client.post("/restore", headers=ADMIN_HEADERS, json=backup.json())
+    assert restored.status_code == 200
+    restored_accounts = restored_client.get("/connector-accounts", headers=READER_HEADERS).json()["connector_accounts"]
+    assert len(restored_accounts) == 1
+    assert restored_accounts[0]["id"] == account["id"]
+    assert restored_accounts[0]["status"] == "error"
+    assert restored_accounts[0]["scopes"] == ["read_content"]
+    assert restored_accounts[0]["settings"] == {"region": "eu"}
+    restored_targets = restored_client.get("/connector-targets", headers=READER_HEADERS).json()["connector_targets"]
+    assert [item["id"] for item in restored_targets] == [target.json()["id"]]
+    assert "must-not-be-exported" not in str(backup.json())
 
 
 def test_manual_connector_sync_creates_chunks_proposals_and_auto_commits() -> None:
@@ -2421,6 +2437,18 @@ def test_phase25_digital_nervous_system_routes_executes_observes_and_learns() ->
     assert bundle["action_proposals"][0]["redacted_payload"]["secret"] == "[redacted]"
     assert "source-secret" not in str(bundle)
 
+    restore_payload = backup.json()
+    restore_payload["bundle"]["action_proposals"][0]["status"] = "queued"
+    restore_payload["bundle"]["action_runs"][0]["status"] = "queued"
+    restore_payload["bundle"]["action_runs"][0]["finished_at"] = None
+    restore_payload["bundle"]["attention_items"][0]["status"] = "waiting_for_action"
+    restored = client.post("/restore", headers=ADMIN_HEADERS, json=restore_payload)
+    assert restored.status_code == 200
+    assert restored.json()["action_proposals"][0]["status"] == "cancelled"
+    assert restored.json()["action_runs"][0]["status"] == "cancelled"
+    assert restored.json()["action_runs"][0]["error_code"] == "RestoreSuppressed"
+    assert restored.json()["attention_items"][0]["status"] == "blocked"
+
 
 def test_phase25_action_runs_require_approval_and_operate_permission() -> None:
     client = make_client()
@@ -3169,13 +3197,37 @@ def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
         },
     ).json()
     client.post("/review-decisions", json={"proposal_id": proposal["id"], "decision": "accept"})
+    graph = client.get("/graph", headers=READER_HEADERS).json()
+    saved_layout = client.put(
+        "/api/v1/graphs/project-default/layouts/restore-proof",
+        headers=ADMIN_HEADERS,
+        json={
+            "name": "restore-proof",
+            "algorithm": "manual",
+            "positions": [{"node_id": graph["nodes"][0]["id"], "x": 0.25, "y": -0.5}],
+        },
+    )
+    assert saved_layout.status_code == 200
 
     backup = client.get("/backup", headers=ADMIN_HEADERS)
     assert backup.status_code == 200
     assert backup.json()["metadata"]["node_count"] == 1
+    assert backup.json()["bundle"]["graph_version"]["node_count"] == 1
+    assert backup.json()["bundle"]["graph_layouts"][0]["name"] == "restore-proof"
 
     client.post("/sources", json={"kind": "text", "title": "Transient source"})
     assert len(client.get("/sources").json()["sources"]) == 2
+    queued_job = client.post(
+        "/api/v1/jobs",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "ingestion.run",
+            "queue": "ingestion",
+            "idempotency_key": "logical-restore-suppression",
+            "payload": {"project_id": "project-default", "source_id": source["id"]},
+        },
+    )
+    assert queued_job.status_code == 202
 
     restored = client.post("/restore", headers=ADMIN_HEADERS, json=backup.json())
     assert restored.status_code == 200
@@ -3184,3 +3236,25 @@ def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
     activity = client.get("/graph/activity", headers=READER_HEADERS).json()["events"]
     assert any(event["event_type"] == "proposal.created" for event in activity)
     assert "Transient source" not in str(activity)
+    restored_layouts = client.get(
+        "/api/v1/graphs/project-default/layouts",
+        params={"include_positions": True},
+        headers=READER_HEADERS,
+    ).json()
+    assert restored_layouts[0]["positions"] == [
+        {"node_id": graph["nodes"][0]["id"], "x": 0.25, "y": -0.5, "z": None, "cluster_key": None}
+    ]
+    suppressed_job = client.get(f"/api/v1/jobs/{queued_job.json()['id']}", headers=ADMIN_HEADERS)
+    assert suppressed_job.json()["status"] == "cancelled"
+    assert suppressed_job.json()["error_code"] == "RestoreSuppressed"
+    with client.app.state.repository.engine.begin() as conn:
+        outbox_status = conn.execute(
+            select(db.event_outbox.c.status).where(db.event_outbox.c.aggregate_id == queued_job.json()["id"])
+        ).scalar_one()
+        restore_audit = conn.execute(
+            select(db.audit_events.c.actor_id, db.audit_events.c.action).where(
+                db.audit_events.c.action == "project.restore"
+            )
+        ).one()
+    assert outbox_status == "suppressed"
+    assert restore_audit == ("user-maintainer", "project.restore")

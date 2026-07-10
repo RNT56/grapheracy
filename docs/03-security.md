@@ -155,6 +155,12 @@ scanner gates are wired in CI and require the tools installed there.
   rehydrate raw captured content by default.
 - Retention cleanup must purge expired encrypted blobs without deleting session/event audit metadata.
 
+Production disaster restore is stricter than logical project import. It runs only with Graphview API, worker, and
+Keycloak database clients stopped; refuses remaining client connections; never restores Vault; removes connector and AI
+provider credential references; revokes adapter token hashes; clears connector leases and Redis sessions; and converts
+all unfinished job, outbox, ingestion, connector, AI, and external-action state to explicit inert terminal records.
+Completed external receipts remain audit evidence and are never enqueued again.
+
 ## Containers
 
 - Run as non-root users.

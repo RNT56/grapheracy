@@ -4664,6 +4664,9 @@ export interface components {
             connector_sync_runs?: components["schemas"]["ConnectorSyncRunOut"][];
             /** Source Chunks */
             source_chunks?: components["schemas"]["SourceChunkOut"][];
+            graph_version?: components["schemas"]["GraphVersionOut"] | null;
+            /** Graph Layouts */
+            graph_layouts?: components["schemas"]["GraphLayoutOut"][];
             graph_settings?: components["schemas"]["GraphSettingsOut"] | null;
             /** Planning Sessions */
             planning_sessions?: components["schemas"]["PlanningSessionOut"][];
@@ -5352,6 +5355,22 @@ export interface components {
             omitted_node_count: number;
             /** Omitted Edge Count */
             omitted_edge_count: number;
+        };
+        /** GraphVersionOut */
+        GraphVersionOut: {
+            /** Project Id */
+            project_id: string;
+            /** Version */
+            version: number;
+            /** Node Count */
+            node_count: number;
+            /** Edge Count */
+            edge_count: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** GraphViewOut */
         GraphViewOut: {

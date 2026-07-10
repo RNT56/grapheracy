@@ -34,7 +34,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Vault-backed secrets and encrypted object storage | active | Local atomic AES-GCM reference-store and Vault KV v2 opaque-reference tests; S3 retained-blob coverage | Vault/MinIO services live-proven; production credential rotation and purge canary pending | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
-| Backup, restore, rollback, SBOM, and signed release | active | pending | pending | Release |
+| Backup, restore, rollback, SBOM, and signed release | active | Production database/object manifest verification, destructive Compose round trip, inert-state SQL assertions, and image SBOM/signing workflows | Exact-stack database/object deletion and restore production-proven with credential/session purge and no worker side-effect replay; final signed tag verification pending | Release |
 | 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Seeded live PostgreSQL p95 and documented reference-machine rerun pending | Performance |
 
 ## Recorded Evidence
@@ -53,6 +53,10 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
   API/upload and durable-worker trace, route-bounded API metrics, worker queue/job metrics, and SSE metrics. The proof
   also parsed every emitted URL attribute and rejected queries/fragments or any injected database, Redis, object-store,
   Keycloak, Vault, session-signing, service-client, or browser-test secret.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the ops image verified database and
+  object manifests, survived destructive record/object deletion, restored the complete PostgreSQL/S3 canary set,
+  removed usable connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis,
+  restarted Keycloak/API/worker, and proved the worker did not replay the external action.
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.
