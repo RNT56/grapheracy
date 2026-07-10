@@ -1,6 +1,7 @@
 import asyncio
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from arq import Retry
 from sqlalchemy import update
@@ -16,6 +17,36 @@ from graphview_api.schemas import ActionProposalCreate, ActionProposalDecision
 from graphview_api.settings import Settings
 from graphview_worker.jobs import DurableJobCancelled, _execute_with_cancellation, execute_durable_job
 from graphview_worker.pipeline import WorkerSettingsForArq, build_stage_plan
+
+
+class NullSpan:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def record_exception(self, _error):
+        return None
+
+    def set_attribute(self, *_args, **_kwargs):
+        return None
+
+    def set_status(self, *_args, **_kwargs):
+        return None
+
+
+class NullTracer:
+    def start_as_current_span(self, *_args, **_kwargs):
+        return NullSpan()
+
+
+class NullMetric:
+    def record(self, *_args, **_kwargs):
+        return None
+
+    def add(self, *_args, **_kwargs):
+        return None
 
 
 def test_stage_plan_is_idempotent_and_ordered() -> None:
@@ -127,35 +158,8 @@ def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() ->
 
         async def execute(self, _proposal, _payload):
             if self.should_fail:
-                raise RuntimeError("provider timeout secret=must-not-leak")
+                raise httpx.ReadTimeout("provider timeout secret=must-not-leak")
             return ActionAdapterResult("receipt-1", {"status_code": 202})
-
-    class NullSpan:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def record_exception(self, _error):
-            return None
-
-        def set_attribute(self, *_args, **_kwargs):
-            return None
-
-        def set_status(self, *_args, **_kwargs):
-            return None
-
-    class NullTracer:
-        def start_as_current_span(self, *_args, **_kwargs):
-            return NullSpan()
-
-    class NullMetric:
-        def record(self, *_args, **_kwargs):
-            return None
-
-        def add(self, *_args, **_kwargs):
-            return None
 
     adapter = Adapter()
     context = {
@@ -174,7 +178,7 @@ def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() ->
         asyncio.run(execute_durable_job(context, job["id"]))
     queued_run = repository.list_action_runs()[0]
     assert queued_run["status"] == "queued"
-    assert queued_run["error_code"] == "RuntimeError"
+    assert queued_run["error_code"] == "ReadTimeout"
     assert "must-not-leak" not in queued_run["error"]
     assert repository.get_action_proposal(proposal["id"])["status"] == "queued"
 
@@ -199,3 +203,48 @@ def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() ->
         for event in repository.list_graph_activity_events(graph_id=None, limit=100)
     }
     assert {"action.run.started", "action.run.retry_scheduled", "action.run.resumed", "action.run.succeeded"} <= event_types
+
+
+def test_provider_rate_limit_honors_retry_after() -> None:
+    repository = GraphRepository(create_app_engine("sqlite://"))
+    repository.initialize()
+    jobs = JobRepository(repository.engine)
+    job = jobs.enqueue(
+        JobCreate(
+            kind="agent_context.retention",
+            queue="maintenance",
+            idempotency_key="provider-rate-limit-test",
+            payload={"project_id": "project-default"},
+            max_attempts=2,
+        )
+    )
+
+    class RateLimitedExecutor:
+        async def execute(self, _job):
+            request = httpx.Request("POST", "https://provider.example.test/run")
+            response = httpx.Response(429, headers={"Retry-After": "17"}, request=request)
+            raise httpx.HTTPStatusError("provider returned 429 token=must-not-leak", request=request, response=response)
+
+    context = {
+        "jobs": jobs,
+        "repository": repository,
+        "executor": RateLimitedExecutor(),
+        "worker_id": "rate-limit-worker",
+        "tracer": NullTracer(),
+        "queue_latency": NullMetric(),
+        "job_counter": NullMetric(),
+        "execution_duration": NullMetric(),
+        "active_jobs": NullMetric(),
+    }
+    before = datetime.now(tz=UTC)
+    with pytest.raises(Retry):
+        asyncio.run(execute_durable_job(context, job["id"]))
+
+    retrying = jobs.get(job["id"])
+    assert retrying["status"] == "retry"
+    assert retrying["error_code"] == "HTTPStatusError"
+    assert "must-not-leak" not in retrying["error"]
+    available_at = retrying["available_at"]
+    if available_at.tzinfo is None:
+        available_at = available_at.replace(tzinfo=UTC)
+    assert before + timedelta(seconds=16) <= available_at <= before + timedelta(seconds=19)

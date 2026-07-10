@@ -63,6 +63,11 @@ class LocalObjectStore:
     def exists(self, key: str) -> bool:
         return self._path(key).is_file()
 
+    def ready(self) -> str:
+        if not self.root.is_dir():
+            raise FileNotFoundError("Local object-store root is unavailable")
+        return "local"
+
     def _multipart_path(self, upload_id: str) -> Path:
         return self._path(f".multipart/{upload_id}")
 
@@ -135,6 +140,10 @@ class S3ObjectStore:
             if status == 404:
                 return False
             raise
+
+    def ready(self) -> str:
+        self.client.head_bucket(Bucket=self.bucket)
+        return "s3"
 
 
 def build_object_store(settings: Settings):

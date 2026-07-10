@@ -32,6 +32,7 @@ from graphview_api.jobs.executor import GraphJobExecutor
 from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.observability import RequestMetrics, configure_telemetry, observe_sse_stream
 from graphview_api.object_store import build_object_store
+from graphview_api.operations import create_health_router, create_operations_router
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
@@ -197,6 +198,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             media_type="application/problem+json",
         )
 
+    @app.exception_handler(Exception)
+    async def internal_problem_handler(request: Request, _error: Exception):
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "type": "https://graphview.local/problems/internal",
+                "title": "Internal server error",
+                "status": 500,
+                "detail": "The request could not be completed.",
+                "instance": request.url.path,
+            },
+            media_type="application/problem+json",
+        )
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -208,50 +223,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_http_middleware(app, settings)
     app.state.telemetry = configure_telemetry(app, repository.engine, settings)
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "service": "graphview-api"}
-
-    @app.get("/ready")
-    async def readiness() -> dict[str, str]:
-        repository.project()
-        return {"status": "ready", "database": "ok"}
-
-    app.include_router(create_identity_router(app.state.identity, settings))
-
     def repo() -> GraphRepository:
         return app.state.repository
 
-    @app.get("/version")
-    async def version(settings: Settings = Depends(get_settings)) -> dict[str, str]:
-        return {"service": "graphview-api", "version": VERSION, "environment": settings.environment}
-
-    @app.get("/observability/ready")
-    async def ready(
-        settings: Settings = Depends(get_settings),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ):
-        try:
-            repository.project()
-        except Exception:
-            return JSONResponse(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                content={"status": "not_ready", "service": "graphview-api", "database": "error"},
-            )
-        return {
-            "status": "ready",
-            "service": "graphview-api",
-            "database": "ok",
-            "environment": settings.environment,
-            "version": VERSION,
-        }
-
-    @app.get("/observability/metrics")
-    async def metrics(
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-    ) -> dict[str, object]:
-        return app.state.metrics.snapshot()
+    app.include_router(
+        create_health_router(
+            repo,
+            identity=app.state.identity,
+            object_store=app.state.object_store,
+        )
+    )
+    app.include_router(create_identity_router(app.state.identity, settings))
+    app.include_router(
+        create_operations_router(
+            repo,
+            identity=app.state.identity,
+            object_store=app.state.object_store,
+            request_metrics=app.state.metrics,
+            environment=settings.environment,
+            service_version=VERSION,
+        )
+    )
 
     @app.get("/graph", response_model=GraphOut)
     async def graph(

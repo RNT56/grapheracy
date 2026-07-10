@@ -54,20 +54,23 @@ def install_http_middleware(app, settings) -> None:
         try:
             forwarded = request.headers.get("X-Forwarded-For", "").split(",", 1)[0].strip()
             identity = forwarded or (request.client.host if request.client else "unknown")
-            try:
-                allowed, retry_after = await limiter.allow(
-                    f"{identity}:{request.url.path}", mutation=request.method not in {"GET", "HEAD", "OPTIONS"}
-                )
-            except Exception:
-                if settings.environment not in {"local", "test", "development"}:
-                    response = JSONResponse(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        content={"type": "https://graphview.local/problems/rate-limit-store", "title": "Request protection unavailable", "status": 503},
-                        media_type="application/problem+json",
-                    )
-                    status_code = response.status_code
-                    return response
+            if request.url.path in {"/health", "/ready"}:
                 allowed, retry_after = True, 1
+            else:
+                try:
+                    allowed, retry_after = await limiter.allow(
+                        f"{identity}:{request.url.path}", mutation=request.method not in {"GET", "HEAD", "OPTIONS"}
+                    )
+                except Exception:
+                    if settings.environment not in {"local", "test", "development"}:
+                        response = JSONResponse(
+                            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            content={"type": "https://graphview.local/problems/rate-limit-store", "title": "Request protection unavailable", "status": 503},
+                            media_type="application/problem+json",
+                        )
+                        status_code = response.status_code
+                        return response
+                    allowed, retry_after = True, 1
             if not allowed:
                 response = JSONResponse(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,

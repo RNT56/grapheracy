@@ -21,11 +21,11 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| V1 API and compatibility aliases | implemented | 99 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
+| V1 API and compatibility aliases | implemented | 102 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
-| PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, and no-op Helm upgrade proven | Persistence |
-| Arq queues, scheduling, retries, and outbox | implemented | 7 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
+| PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
+| Arq queues, scheduling, retries, and outbox | implemented | 8 worker tests plus API cancellation, provider timeout/429, and terminal-race coverage | Authenticated upload plus expired-lease recovery after a stopped worker and Redis outage/recovery production-proven | Worker |
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
 | Cited AI planning, query, and research | active | Durable query/research tests and retrieval audit coverage | Live PostgreSQL/S3/worker query and research proven; external-provider failure/cancellation canary pending | AI |
 | Attention, actions, outcomes, and feedback | active | Internal nervous-system loop plus GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, and redaction tests | Secret-backed GitHub/SMTP/webhook action and callback canaries pending | Actions |
@@ -39,10 +39,10 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 ## Recorded Evidence
 
-The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
+The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 99 tests and the worker suite reported 7.
+  structure, and production web-build gates passed; the API suite reported 102 tests and the worker suite reported 8.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
@@ -70,6 +70,12 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
   edges. Across 40 measured requests per route, p95 was 178.5 ms for clustered overview, 24.8 ms for concrete viewport
   expansion, 20.7 ms for depth-two subgraph, and 6.6 ms for hybrid search. The run used an Apple M2 Pro MacBook Pro
   with 12 CPU cores and 16 GB host memory; Docker had 12 CPUs and 8 GB memory.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:failure-injection:live`: stopping MinIO made readiness
+  fail while liveness remained healthy, a real upload returned redacted RFC 7807 output without creating a job, and
+  recovery required no API restart. Stopping Redis produced the same readiness/liveness separation and recovered;
+  graph SSE resumed strictly after `Last-Event-ID`; duplicate signed GitHub deliveries reused the original durable job;
+  an invalid signature was rejected; and a stopped worker reclaimed an expired lease on attempt 2. The PostgreSQL
+  migration rehearsal also forced a lock-timeout, proved revision/schema rollback, then completed normally.
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.

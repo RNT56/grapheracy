@@ -80,12 +80,51 @@ def test_health() -> None:
     assert response.json() == {"status": "ok", "service": "graphview-api"}
 
 
+def test_readiness_checks_database_session_store_and_object_store() -> None:
+    client = make_client()
+
+    ready = client.get("/ready")
+
+    assert ready.status_code == 200
+    assert ready.json() == {
+        "status": "ready",
+        "service": "graphview-api",
+        "database": "ok",
+        "session_store": "memory",
+        "object_store": "local",
+    }
+
+    def failed_object_store() -> str:
+        raise ConnectionError("injected object-store outage")
+
+    client.app.state.object_store.ready = failed_object_store
+    unavailable = client.get("/ready")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["status"] == "not_ready"
+    assert unavailable.json()["object_store"] == "error"
+
+
+def test_unexpected_errors_are_redacted_problem_details() -> None:
+    app = create_app(Settings(database_url="sqlite://", object_store_path=tempfile.mkdtemp()))
+
+    @app.get("/failure-injection")
+    async def failure_injection():
+        raise RuntimeError("provider timeout token=must-not-leak")
+
+    client = TestClient(app, raise_server_exceptions=False)
+    response = client.get("/failure-injection")
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/problem+json")
+    assert response.json()["type"] == "https://graphview.local/problems/internal"
+    assert "must-not-leak" not in response.text
+
+
 def test_rate_limiter_returns_problem_details_and_retry_after() -> None:
     client = make_client(Settings(database_url="sqlite://", rate_limit_requests=2))
 
-    assert client.get("/health").status_code == 200
-    assert client.get("/health").status_code == 200
-    limited = client.get("/health")
+    assert client.get("/version").status_code == 200
+    assert client.get("/version").status_code == 200
+    limited = client.get("/version")
 
     assert limited.status_code == 429
     assert limited.headers["retry-after"] == "60"
@@ -201,6 +240,23 @@ def test_v1_project_scope_blocks_bola_for_graphs_jobs_and_job_lists() -> None:
         assert client.get("/api/v1/jobs", params={"project_id": "project-ios26-swift-demo"}).status_code == 404
         assert client.get(f"/api/v1/jobs/{hidden_job['id']}").status_code == 404
         assert client.post(f"/api/v1/jobs/{hidden_job['id']}/cancel").status_code == 404
+
+
+def test_v1_graph_activity_uses_versioned_event_timestamps() -> None:
+    client = make_client()
+    assert client.post("/api/v1/agent-context/retention/run", headers=ADMIN_HEADERS).status_code == 200
+
+    response = client.get(
+        "/api/v1/graphs/project-default/activity",
+        params={"limit": 5},
+        headers=READER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    event = response.json()["events"][0]
+    assert event["occurred_at"]
+    assert event["received_at"] == event["occurred_at"]
+    assert event["replay_cursor"] == event["id"]
 
 
 def test_v1_ingestion_jobs_are_durable_and_idempotent() -> None:

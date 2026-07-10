@@ -40,6 +40,9 @@ class MemorySessionStore:
     async def close(self) -> None:
         return None
 
+    async def ping(self) -> str:
+        return "memory"
+
 
 class RedisSessionStore:
     def __init__(self, redis_url: str) -> None:
@@ -57,6 +60,11 @@ class RedisSessionStore:
 
     async def close(self) -> None:
         await self.redis.aclose()
+
+    async def ping(self) -> str:
+        if not await self.redis.ping():
+            raise ConnectionError("Redis session store did not acknowledge ping")
+        return "redis"
 
 
 class OIDCVerifier:
@@ -154,6 +162,9 @@ class IdentityService:
 
     async def authenticate_bearer(self, token: str) -> CurrentUser:
         return self.user_from_claims(await self.verifier.verify(token))
+
+    async def ready(self) -> str:
+        return await self.store.ping()
 
     async def session(self, session_id: str) -> dict[str, Any] | None:
         return await self.store.get(f"session:{session_id}")

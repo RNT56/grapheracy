@@ -64,6 +64,7 @@ export function SigmaGraphScene({
   const activeRef = useRef(activeNodeId);
   const reducedMotionRef = useRef(reducedMotion);
   const semanticMotionRef = useRef(false);
+  const contextLostRef = useRef(false);
   const [unavailable, setUnavailable] = useState(false);
   const topologyKey = useMemo(() => graphTopologyKey(nodes, edges), [edges, nodes]);
   callbacksRef.current = {
@@ -193,7 +194,7 @@ export function SigmaGraphScene({
         visibleNodes: graph.order,
         visibleEdges: graph.size,
         framesPerSecond: metricFrameCount / ((now - metricWindowStartedAt) / 1_000),
-        contextLost: false
+        contextLost: contextLostRef.current
       });
       metricWindowStartedAt = now;
       metricFrameCount = 0;
@@ -217,6 +218,7 @@ export function SigmaGraphScene({
     let savedCameraState = renderer.getCamera().getState();
     const handleContextLost = (event: Event) => {
       event.preventDefault();
+      contextLostRef.current = true;
       savedCameraState = renderer.getCamera().getState();
       callbacksRef.current.onAvailabilityChange(false);
       callbacksRef.current.onRenderMetrics({
@@ -227,6 +229,7 @@ export function SigmaGraphScene({
       });
     };
     const handleContextRestored = () => {
+      contextLostRef.current = false;
       requestAnimationFrame(() => {
         renderer.refresh();
         renderer.getCamera().setState(savedCameraState);
@@ -312,7 +315,7 @@ export function SigmaGraphScene({
         kind: "sigma-2d",
         visibleNodes: graph.order,
         visibleEdges: graph.size,
-        contextLost: false
+        contextLost: contextLostRef.current
       });
     }
   }, [edges, nodes]);

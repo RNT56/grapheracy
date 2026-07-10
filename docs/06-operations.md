@@ -23,7 +23,9 @@ containers must be deployable into internal infrastructure without SaaS assumpti
 The API exposes dependency-free local observability endpoints:
 
 - `GET /health` is a public process health check.
-- `GET /observability/ready` requires a reader, reviewer, or admin local user and verifies repository/database access.
+- `GET /ready` is the unauthenticated orchestration probe and independently verifies PostgreSQL, the Redis-backed
+  session store, and S3; `GET /health` remains dependency-independent liveness. `GET /observability/ready` exposes the
+  same dependency state to an authorized reader, reviewer, admin, or service principal with environment/version detail.
 - `GET /observability/metrics` requires the admin local user and returns in-memory request counters, status counts,
   path counts, last request metadata, and API process start time.
 
@@ -358,14 +360,17 @@ attributes, and no injected acceptance secret in Collector output.
 4. Run `pnpm run test:observability:live` against the same Compose project and retain its trace/metric/redaction proof.
 5. Run `pnpm run test:performance:live` against the seeded 100k-node/500k-edge PostgreSQL project and retain the JSON
    receipt proving overview, progressive detail, subgraph, and hybrid-search p95 remain at or below 250 ms.
-6. Run `pnpm run release:artifacts && pnpm run release:artifacts:verify`; inspect the gateway TGZ, installable VSIX,
+6. Run `pnpm run test:failure-injection:live` and retain proof for Redis/MinIO loss, liveness/readiness separation,
+   worker lease recovery, SSE resume, and webhook replay protection; run `pnpm run test:migrations:postgres` on the
+   migration rehearsal database to prove interruption rollback.
+7. Run `pnpm run release:artifacts && pnpm run release:artifacts:verify`; inspect the gateway TGZ, installable VSIX,
    SPDX SBOM, commit-bound manifest, and SHA-256 list.
-7. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
-8. Run full CI gates, including moderate audit, integrity, OSV, and secret scans.
-9. Generate SBOMs for all eight release images, including the Graphview-owned non-root Collector image.
-10. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
+8. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
+9. Run full CI gates, including moderate audit, integrity, OSV, and secret scans.
+10. Generate SBOMs for all eight release images, including the Graphview-owned non-root Collector image.
+11. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
    observability status, and restore plan.
-11. Create an annotated signed SemVer tag only after staging acceptance. Tag CI verifies GitHub's cryptographic tag
+12. Create an annotated signed SemVer tag only after staging acceptance. Tag CI verifies GitHub's cryptographic tag
     result, signs and attests image digests, signs the full artifact checksum list, and publishes the immutable bundle.
 
 ## Failure Modes

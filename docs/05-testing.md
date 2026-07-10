@@ -258,6 +258,19 @@ presence, and the product-first web shell.
   annotated-tag signature result, signs the complete checksum manifest with keyless Sigstore, attaches provenance to
   images and client artifacts, and publishes exactly those files.
 
+## Failure Injection
+
+- `pnpm run test:failure-injection:live` stops MinIO and Redis independently and requires `/health` to stay live while
+  `/ready` reports the failed S3 or Redis session-store dependency. A failed upload must return redacted RFC 7807
+  output, leave no durable job, and recover without restarting the API.
+- The same exact-stack proof resumes graph activity strictly after `Last-Event-ID`, verifies a repeated signed GitHub
+  delivery resolves to the original durable job while an invalid signature is rejected, and stops the worker before
+  proving an expired database lease is reclaimed and succeeds on attempt 2.
+- Worker tests inject a real `httpx.ReadTimeout` and a 429 response with `Retry-After`, proving redaction, visible retry
+  state, action-run reuse, exact defer timing, and eventual external receipt behavior.
+- `pnpm run test:migrations:postgres` holds an exclusive table lock, forces an Alembic lock-timeout interruption,
+  verifies both the revision and partial column rolled back, and then completes the same migration chain normally.
+
 ## Future Test Paths
 
 - Web unit and component tests: `apps/web/src`.
