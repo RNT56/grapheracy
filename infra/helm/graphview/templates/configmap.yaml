@@ -17,6 +17,13 @@ data:
   GRAPHVIEW_MALWARE_SCAN_CLAMD_HOST: {{ printf "%s-clamav" .Release.Name | quote }}
   GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otelEndpoint | quote }}
   GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS: {{ join "," .Values.outboundAllowedHosts | quote }}
+  GRAPHVIEW_SAFE_ACTION_TYPES: {{ join "," .Values.actions.safeTypes | quote }}
+  GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS: {{ join "," .Values.actions.webhookAllowedHosts | quote }}
+  GRAPHVIEW_SMTP_HOST: {{ .Values.actions.smtp.host | quote }}
+  GRAPHVIEW_SMTP_PORT: {{ .Values.actions.smtp.port | quote }}
+  GRAPHVIEW_SMTP_STARTTLS: {{ .Values.actions.smtp.starttls | quote }}
+  GRAPHVIEW_SMTP_FROM_ADDRESS: {{ .Values.actions.smtp.fromAddress | quote }}
+  GRAPHVIEW_SMTP_SUPPRESSED_RECIPIENTS: {{ join "," .Values.actions.smtp.suppressedRecipients | quote }}
   PGHOST: {{ printf "%s-postgresql" .Release.Name | quote }}
   PGUSER: {{ .Values.database.auth.username | quote }}
   PGDATABASE: {{ .Values.database.auth.database | quote }}

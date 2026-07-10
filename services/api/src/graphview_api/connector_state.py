@@ -7,6 +7,7 @@ from sqlalchemy import and_, insert, select, update
 
 from graphview_api import db
 from graphview_api.json_compat import json_value
+from graphview_api.redaction import redact_sensitive_text
 
 
 class ConnectorStateRepository:
@@ -103,7 +104,7 @@ class ConnectorStateRepository:
         )
 
     def fail(self, target_id: str, error: Exception, *, retry_attempt: int) -> dict:
-        message = str(error)[:1000]
+        message = redact_sensitive_text(error)[:1000]
         lowered = message.lower()
         status = "auth_failed" if any(value in lowered for value in ("401", "403", "unauthorized", "credential")) else (
             "rate_limited" if "429" in lowered or "rate limit" in lowered else "degraded"

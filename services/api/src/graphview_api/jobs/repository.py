@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from graphview_api import db
 from graphview_api.repository import DEFAULT_PROJECT_ID, dump_json, load_json
 from graphview_api.json_compat import json_value, normalize_json_row
+from graphview_api.redaction import redact_sensitive_text
 
 
 def utc_now() -> datetime:
@@ -105,14 +106,46 @@ class JobRepository:
     def claim(self, job_id: str, *, worker_id: str, lease_seconds: int = 300) -> dict | None:
         timestamp = utc_now()
         with self.engine.begin() as conn:
+            exhausted = conn.execute(
+                update(db.durable_jobs)
+                .where(
+                    and_(
+                        db.durable_jobs.c.id == job_id,
+                        db.durable_jobs.c.status == "running",
+                        db.durable_jobs.c.leased_until.is_not(None),
+                        db.durable_jobs.c.leased_until < timestamp,
+                        db.durable_jobs.c.attempt >= db.durable_jobs.c.max_attempts,
+                    )
+                )
+                .values(
+                    status="failed",
+                    worker_id=None,
+                    leased_until=None,
+                    error_code="WorkerLeaseExpired",
+                    error="Worker lease expired after the final permitted attempt",
+                    updated_at=timestamp,
+                    finished_at=timestamp,
+                )
+            )
+            if exhausted.rowcount:
+                return None
             result = conn.execute(
                 update(db.durable_jobs)
                 .where(
                     and_(
                         db.durable_jobs.c.id == job_id,
-                        db.durable_jobs.c.status.in_(["queued", "retry"]),
-                        db.durable_jobs.c.available_at <= timestamp,
-                        or_(db.durable_jobs.c.leased_until.is_(None), db.durable_jobs.c.leased_until < timestamp),
+                        db.durable_jobs.c.attempt < db.durable_jobs.c.max_attempts,
+                        or_(
+                            and_(
+                                db.durable_jobs.c.status.in_(["queued", "retry"]),
+                                db.durable_jobs.c.available_at <= timestamp,
+                            ),
+                            and_(
+                                db.durable_jobs.c.status == "running",
+                                db.durable_jobs.c.leased_until.is_not(None),
+                                db.durable_jobs.c.leased_until < timestamp,
+                            ),
+                        ),
                     )
                 )
                 .values(
@@ -187,7 +220,7 @@ class JobRepository:
                 .values(
                     status="retry" if retry else "failed",
                     error_code=error_code,
-                    error=error[:2000],
+                    error=redact_sensitive_text(error)[:2000],
                     available_at=timestamp + timedelta(seconds=retry_delay_seconds),
                     leased_until=None,
                     updated_at=timestamp,

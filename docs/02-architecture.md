@@ -294,7 +294,7 @@ review, lineage, insight, neighborhood, path, activity, and source-coverage endp
 Phase 17 adds durable connector and hierarchy persistence: `connector_accounts`, `connector_targets`,
 `connector_sync_runs`, `source_chunks`, `topics`, and `graph_settings`. `Source` records also store connector kind,
 remote IDs, parent IDs, remote modification timestamps, remote URLs, metadata, and stale markers. Local development uses
-`GRAPHVIEW_SECRET_KEY` for reversible token protection; production deployments should replace it with KMS-backed secret
+`GRAPHVIEW_SECRET_KEY` for authenticated local AES-GCM secret envelopes; production deployments use opaque Vault
 handling.
 
 Phase 18-22 add AI-native planning, graph Q&A, scoped research, and a provider catalog without replacing graph

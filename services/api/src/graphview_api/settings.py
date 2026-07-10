@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     session_ttl_seconds: int = 28_800
     session_secure_cookie: bool = True
     secret_provider: str = "local-aead"
+    local_secret_store_path: str = "./.graphview/secrets"
     vault_address: str | None = None
     vault_token: str | None = None
     vault_token_file: str | None = None

@@ -10,7 +10,7 @@ from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.ingestion import EMBEDDING_MODEL, NormalizedDocument, build_document, embed_text, generate_proposals
 from graphview_api.llm import build_llm_provider
 from graphview_api.repository import GraphRepository
-from graphview_api.schemas import ActionRunCreate, AgentRunCreate, GraphQueryCreate, GraphResearchCreate, IngestionCreate, PlanningMessageCreate, SignalCreate, SourceCreate
+from graphview_api.schemas import ActionRunCreate, AgentRunCreate, GraphQueryCreate, GraphResearchCreate, IngestionCreate, OutcomeCreate, PlanningMessageCreate, SignalCreate, SourceCreate
 from graphview_api.settings import Settings
 from graphview_api.upload_extraction import extract_uploaded_text, validate_uploaded_payload
 from graphview_api.malware import scan_payload
@@ -83,15 +83,28 @@ class GraphJobExecutor:
             if proposal["action_type"] in {"create_external_ticket", "create_notification", "trigger_workflow"}:
                 if self.action_executor is None:
                     raise RuntimeError("External action adapters are not configured")
-                result = await self.action_executor.execute(proposal, action_payload)
-                return self.repository.record_external_action_run(
+                action_run = self.repository.begin_external_action_run(
                     proposal["id"],
+                    actor_id=actor_id,
+                    trace_id=str(job.get("trace_id") or "") or None,
+                )
+                if action_run["status"] == "succeeded":
+                    return action_run
+                result = await self.action_executor.execute(proposal, action_payload)
+                return self.repository.complete_external_action_run(
+                    action_run["id"],
                     actor_id=actor_id,
                     external_id=result.external_id,
                     adapter_metadata=result.metadata,
                 )
             return self.repository.create_action_run(
                 ActionRunCreate(action_proposal_id=str(payload["action_proposal_id"])), actor_id
+            )
+        if job["kind"] == "outcome.record":
+            return self.repository.create_outcome(
+                OutcomeCreate.model_validate(payload["outcome"]),
+                actor_id,
+                action_run_id=str(payload["action_run_id"]),
             )
         ai = AiRuntime(self.repository, self.settings)
         if job["kind"] == "ai.planning":

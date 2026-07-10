@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import tempfile
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,6 +25,10 @@ def make_client(settings: Settings | None = None) -> TestClient:
     resolved = settings or Settings(database_url="sqlite://")
     if resolved.object_store_provider == "local" and resolved.object_store_path == "./.graphview/objects":
         resolved = resolved.model_copy(update={"object_store_path": tempfile.mkdtemp(prefix="graphview-test-objects-")})
+    if resolved.secret_provider == "local-aead" and resolved.local_secret_store_path == "./.graphview/secrets":
+        resolved = resolved.model_copy(
+            update={"local_secret_store_path": tempfile.mkdtemp(prefix="graphview-test-secrets-")}
+        )
     return TestClient(create_app(resolved))
 
 
@@ -307,8 +312,13 @@ def test_v1_failed_job_is_a_visible_dead_letter_and_can_be_requeued() -> None:
     ).json()
     jobs = JobRepository(client.app.state.repository.engine)
     assert jobs.claim(created["id"], worker_id="failing-worker") is not None
-    failed = jobs.fail(created["id"], error_code="InjectedFailure", error="failure injection")
+    failed = jobs.fail(
+        created["id"],
+        error_code="InjectedFailure",
+        error="failure injection token=must-not-leak",
+    )
     assert failed["status"] == "failed"
+    assert failed["error"] == "failure injection token=[redacted]"
 
     retried = client.post(f"/api/v1/jobs/{created['id']}/retry", headers=ADMIN_HEADERS)
 
@@ -316,6 +326,45 @@ def test_v1_failed_job_is_a_visible_dead_letter_and_can_be_requeued() -> None:
     assert retried.json()["status"] == "queued"
     assert retried.json()["attempt"] == 0
     assert len(jobs.pending_outbox()) == 2
+
+
+def test_expired_running_job_lease_is_reclaimed_and_exhaustion_is_terminal() -> None:
+    repository = make_client().app.state.repository
+    jobs = JobRepository(repository.engine)
+    created = jobs.enqueue(
+        JobCreate(
+            kind="agent_context.retention",
+            queue="maintenance",
+            idempotency_key="expired-worker-lease-test",
+            payload={"project_id": "project-default"},
+            max_attempts=2,
+        )
+    )
+    first = jobs.claim(created["id"], worker_id="worker-before-crash")
+    assert first["attempt"] == 1
+    with repository.engine.begin() as conn:
+        conn.execute(
+            update(db.durable_jobs)
+            .where(db.durable_jobs.c.id == created["id"])
+            .values(leased_until=datetime.now(tz=UTC) - timedelta(seconds=1))
+        )
+
+    reclaimed = jobs.claim(created["id"], worker_id="replacement-worker")
+    assert reclaimed["status"] == "running"
+    assert reclaimed["attempt"] == 2
+    assert reclaimed["worker_id"] == "replacement-worker"
+    with repository.engine.begin() as conn:
+        conn.execute(
+            update(db.durable_jobs)
+            .where(db.durable_jobs.c.id == created["id"])
+            .values(leased_until=datetime.now(tz=UTC) - timedelta(seconds=1))
+        )
+
+    assert jobs.claim(created["id"], worker_id="third-worker") is None
+    terminal = jobs.get(created["id"])
+    assert terminal["status"] == "failed"
+    assert terminal["error_code"] == "WorkerLeaseExpired"
+    assert terminal["finished_at"] is not None
 
 
 def test_v1_running_job_cancellation_is_visible_and_cannot_be_overwritten_by_completion() -> None:
@@ -370,6 +419,81 @@ def test_v1_approved_action_can_be_enqueued_once() -> None:
     assert second.status_code == 202
     assert first.json()["id"] == second.json()["id"]
     assert first.json()["kind"] == "action.run"
+
+
+def test_signed_workflow_outcome_callback_is_fresh_durable_and_replay_safe() -> None:
+    client = make_client()
+    repository = client.app.state.repository
+    credential_ref = repository.secret_store.put({"secret": "workflow-callback-secret"})
+    proposal = client.post(
+        "/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "trigger_workflow",
+            "title": "Trigger workflow with callback",
+            "summary": "Wait for the signed workflow outcome.",
+            "payload": {
+                "credential_ref": credential_ref,
+                "destination": "https://hooks.example.test/workflow",
+                "event": {"kind": "review.accepted"},
+            },
+        },
+    ).json()
+    client.post(
+        f"/action-proposals/{proposal['id']}/approve",
+        headers=ADMIN_HEADERS,
+        json={"rationale": "Reviewed callback contract"},
+    )
+    action_run = repository.begin_external_action_run(proposal["id"], actor_id="worker")
+    action_run = repository.complete_external_action_run(
+        action_run["id"],
+        actor_id="worker",
+        external_id="action-receipt-1",
+        adapter_metadata={"status_code": 202},
+    )
+    outcome_payload = {
+        "status": "resolved",
+        "title": "Workflow completed",
+        "summary": "The downstream workflow reported success.",
+        "result": {"receipt": "downstream-1"},
+    }
+    body = json.dumps(outcome_payload, sort_keys=True, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    signature = "v1=" + hmac.new(
+        b"workflow-callback-secret",
+        f"{timestamp}.".encode() + body,
+        hashlib.sha256,
+    ).hexdigest()
+    headers = {
+        "X-Graphview-Event-Id": "callback-1",
+        "X-Graphview-Timestamp": timestamp,
+        "X-Graphview-Signature": signature,
+        "Content-Type": "application/json",
+    }
+
+    first = client.post(f"/api/v1/action-runs/{action_run['id']}/callback", headers=headers, content=body)
+    replay = client.post(f"/api/v1/action-runs/{action_run['id']}/callback", headers=headers, content=body)
+    expired = client.post(
+        f"/api/v1/action-runs/{action_run['id']}/callback",
+        headers={**headers, "X-Graphview-Timestamp": "1"},
+        content=body,
+    )
+
+    assert first.status_code == 202
+    assert replay.status_code == 202
+    assert replay.json()["id"] == first.json()["id"]
+    assert first.json()["kind"] == "outcome.record"
+    assert expired.status_code == 401
+
+    jobs = JobRepository(repository.engine)
+    claimed = jobs.claim(first.json()["id"], worker_id="outcome-worker")
+    outcome = asyncio.run(GraphJobExecutor(repository, Settings()).execute(claimed))
+    completed = jobs.complete(claimed["id"], outcome)
+
+    assert completed["status"] == "succeeded"
+    assert outcome["action_run_id"] == action_run["id"]
+    assert outcome["status"] == "resolved"
+    assert repository.list_outcomes(status="resolved")[0]["id"] == outcome["id"]
 
 
 def test_v1_upload_streams_to_object_storage_and_worker_ingests(tmp_path: Path) -> None:
@@ -779,10 +903,13 @@ def test_connector_and_provider_secrets_use_authenticated_envelopes() -> None:
             select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == "project-default")
         ).scalar_one()
 
-    assert token_envelope.startswith("gvenc:aesgcm:v2:")
+    assert token_envelope.startswith("gvsecret:local-aead:v1:")
     assert "top-secret-token" not in token_envelope
     assert "top-secret-provider-key" not in settings_json
-    assert "gvenc:aesgcm:v2:" in settings_json
+    assert "gvsecret:local-aead:v1:" in settings_json
+    encrypted_files = list(client.app.state.repository.secret_store.root.glob("*.aead"))
+    assert encrypted_files
+    assert all("top-secret" not in path.read_text() for path in encrypted_files)
 
 
 def test_lenses_expose_extraction_and_graph_descriptors() -> None:

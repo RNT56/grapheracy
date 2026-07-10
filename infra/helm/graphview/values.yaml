@@ -19,6 +19,24 @@ outboundAllowedHosts:
   - www.googleapis.com
   - api.notion.com
 
+actions:
+  safeTypes:
+    - mark_source_stale
+    - mark_source_refreshed
+    - create_notification
+    - create_external_ticket
+    - trigger_workflow
+    - connector_sync
+    - create_graph_proposal
+    - request_owner_confirmation
+  webhookAllowedHosts: []
+  smtp:
+    host: ""
+    port: 587
+    starttls: true
+    fromAddress: ""
+    suppressedRecipients: []
+
 resources:
   web:
     requests: { cpu: 100m, memory: 128Mi }

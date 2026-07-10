@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from graphview_api.identity import IdentityService
 from graphview_api.identity.service import OIDCVerifier
-from graphview_api.secret_store import VaultSecretStore
+from graphview_api.secret_store import LocalAeadSecretStore, VaultSecretStore
 from graphview_api.settings import Settings
 
 
@@ -90,3 +90,20 @@ def test_vault_store_returns_opaque_reference_and_reads_kv_v2_value() -> None:
     assert reference.startswith("gvsecret:vault:v1:")
     assert "access-token-value" not in reference
     assert store.get(reference) == {"access_token": "access-token-value"}
+
+
+def test_local_aead_store_returns_opaque_authenticated_reference(tmp_path) -> None:
+    settings = Settings(
+        secret_key="local-test-secret-key",
+        local_secret_store_path=str(tmp_path / "secrets"),
+    )
+    store = LocalAeadSecretStore(settings)
+
+    reference = store.put({"secret": "local-secret-value"})
+
+    assert reference.startswith("gvsecret:local-aead:v1:")
+    assert "local-secret-value" not in reference
+    assert store.get(reference) == {"secret": "local-secret-value"}
+    secret_file = next((tmp_path / "secrets").glob("*.aead"))
+    assert "local-secret-value" not in secret_file.read_text()
+    assert secret_file.stat().st_mode & 0o777 == 0o600

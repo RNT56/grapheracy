@@ -22,6 +22,7 @@ from graphview_api.json_compat import json_value, normalize_json_row
 from graphview_api.repository_actions import ActionRepositoryMixin
 from graphview_api.repository_connectors import ConnectorRepositoryMixin
 from graphview_api.repository_secrets import SecretRepositoryMixin
+from graphview_api.redaction import redact_sensitive_text
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
     ActionProposalCreate,
@@ -106,11 +107,6 @@ SENSITIVE_SETTINGS_KEYS = SENSITIVE_PAYLOAD_KEYS | {
 }
 AGENT_CONTEXT_CAPTURE_SCOPE = "context:capture"
 AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS = (".env", "id_rsa", "id_ed25519", ".pem", ".p12")
-AGENT_CONTEXT_SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*([^\s'\"`]+)"),
-    re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]{12,}"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.DOTALL),
-]
 
 
 def now() -> datetime:
@@ -4252,10 +4248,7 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
         return hmac.new(self.secret_key.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
 
     def _redact_context_text(self, value: str) -> str:
-        redacted = value
-        for pattern in AGENT_CONTEXT_SECRET_PATTERNS:
-            redacted = pattern.sub(lambda match: f"{match.group(1)}=[redacted]" if match.lastindex else "[redacted]", redacted)
-        return redacted
+        return redact_sensitive_text(value)
 
     def _safe_context_path(self, value: str | None) -> str | None:
         if not value:

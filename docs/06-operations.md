@@ -192,10 +192,23 @@ Permanent 4xx responses are not retried.
 
 ## Digital Nervous System Actions
 
-Phase 26 keeps action execution gated by approved action proposals, operate permission, and a configurable safe-action
-allowlist. `GRAPHVIEW_SAFE_ACTION_TYPES` accepts a comma-separated list of executable action types. Source freshness
-actions only mutate sources in the proposal's project; missing or cross-project source IDs produce failed action runs
-instead of silent mutation.
+Action execution is gated by approved action proposals, operate permission, and the `GRAPHVIEW_SAFE_ACTION_TYPES`
+allowlist. Internal source-freshness actions mutate only sources in the proposal's project. External actions execute
+only as durable worker jobs through three production adapters:
+
+- `create_external_ticket` mints a short-lived GitHub App installation token (or accepts an explicitly referenced
+  installation token), scans all issue pages for the stable Graphview marker, and creates one GitHub Issue receipt.
+- `create_notification` renders reviewed subject/body templates with inert string substitution, honors the suppression
+  list, negotiates TLS when configured, uses a stable Message-ID, and records SMTP acceptance.
+- `trigger_workflow` resolves only an allowlisted HTTPS destination and sends a stable event ID, timestamp, and
+  HMAC-SHA256 signature. Receivers must reject stale timestamps and deduplicate the event ID. They can report a
+  reviewed outcome to `POST /api/v1/action-runs/{action_run_id}/callback` with the same signature scheme; Graphview
+  accepts a five-minute window and enqueues one `outcome.record` job per callback event ID.
+
+The worker writes the action-run before calling an external system. Retries reuse that record and transition it through
+`running`, `queued`, and `succeeded`; terminal provider errors and cancellation produce `failed` or `cancelled` records
+and block linked Attention. Expired worker leases are reclaimed up to the configured job attempt limit. Provider error
+text is redacted before job storage, connector health, action audit, or OpenTelemetry exception recording.
 
 ## Backup And Restore
 
@@ -238,9 +251,14 @@ Vault development token, Keycloak bootstrap account, or MinIO root credentials o
 | `ARQ_REDIS_URL` | worker | `redis://localhost:6379/0` | No locally | Worker queue. |
 | `GRAPHVIEW_DATABASE_URL` | api | `sqlite:///./.graphview/graphview.sqlite` | No locally | API persistence URL. |
 | `GRAPHVIEW_SECRET_KEY` | api | `local-dev-graphview-secret` | Yes outside local | Authenticated local AEAD key for development-only secret storage. Production connector/action credentials use external Vault references. |
+| `GRAPHVIEW_LOCAL_SECRET_STORE_PATH` | api/worker | `./.graphview/secrets` | No | Development-only directory for atomic mode-0600 AES-GCM secret envelopes shared by local API and worker processes. |
 | `GRAPHVIEW_LLM_*` | api | disabled OpenAI-compatible defaults | API key yes | Provider-agnostic LLM extraction defaults. Project and connector settings can override these defaults. |
 | `GRAPHVIEW_AUTO_COMMIT_THRESHOLD` | api | `0.92` | No | Default confidence threshold for system auto-commit decisions. |
 | `GRAPHVIEW_SAFE_ACTION_TYPES` | api | Phase 25 safe action list | No | Comma-separated allowlist for approved action proposal execution. |
+| `GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS` | worker | empty | No | Exact HTTPS host allowlist for signed workflow actions. |
+| `GRAPHVIEW_SMTP_HOST` / `GRAPHVIEW_SMTP_PORT` | worker | unset / `587` | No | SMTP delivery endpoint; Helm opens the configured external TCP port only when a host is set. |
+| `GRAPHVIEW_SMTP_STARTTLS` / `GRAPHVIEW_SMTP_FROM_ADDRESS` | worker | `true` / unset | Address no | TLS policy and sender identity for reviewed notification actions. |
+| `GRAPHVIEW_SMTP_SUPPRESSED_RECIPIENTS` | worker | empty | No | Comma-separated normalized recipients that must never receive Graphview mail. |
 | `GRAPHVIEW_AI_DEFAULT_PROVIDER` | api | `graphview-local` | No | Default agent provider when a request does not name one. |
 | `GRAPHVIEW_OPENAI_*` | api | OpenAI Responses defaults | API key yes | OpenAI agent provider configuration; operator-entered project keys can override the API key. |
 | `GRAPHVIEW_ANTHROPIC_*` | api | Claude Messages defaults | API key yes | Anthropic agent provider configuration; operator-entered project keys can override the API key. |

@@ -13,6 +13,7 @@ from graphview_api.jobs.executor import GraphJobExecutor
 from graphview_api.jobs.repository import JobRepository
 from graphview_api.jobs.schemas import JobCreate
 from graphview_api.repository import GraphRepository
+from graphview_api.redaction import redact_sensitive_text
 from graphview_api.settings import Settings
 from graphview_api.secret_store import build_secret_store
 from graphview_api.object_store import build_object_store
@@ -23,6 +24,22 @@ from graphview_api.connector_state import ConnectorStateRepository
 
 class DurableJobCancelled(Exception):
     pass
+
+
+def _transition_external_action(ctx: dict, job: dict, *, status: str, error_code: str, error: str) -> None:
+    if job.get("kind") != "action.run":
+        return
+    payload = job.get("payload") or {}
+    action_proposal_id = payload.get("action_proposal_id")
+    if not action_proposal_id:
+        return
+    ctx["repository"].transition_external_action_run(
+        str(action_proposal_id),
+        status=status,
+        actor_id=str(payload.get("actor_id") or "system-worker"),
+        error_code=error_code,
+        error=error,
+    )
 
 
 async def _execute_with_cancellation(ctx: dict, claimed: dict) -> dict:
@@ -94,21 +111,38 @@ async def execute_durable_job(ctx: dict, job_id: str) -> dict:
     claimed = jobs.claim(job_id, worker_id=ctx["worker_id"])
     if claimed is None:
         current = jobs.get(job_id)
+        if current and current.get("status") == "failed" and current.get("error_code") == "WorkerLeaseExpired":
+            _transition_external_action(
+                ctx,
+                current,
+                status="failed",
+                error_code="WorkerLeaseExpired",
+                error=str(current.get("error") or "Worker lease expired"),
+            )
         return current or {"id": job_id, "status": "missing"}
     attributes = {"graphview.job.kind": claimed["kind"], "graphview.job.queue": claimed["queue"]}
     created_at = claimed["created_at"]
     if isinstance(created_at, str):
         created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=UTC)
     ctx["queue_latency"].record(max(0.0, (datetime.now(tz=UTC) - created_at).total_seconds()), attributes)
     with ctx["tracer"].start_as_current_span("graphview.job.execute", attributes=attributes) as span:
         try:
             result = await _execute_with_cancellation(ctx, claimed)
         except DurableJobCancelled:
+            _transition_external_action(
+                ctx,
+                claimed,
+                status="cancelled",
+                error_code="CancelledByUser",
+                error="External action execution was cancelled by user request",
+            )
             cancelled = jobs.finish_cancellation(job_id)
             ctx["job_counter"].add(1, {**attributes, "graphview.job.status": "cancelled"})
             return cancelled
         except Exception as error:
-            span.record_exception(error)
+            span.record_exception(RuntimeError(redact_sensitive_text(error)))
             retry_delay = 30
             if isinstance(error, httpx.HTTPStatusError) and error.response.status_code == 429:
                 try:
@@ -116,6 +150,16 @@ async def execute_durable_job(ctx: dict, job_id: str) -> dict:
                 except ValueError:
                     retry_delay = 30
             failed = jobs.fail(job_id, error_code=type(error).__name__, error=str(error), retry_delay_seconds=retry_delay)
+            action_status = "queued" if failed["status"] == "retry" else (
+                "cancelled" if failed["status"] == "cancelled" else "failed"
+            )
+            _transition_external_action(
+                ctx,
+                claimed,
+                status=action_status,
+                error_code=type(error).__name__,
+                error=str(error),
+            )
             ctx["job_counter"].add(1, {**attributes, "graphview.job.status": failed["status"]})
             if failed["status"] == "retry":
                 raise Retry(defer=retry_delay) from error

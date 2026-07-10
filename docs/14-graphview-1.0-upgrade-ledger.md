@@ -28,10 +28,10 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Arq queues, scheduling, retries, and outbox | implemented | 6 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
 | Cited AI planning, query, and research | active | Durable query/research tests and retrieval audit coverage | Live PostgreSQL/S3/worker query and research proven; external-provider failure/cancellation canary pending | AI |
-| Attention, actions, outcomes, and feedback | active | pending | pending | Actions |
+| Attention, actions, outcomes, and feedback | active | Internal nervous-system loop plus GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, and redaction tests | Secret-backed GitHub/SMTP/webhook action and callback canaries pending | Actions |
 | Active agent context capture and retention | implemented | implemented | pending | Context |
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
-| Vault-backed secrets and encrypted object storage | active | pending | pending | Security |
+| Vault-backed secrets and encrypted object storage | active | Local atomic AES-GCM reference-store and Vault KV v2 opaque-reference tests; S3 retained-blob coverage | Vault/MinIO services live-proven; production credential rotation and purge canary pending | Security |
 | OpenTelemetry metrics and traces | active | pending | pending | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 38-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | pending | pending | Release |

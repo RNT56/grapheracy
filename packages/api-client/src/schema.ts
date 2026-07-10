@@ -1813,6 +1813,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/action-runs/{action_run_id}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Action Outcome Callback */
+        post: operations["action_outcome_callback_api_v1_action_runs__action_run_id__callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -11331,6 +11348,41 @@ export interface operations {
             };
             path: {
                 action_proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    action_outcome_callback_api_v1_action_runs__action_run_id__callback_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Graphview-Event-Id"?: string | null;
+                "X-Graphview-Timestamp"?: string | null;
+                "X-Graphview-Signature"?: string | null;
+            };
+            path: {
+                action_run_id: string;
             };
             cookie?: never;
         };

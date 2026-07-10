@@ -10385,6 +10385,96 @@
         }
       }
     },
+    "/api/v1/action-runs/{action_run_id}/callback": {
+      "post": {
+        "tags": [
+          "Graphview V1"
+        ],
+        "summary": "Action Outcome Callback",
+        "operationId": "action_outcome_callback_api_v1_action_runs__action_run_id__callback_post",
+        "parameters": [
+          {
+            "name": "action_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Action Run Id"
+            }
+          },
+          {
+            "name": "X-Graphview-Event-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Graphview-Event-Id"
+            }
+          },
+          {
+            "name": "X-Graphview-Timestamp",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Graphview-Timestamp"
+            }
+          },
+          {
+            "name": "X-Graphview-Signature",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Graphview-Signature"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/jobs/{job_id}": {
       "get": {
         "tags": [
