@@ -348,7 +348,8 @@ export async function postGraphview(path, body, env = process.env, method = "POS
   const baseUrl = env.GRAPHVIEW_API_BASE_URL || "http://127.0.0.1:8000";
   const token = env.GRAPHVIEW_AGENT_CONTEXT_TOKEN;
   if (!token) throw new Error("GRAPHVIEW_AGENT_CONTEXT_TOKEN is required");
-  const response = await fetch(`${baseUrl}${path}`, {
+  const canonicalPath = path.startsWith("/api/v1/") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const response = await fetch(`${baseUrl}${canonicalPath}`, {
     method,
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body)
@@ -362,13 +363,14 @@ export async function postGraphview(path, body, env = process.env, method = "POS
 }
 
 export async function postWithOutbox(path, body, env = process.env, method = "POST") {
+  const canonicalPath = path.startsWith("/api/v1/") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
   try {
-    return await postGraphview(path, body, env, method);
+    return await postGraphview(canonicalPath, body, env, method);
   } catch (error) {
     if (error instanceof GraphviewRequestError && !error.retryable) throw error;
     const outboxPath = env.GRAPHVIEW_AGENT_CONTEXT_OUTBOX || ".graphview/agent-context-outbox.jsonl";
     await mkdir(dirname(outboxPath), { recursive: true });
-    await appendFile(outboxPath, `${JSON.stringify({ method, path, body, error: error.message, queued_at: new Date().toISOString() })}\n`);
+    await appendFile(outboxPath, `${JSON.stringify({ method, path: canonicalPath, body, error: error.message, queued_at: new Date().toISOString() })}\n`);
     return { queued: true, outboxPath, error: error.message };
   }
 }

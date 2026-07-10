@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
+import { useLocation, useNavigate } from "react-router";
 import { applyGraphLens, deriveGraphActivityEvents } from "@graphview/graph-core";
 import {
   NODE_KIND_DEFINITIONS,
@@ -23,6 +24,9 @@ import {
   type SourceKind
 } from "@graphview/shared-types";
 import { GraphCanvas, type GraphCanvasEdge, type GraphDimensionMode, type GraphLayoutMode } from "./GraphCanvas";
+import { useGraphWorkspaceStore } from "./graphWorkspaceStore";
+import { useViewportProjection } from "./useViewportProjection";
+import { agentRunActivityPath, apiUrl, fetchHealth, fetchJson, graphLensScopedPath, graphScopedPath, waitForJob } from "./apiClient";
 import {
   demoDefaultSourceText,
   demoGraph,
@@ -889,51 +893,6 @@ interface ContentExpansionGraph {
   planningCount: number;
 }
 
-const apiBaseUrl = import.meta.env.VITE_GRAPHVIEW_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Graphview-User": "maintainer",
-      ...init?.headers
-    }
-  });
-  if (!response.ok) throw new Error(`${path} returned ${response.status}`);
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
-}
-
-async function fetchHealth() {
-  return fetchJson<{ status: string; service: string }>("/health");
-}
-
-function graphScopedPath(path: string, graphId: string) {
-  const separator = path.includes("?") ? "&" : "?";
-  return `${path}${separator}graph_id=${encodeURIComponent(graphId)}`;
-}
-
-function graphLensScopedPath(path: string, graphId: string, lens: GraphLensId) {
-  const scoped = graphScopedPath(path, graphId);
-  const separator = scoped.includes("?") ? "&" : "?";
-  return `${scoped}${separator}lens=${encodeURIComponent(lens)}`;
-}
-
-function agentRunActivityPath(agentRunId: string) {
-  return `/agent-runs/${encodeURIComponent(agentRunId)}/activity`;
-}
-
-function initialGraphLens(): GraphLensId {
-  if (typeof window === "undefined") return "all";
-  const requested = new URLSearchParams(window.location.search).get("lens") ?? window.localStorage.getItem("graphview.graphLens");
-  return isGraphLensId(requested) ? requested : "all";
-}
-
-function isGraphLensId(value: string | null | undefined): value is GraphLensId {
-  return value === "all" || value === "research" || value === "engineering" || value === "ops";
-}
-
 function normalizeSourceKind(value: string | null | undefined): SourceKind {
   if (
     value === "text" ||
@@ -1024,9 +983,22 @@ async function invalidateConnectorAndGraphQueries(graphId: string) {
 }
 
 function Shell() {
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("graph");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const workspaceMode: WorkspaceMode = location.pathname.startsWith("/planning")
+    ? "planning"
+    : location.pathname.startsWith("/context")
+      ? "context"
+      : location.pathname.startsWith("/settings")
+        ? "settings"
+        : "graph";
+  const setWorkspaceMode = (mode: WorkspaceMode) => navigate(`/${mode}`);
+  useEffect(() => {
+    if (location.pathname === "/") navigate("/graph", { replace: true });
+  }, [location.pathname, navigate]);
   const [selectedGraphId, setSelectedGraphId] = useState("project-ios26-swift-demo");
-  const [selectedGraphLensId, setSelectedGraphLensId] = useState<GraphLensId>(initialGraphLens);
+  const selectedGraphLensId = useGraphWorkspaceStore((state) => state.selectedGraphLensId);
+  const setSelectedGraphLensId = useGraphWorkspaceStore((state) => state.setSelectedGraphLensId);
   const [sourceKind, setSourceKind] = useState<SourceKind>("markdown");
   const [sourceTitle, setSourceTitle] = useState("iOS 26 Swift app blueprint");
   const [ingestionText, setIngestionText] = useState(demoDefaultSourceText);
@@ -1038,15 +1010,25 @@ function Shell() {
   const [autoCommitThreshold, setAutoCommitThreshold] = useState(0.92);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<ApiProviderId>("graphview-local");
   const [providerApiKey, setProviderApiKey] = useState("");
-  const [searchText, setSearchText] = useState("");
-  const [graphLayout, setGraphLayout] = useState<GraphLayoutMode>("force");
-  const [graphDimension, setGraphDimension] = useState<GraphDimensionMode>("2d");
-  const [graphViewMode, setGraphViewMode] = useState<GraphViewMode>("overview");
-  const [showContents, setShowContents] = useState(false);
+  const searchText = useGraphWorkspaceStore((state) => state.searchText);
+  const setSearchText = useGraphWorkspaceStore((state) => state.setSearchText);
+  const graphLayout = useGraphWorkspaceStore((state) => state.graphLayout);
+  const setGraphLayout = useGraphWorkspaceStore((state) => state.setGraphLayout);
+  const graphDimension = useGraphWorkspaceStore((state) => state.graphDimension);
+  const setGraphDimension = useGraphWorkspaceStore((state) => state.setGraphDimension);
+  const graphViewMode = useGraphWorkspaceStore((state) => state.graphViewMode);
+  const setGraphViewMode = useGraphWorkspaceStore((state) => state.setGraphViewMode);
+  const showContents = useGraphWorkspaceStore((state) => state.showContents);
+  const toggleContents = useGraphWorkspaceStore((state) => state.toggleContents);
   const [graphQuery, setGraphQuery] = useState("");
-  const [fitSequence, setFitSequence] = useState(0);
-  const [selectedGraphNodeId, setSelectedGraphNodeId] = useState<ContentNode["id"] | undefined>();
-  const [selectedSourceId, setSelectedSourceId] = useState<string | undefined>();
+  const fitSequence = useGraphWorkspaceStore((state) => state.fitSequence);
+  const fitGraph = useGraphWorkspaceStore((state) => state.fitGraph);
+  const viewportZoom = useGraphWorkspaceStore((state) => state.viewportZoom);
+  const setViewportZoom = useGraphWorkspaceStore((state) => state.setViewportZoom);
+  const selectedGraphNodeId = useGraphWorkspaceStore((state) => state.selectedGraphNodeId);
+  const setSelectedGraphNodeId = useGraphWorkspaceStore((state) => state.setSelectedGraphNodeId);
+  const selectedSourceId = useGraphWorkspaceStore((state) => state.selectedSourceId);
+  const setSelectedSourceId = useGraphWorkspaceStore((state) => state.setSelectedSourceId);
   const [outlineCollapsed, setOutlineCollapsed] = useState(true);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [ingestComposerOpen, setIngestComposerOpen] = useState(false);
@@ -1377,7 +1359,7 @@ function Shell() {
   useEffect(() => {
     if (workspaceMode !== "context" || !selectedAgentContextSessionId || typeof EventSource === "undefined") return;
     const stream = new EventSource(
-      `${apiBaseUrl}/agent-context/sessions/${encodeURIComponent(selectedAgentContextSessionId)}/stream?limit=25`
+      apiUrl(`/agent-context/sessions/${encodeURIComponent(selectedAgentContextSessionId)}/stream?limit=25`)
     );
     const refreshContext = () => {
       queryClient.invalidateQueries({ queryKey: ["agent-context-sessions"] });
@@ -1424,7 +1406,7 @@ function Shell() {
       if (key === "a") setGraphLayout("arc");
       if (key === "2") setGraphDimension("2d");
       if (key === "3" && graphLayout !== "arc") setGraphDimension("3d");
-      if (key === "c") setShowContents((current) => !current);
+      if (key === "c") toggleContents();
       if (key === "/") {
         event.preventDefault();
         document.querySelector<HTMLInputElement>(".dock-search input")?.focus();
@@ -1665,10 +1647,11 @@ function Shell() {
   const sendPlanningMessage = useMutation({
     mutationFn: async () => {
       const session = selectedPlanningSession ?? await createPlanningSession.mutateAsync();
-      return fetchJson<ApiPlanningSession>(`/planning-sessions/${encodeURIComponent(session.id)}/messages`, {
+      const job = await fetchJson<{ id: string }>(`/ai/planning-sessions/${encodeURIComponent(session.id)}/messages`, {
         method: "POST",
         body: JSON.stringify({ content: planningMessage, provider: activeAiProviderId })
       });
+      return waitForJob<ApiPlanningSession>(job.id);
     },
     onSuccess: async (session) => {
       setSelectedPlanningSessionId(session.id);
@@ -1678,8 +1661,8 @@ function Shell() {
   });
 
   const askGraphAgent = useMutation({
-    mutationFn: (question: string) =>
-      fetchJson<ApiGraphQueryAnswer>("/graph/query", {
+    mutationFn: async (question: string) => {
+      const job = await fetchJson<{ id: string }>("/ai/query", {
         method: "POST",
         body: JSON.stringify({
           question,
@@ -1689,7 +1672,9 @@ function Shell() {
           source_id: selectedSourceId,
           provider: activeAiProviderId
         })
-      }),
+      });
+      return waitForJob<ApiGraphQueryAnswer>(job.id);
+    },
     onSuccess: (answer) => {
       setGraphAnswer(answer);
       setCitationDrawerOpen(true);
@@ -1697,8 +1682,8 @@ function Shell() {
   });
 
   const runGraphResearch = useMutation({
-    mutationFn: (query: string) =>
-      fetchJson<ApiGraphResearchResult>("/graph/research", {
+    mutationFn: async (query: string) => {
+      const job = await fetchJson<{ id: string }>("/ai/research", {
         method: "POST",
         body: JSON.stringify({
           query,
@@ -1707,7 +1692,9 @@ function Shell() {
           source_policy: "mixed",
           provider: activeAiProviderId
         })
-      }),
+      });
+      return waitForJob<ApiGraphResearchResult>(job.id);
+    },
     onSuccess: async (result) => {
       setResearchResult(result);
       setCitationDrawerOpen(true);
@@ -2033,6 +2020,7 @@ function Shell() {
   );
   const contentGraphNodes = showContents ? [...graphNodes, ...contentExpansion.nodes] : graphNodes;
   const contentGraphEdges = showContents ? [...graphEdges, ...contentExpansion.edges] : graphEdges;
+  const canvasGraph = useViewportProjection(selectedGraphId, viewportZoom, contentGraphNodes, contentGraphEdges, fetchJson);
   const sourceContentText = buildSourceContentText(contextSource, contextBlocks);
   const contextPulse = selectedGraphNode
     ? "Focus"
@@ -2614,8 +2602,8 @@ function Shell() {
 
       <section className={`graph-stage graph-stage-${graphLayout}`} aria-label="Reviewed knowledge graph">
         <GraphCanvas
-          nodes={contentGraphNodes}
-          edges={contentGraphEdges}
+          nodes={canvasGraph.nodes}
+          edges={canvasGraph.edges}
           sources={sourceList}
           citations={canvasCitations}
           activityEvents={graphActivityEvents}
@@ -2626,6 +2614,7 @@ function Shell() {
           selectedNodeId={selectedGraphNodeId}
           fitSequence={fitSequence}
           onSelectNode={handleSelectGraphNode}
+          onViewportZoom={setViewportZoom}
         />
         <div className="stage-metrics" aria-label="Current project metrics">
           <span><strong>{graphData.nodes.length}</strong> nodes</span>
@@ -3603,12 +3592,12 @@ function Shell() {
             aria-label={showContents ? "Hide source graph" : "Show source graph"}
             aria-pressed={showContents}
             title={showContents ? "Hide source graph" : "Show source graph"}
-            onClick={() => setShowContents((current) => !current)}
+            onClick={toggleContents}
           >
             <DockIcon kind="sources" />
             <span>Sources</span>
           </button>
-          <button type="button" aria-label="Fit graph" title="Fit graph" onClick={() => setFitSequence((current) => current + 1)}>
+          <button type="button" aria-label="Fit graph" title="Fit graph" onClick={fitGraph}>
             <DockIcon kind="fit" />
             <span>Fit</span>
           </button>

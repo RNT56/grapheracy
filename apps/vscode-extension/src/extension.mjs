@@ -67,7 +67,8 @@ function workspaceMetadata(vscode) {
 async function postGraphview(path, body, vscode) {
   const { apiBaseUrl, token } = configuration(vscode);
   if (!token) return { skipped: true, reason: "missing-token" };
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const canonicalPath = path.startsWith("/api/v1/") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
+  const response = await fetch(`${apiBaseUrl}${canonicalPath}`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
     body: JSON.stringify(body)
@@ -84,9 +85,10 @@ export async function enqueueOutbox(context, path, body, error) {
   if (!context?.globalState) return { queued: false, reason: "missing-global-state" };
   const current = context.globalState.get(OUTBOX_KEY, []);
   const outbox = Array.isArray(current) ? current : [];
+  const canonicalPath = path.startsWith("/api/v1/") ? path : `/api/v1${path.startsWith("/") ? path : `/${path}`}`;
   const queued = [
     ...outbox,
-    { path, body, error: error?.message || String(error || "offline"), queued_at: new Date().toISOString() }
+    { path: canonicalPath, body, error: error?.message || String(error || "offline"), queued_at: new Date().toISOString() }
   ].slice(-200);
   await context.globalState.update(OUTBOX_KEY, queued);
   return { queued: true, count: queued.length };

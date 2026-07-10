@@ -152,7 +152,7 @@ test("end_session uses PATCH so the gateway matches the Graphview API", async ()
   }
 
   assert.equal(calls[0].init.method, "PATCH");
-  assert.match(String(calls[0].url), /agent-context\/sessions\/ctxsession_test$/);
+  assert.match(String(calls[0].url), /api\/v1\/agent-context\/sessions\/ctxsession_test$/);
 });
 
 test("executeGatewayTool maps prompt reports to idempotent outbox events", async () => {
@@ -241,7 +241,7 @@ test("flushOutbox replays queued requests with their original method", async () 
   }
 
   assert.equal(calls[0].init.method, "PATCH");
-  assert.match(String(calls[0].url), /agent-context\/sessions\/ctxsession_test$/);
+  assert.match(String(calls[0].url), /api\/v1\/agent-context\/sessions\/ctxsession_test$/);
 });
 
 test("MCP tools/call dispatches gateway tools through the SDK server", async () => {
@@ -279,7 +279,7 @@ test("MCP tools/call dispatches gateway tools through the SDK server", async () 
   }
 
   assert.equal(calls[0].init.method, "POST");
-  assert.match(String(calls[0].url), /agent-context\/events\/batch$/);
+  assert.match(String(calls[0].url), /api\/v1\/agent-context\/events\/batch$/);
   const body = JSON.parse(calls[0].init.body);
   assert.equal(body.events[0].event_kind, "prompt_built");
   assert.equal(body.events[0].content.text, "token=[redacted]");

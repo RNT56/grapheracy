@@ -9,6 +9,10 @@ minimumReleaseAgeIgnoreMissingTime: false
 trustPolicy: no-downgrade
 blockExoticSubdeps: true
 
+peerDependencyRules:
+  allowedVersions:
+    "openapi-typescript>typescript": "6"
+
 catalog:
   "@playwright/test": "1.60.0"
   "@tanstack/react-query": "5.101.0"
@@ -16,10 +20,15 @@ catalog:
   "@types/react-dom": "19.2.3"
   "@types/three": "0.184.1"
   "@vitejs/plugin-react": "6.0.2"
+  "graphology": "0.26.0"
+  "graphology-layout-forceatlas2": "0.10.1"
+  "graphology-types": "0.24.8"
+  "openapi-typescript": "7.13.0"
   "pngjs": "7.0.0"
   "react": "19.2.7"
   "react-dom": "19.2.7"
   "react-router": "7.16.0"
+  "sigma": "3.0.3"
   "three": "0.184.0"
   "typescript": "6.0.3"
   "vite": "8.0.16"

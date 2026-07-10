@@ -46,10 +46,38 @@ jobs:
       - uses: actions/checkout@v5
       - uses: gitleaks/gitleaks-action@v3
 
-  sbom-plan:
-    name: SBOM generation plan
+  image-security:
+    name: Image SBOM and vulnerability scan (${{ matrix.service }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { service: api, dockerfile: infra/docker/api.Dockerfile }
+          - { service: web, dockerfile: infra/docker/web.Dockerfile }
+          - { service: worker, dockerfile: infra/docker/worker.Dockerfile }
+          - { service: ops, dockerfile: infra/docker/ops.Dockerfile }
     steps:
       - uses: actions/checkout@v5
-      - name: SBOM placeholder
-        run: echo "Release image SBOM generation begins when app/API/worker images become runnable."
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: graphview-${{ matrix.service }}:security-scan
+      - uses: anchore/sbom-action@v0
+        with:
+          image: graphview-${{ matrix.service }}:security-scan
+          artifact-name: graphview-${{ matrix.service }}.spdx.json
+          format: spdx-json
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: graphview-${{ matrix.service }}:security-scan
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with: { sarif_file: trivy-${{ matrix.service }}.sarif }

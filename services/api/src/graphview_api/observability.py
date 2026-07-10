@@ -5,6 +5,18 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
 
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
 
 @dataclass
 class RequestMetrics:
@@ -40,3 +52,78 @@ class RequestMetrics:
                 "last_path": self.last_path,
                 "last_duration_ms": self.last_duration_ms,
             }
+
+
+def configure_telemetry(app, engine, settings) -> None:
+    if not settings.otel_exporter_otlp_endpoint:
+        return
+    resource = telemetry_resource(settings)
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.otel_exporter_otlp_endpoint, insecure=settings.otel_exporter_otlp_endpoint.startswith("http://")))
+    )
+    trace.set_tracer_provider(provider)
+    metrics.set_meter_provider(
+        MeterProvider(
+            resource=resource,
+            metric_readers=[
+                PeriodicExportingMetricReader(
+                    OTLPMetricExporter(
+                        endpoint=settings.otel_exporter_otlp_endpoint,
+                        insecure=settings.otel_exporter_otlp_endpoint.startswith("http://"),
+                    )
+                )
+            ],
+        )
+    )
+
+    def server_request_hook(span, scope) -> None:
+        if span and span.is_recording():
+            span.set_attribute("graphview.request.path", scope.get("path", ""))
+            span.set_attribute("graphview.request.method", scope.get("method", ""))
+
+    FastAPIInstrumentor.instrument_app(app, server_request_hook=server_request_hook, excluded_urls="health,observability/ready")
+    SQLAlchemyInstrumentor().instrument(engine=engine)
+    HTTPXClientInstrumentor().instrument()
+
+
+def configure_worker_telemetry(settings, engine):
+    if not settings.otel_exporter_otlp_endpoint:
+        return trace.get_tracer("graphview.worker"), metrics.get_meter("graphview.worker")
+    resource = telemetry_resource(settings)
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(
+        BatchSpanProcessor(
+            OTLPSpanExporter(
+                endpoint=settings.otel_exporter_otlp_endpoint,
+                insecure=settings.otel_exporter_otlp_endpoint.startswith("http://"),
+            )
+        )
+    )
+    trace.set_tracer_provider(provider)
+    metrics.set_meter_provider(
+        MeterProvider(
+            resource=resource,
+            metric_readers=[
+                PeriodicExportingMetricReader(
+                    OTLPMetricExporter(
+                        endpoint=settings.otel_exporter_otlp_endpoint,
+                        insecure=settings.otel_exporter_otlp_endpoint.startswith("http://"),
+                    )
+                )
+            ],
+        )
+    )
+    SQLAlchemyInstrumentor().instrument(engine=engine)
+    HTTPXClientInstrumentor().instrument()
+    return trace.get_tracer("graphview.worker"), metrics.get_meter("graphview.worker")
+
+
+def telemetry_resource(settings) -> Resource:
+    return Resource.create(
+        {
+            "service.name": settings.otel_service_name,
+            "service.version": "1.0.0",
+            "deployment.environment.name": settings.environment,
+        }
+    )

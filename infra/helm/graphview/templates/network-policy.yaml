@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: {{ .Release.Name }}-default-deny }
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: {{ .Release.Name }}-application }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/part-of: graphview } }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from: [{ namespaceSelector: {} }]
+      ports: [{ protocol: TCP, port: 8080 }, { protocol: TCP, port: 8000 }]
+  egress:
+    - to: [{ namespaceSelector: {}, podSelector: {} }]
+    - to: [{ namespaceSelector: {} }]
+      ports: [{ protocol: UDP, port: 53 }, { protocol: TCP, port: 53 }]
+    - ports: [{ protocol: TCP, port: 443 }]

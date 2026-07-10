@@ -1,12 +1,14 @@
+import hashlib
 import json
 from datetime import datetime, timezone
-from time import perf_counter
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-
+from fastapi.routing import APIRoute
+from fastapi.exceptions import RequestValidationError
+from graphview_api.api_v1 import create_v1_router
 from graphview_api.auth import (
     OPERATE_PERMISSION,
     READ_PERMISSION,
@@ -19,9 +21,17 @@ from graphview_api.auth import (
 from graphview_api.connectors import build_connector_proposals, connector_descriptors, fetch_connector_documents
 from graphview_api.db import create_app_engine
 from graphview_api.ingestion import EMBEDDING_MODEL, NormalizedDocument, build_document, embed_text, generate_proposals
+from graphview_api.identity import IdentityService
+from graphview_api.identity.router import create_identity_router
+from graphview_api.http_middleware import install_http_middleware
 from graphview_api.lenses import EXTRACTION_LENS_DESCRIPTORS, GRAPH_LENS_DESCRIPTORS, normalize_graph_lens
 from graphview_api.llm import build_llm_provider, build_provider_registry
-from graphview_api.observability import RequestMetrics
+from graphview_api.jobs.repository import JobRepository
+from graphview_api.jobs.schemas import JobCreate, JobOut
+from graphview_api.jobs.executor import GraphJobExecutor
+from graphview_api.connector_state import ConnectorStateRepository
+from graphview_api.observability import RequestMetrics, configure_telemetry
+from graphview_api.object_store import build_object_store
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
@@ -116,6 +126,7 @@ from graphview_api.schemas import (
     SourceUpdate,
 )
 from graphview_api.settings import Settings, get_settings
+from graphview_api.secret_store import build_secret_store
 from graphview_api.version import VERSION
 
 
@@ -143,6 +154,8 @@ def configured_provider_registry(settings: Settings, repository: GraphRepository
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(title="Graphview API", version=VERSION)
+    app.dependency_overrides[get_settings] = lambda: settings
+    object_store = build_object_store(settings)
     repository = GraphRepository(
         create_app_engine(settings.database_url),
         secret_key=settings.secret_key,
@@ -150,10 +163,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         safe_action_types=settings.safe_action_types,
         agent_context_max_blob_bytes=settings.agent_context_max_blob_bytes,
         agent_context_retention_days=settings.agent_context_retention_days,
+        secret_store=build_secret_store(settings),
+        object_store=object_store,
     )
-    repository.initialize()
+    is_development = settings.environment in {"local", "test", "development"}
+    repository.initialize(create_schema=is_development)
+    if is_development:
+        from graphview_api.demo_seed import seed_development_demo
+
+        seed_development_demo(repository)
     app.state.repository = repository
     app.state.metrics = RequestMetrics()
+    app.state.identity = IdentityService(settings)
+    app.state.object_store = object_store
+    configure_telemetry(app, repository.engine, settings)
+
+    @app.exception_handler(HTTPException)
+    async def problem_details_handler(request: Request, error: HTTPException):
+        detail = error.detail if isinstance(error.detail, str) else "Request could not be completed"
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "type": f"https://graphview.local/problems/http-{error.status_code}",
+                "title": detail,
+                "status": error.status_code,
+                "detail": detail,
+                "instance": request.url.path,
+            },
+            headers=error.headers,
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_problem_handler(request: Request, error: RequestValidationError):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={
+                "type": "https://graphview.local/problems/validation",
+                "title": "Request validation failed",
+                "status": 422,
+                "detail": "One or more request fields are invalid.",
+                "instance": request.url.path,
+                "errors": json.loads(json.dumps(error.errors(), default=str)),
+            },
+            media_type="application/problem+json",
+        )
 
     app.add_middleware(
         CORSMiddleware,
@@ -163,24 +217,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.middleware("http")
-    async def observe_requests(request: Request, call_next):
-        trace_id = request.headers.get("X-Graphview-Trace-Id") or f"trace_{uuid4().hex[:20]}"
-        start = perf_counter()
-        status_code = 500
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            return response
-        finally:
-            duration_ms = (perf_counter() - start) * 1000
-            app.state.metrics.record(path=request.url.path, status_code=status_code, duration_ms=duration_ms)
-            if "response" in locals():
-                response.headers["X-Graphview-Trace-Id"] = trace_id
+    install_http_middleware(app, settings)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": "graphview-api"}
+
+    @app.get("/ready")
+    async def readiness() -> dict[str, str]:
+        repository.project()
+        return {"status": "ready", "database": "ok"}
+
+    app.include_router(create_identity_router(app.state.identity, settings))
 
     def repo() -> GraphRepository:
         return app.state.repository
@@ -1283,80 +1331,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/connector-sync-runs", status_code=status.HTTP_201_CREATED)
     async def create_connector_sync_run(
         payload: ConnectorSyncCreate,
+        response: Response,
         user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
         repository: GraphRepository = Depends(repo),
         settings: Settings = Depends(get_settings),
     ) -> dict:
+        if settings.environment in {"local", "test", "development"}:
+            try:
+                return await GraphJobExecutor(repository, settings, llm_provider_factory=build_llm_provider).connector_sync(
+                    payload.target_id,
+                    actor_id=user.id,
+                    worker_id="api-development-compatibility",
+                    retry_attempt=1,
+                )
+            except KeyError as error:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found") from error
         bundle = repository.connector_target_bundle(payload.target_id)
         if bundle is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found")
-        account, target, token_json = bundle
-        try:
-            documents = await fetch_connector_documents(account=account, target=target, token_json=token_json)
-        except Exception as error:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Connector sync failed") from error
-
-        graph_settings = repository.graph_settings_with_secrets()
-        provider_api_keys = repository.ai_provider_api_keys()
-        target_settings = target.get("sync_settings", {})
-        llm_enabled = bool(target_settings.get("llm_enabled", graph_settings.get("llm_enabled", settings.llm_enabled)))
-        llm_provider = str(target_settings.get("llm_provider") or graph_settings.get("llm_provider") or settings.llm_provider)
-        llm_model = str(target_settings.get("llm_model") or graph_settings.get("llm_model") or settings.llm_model)
-        llm_base_url = str(target_settings.get("llm_base_url") or graph_settings["settings"].get("llm_base_url") or settings.llm_base_url)
-        llm_api_key = (
-            target_settings.get("llm_api_key")
-            or graph_settings["settings"].get("llm_api_key")
-            or settings.llm_api_key
-            or provider_api_keys.get("openai")
-        )
-        auto_commit_threshold = float(
-            target_settings.get("auto_commit_threshold", graph_settings.get("auto_commit_threshold", settings.auto_commit_threshold))
-        )
-        llm = build_llm_provider(
-            enabled=llm_enabled,
-            provider=llm_provider,
-            base_url=llm_base_url,
-            api_key=llm_api_key,
-            model=llm_model,
-        )
-
-        proposals_by_remote_id: dict[str, list[dict]] = {}
-        vectors_by_remote_id: dict[str, list[float]] = {}
-        for document in documents:
-            proposals = [proposal.__dict__ for proposal in build_connector_proposals(document)]
-            proposals.extend(
-                proposal.__dict__
-                for proposal in generate_proposals(
-                    NormalizedDocument(
-                        kind=document.source_kind,
-                        title=document.title,
-                        text=document.text,
-                        uri=document.uri or document.remote_url,
-                        checksum=document.checksum,
-                        locator=document.uri or document.remote_url or document.remote_id,
-                    )
-                )
-            )
-            if llm_enabled:
-                proposals.extend(
-                    proposal.__dict__
-                    for proposal in await llm.extract(
-                        title=document.title,
-                        text=document.text,
-                        locator=document.uri or document.remote_url or document.remote_id,
-                    )
-                )
-            proposals_by_remote_id[document.remote_id] = proposals
-            vectors_by_remote_id[document.remote_id] = embed_text(document.text)
-
-        return repository.create_connector_sync_result(
-            target_id=payload.target_id,
-            documents=documents,
-            generated_proposals_by_remote_id=proposals_by_remote_id,
-            embedding_model=EMBEDDING_MODEL,
-            embedding_vectors_by_remote_id=vectors_by_remote_id,
-            actor_id=user.id,
-            auto_commit_threshold=auto_commit_threshold,
+        _, target, _ = bundle
+        response.status_code = status.HTTP_202_ACCEPTED
+        ConnectorStateRepository(repository.engine).mark_queued(payload.target_id)
+        return JobRepository(repository.engine).enqueue(
+            JobCreate(
+                kind="connector.sync",
+                queue="connectors",
+                idempotency_key=f"connector-sync:{payload.target_id}:{target.get('updated_at')}",
+                payload={"project_id": target["project_id"], "target_id": payload.target_id, "actor_id": user.id},
+            ),
+            project_id=target["project_id"],
         )
 
     @app.get("/source-chunks")
@@ -1429,47 +1432,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> dict[str, list[IngestionRunOut]]:
         return {"ingestion_runs": repository.list_ingestion_runs()}
 
-    @app.post("/ingestion-runs", response_model=IngestionResultOut, status_code=status.HTTP_201_CREATED)
+    @app.post("/ingestion-runs", response_model=IngestionResultOut | JobOut, status_code=status.HTTP_201_CREATED)
     async def create_ingestion_run(
         payload: IngestionCreate,
+        response: Response,
         graph_id: str | None = Query(default=None),
         user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
         repository: GraphRepository = Depends(repo),
+        settings: Settings = Depends(get_settings),
     ) -> dict:
-        try:
-            document = await build_document(
-                kind=payload.kind,
-                title=payload.title,
-                content=payload.content,
-                uri=payload.uri,
-                content_base64=payload.content_base64,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
-        except Exception as error:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Source ingestion failed") from error
-        generated = [
-            proposal.__dict__
-            for proposal in generate_proposals(
-                document,
-                limit=payload.proposal_limit,
-                extraction_lenses=payload.extraction_lenses,
-                proposal_limit_per_lens=payload.proposal_limit_per_lens,
-            )
-        ]
-        return repository.create_ingestion_result(
-            source_payload=SourceCreate(
-                kind=payload.kind,
-                title=payload.title,
-                uri=payload.uri,
-                checksum=document.checksum,
+        if settings.environment in {"local", "test", "development"}:
+            try:
+                return await GraphJobExecutor(repository, settings).ingestion(payload, actor_id=user.id, graph_id=graph_id)
+            except ValueError as error:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        project_id = (graph_id or "project-default").split(":", 1)[0]
+        response.status_code = status.HTTP_202_ACCEPTED
+        serialized = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return JobRepository(repository.engine).enqueue(
+            JobCreate(
+                kind="ingestion.run",
+                queue="ingestion",
+                idempotency_key=f"ingestion:{project_id}:{hashlib.sha256(serialized.encode()).hexdigest()}",
+                payload={"project_id": project_id, "graph_id": graph_id, "actor_id": user.id, "ingestion": payload.model_dump(mode="json")},
             ),
-            generated_proposals=generated,
-            embedding_model=EMBEDDING_MODEL,
-            embedding_vector=embed_text(document.text),
-            actor_id=user.id,
-            source_text=document.text,
-            graph_id=graph_id,
+            project_id=project_id,
         )
 
     @app.get("/proposals")
@@ -1596,6 +1583,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for proposal in payload.proposals:
             repository.create_proposal(proposal, user.id)
         return repository.export_bundle()
+
+    app.include_router(create_v1_router(repo, object_store=app.state.object_store, settings=settings))
+    legacy_routes = [
+        route
+        for route in list(app.routes)
+        if isinstance(route, APIRoute)
+        and not route.path.startswith("/api/v1")
+        and route.path not in {"/health", "/version"}
+    ]
+    for route in legacy_routes:
+        app.add_api_route(
+            f"/api/v1{route.path}",
+            route.endpoint,
+            methods=route.methods,
+            response_model=route.response_model,
+            status_code=route.status_code,
+            tags=["Graphview V1 Compatibility"],
+            dependencies=route.dependencies,
+            summary=route.summary,
+            description=route.description,
+            response_description=route.response_description,
+            deprecated=False,
+            name=f"v1-{route.name}",
+        )
 
     return app
 

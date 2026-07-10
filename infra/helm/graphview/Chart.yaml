@@ -1,0 +1,27 @@
+apiVersion: v2
+name: graphview
+description: Vendor-neutral self-hosted Graphview 1.0 reference stack
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+dependencies:
+  - name: postgresql
+    version: 18.7.13
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: postgresql.enabled
+  - name: redis
+    version: 27.0.14
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: redis.enabled
+  - name: minio
+    version: 17.0.21
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: minio.enabled
+  - name: keycloak
+    version: 25.2.0
+    repository: oci://registry-1.docker.io/bitnamicharts
+    condition: keycloak.enabled
+  - name: vault
+    version: 0.34.0
+    repository: https://helm.releases.hashicorp.com
+    condition: vault.enabled

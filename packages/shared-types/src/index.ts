@@ -681,6 +681,143 @@ export interface GraphActivityEvent {
   occurredAt: string;
 }
 
+export interface PageInfo {
+  nextCursor?: string;
+  returnedCount: number;
+  totalCount?: number;
+}
+
+export interface Page<T> {
+  items: T[];
+  page: PageInfo;
+}
+
+export interface ProblemDetails {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  instance?: string;
+  traceId?: string;
+}
+
+export interface GraphBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export interface GraphPosition {
+  nodeId: ContentNodeId;
+  x: number;
+  y: number;
+  z?: number;
+  clusterKey?: string;
+}
+
+export interface GraphLayoutSnapshot {
+  id: string;
+  projectId: GraphProjectId;
+  name: string;
+  algorithm: string;
+  graphVersion: number;
+  settings: Record<string, unknown>;
+  positionCount: number;
+  positions: GraphPosition[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LayoutSnapshot extends GraphLayoutSnapshot {}
+
+export interface GraphSnapshot {
+  graphId: string;
+  projectId: GraphProjectId;
+  graphVersion: number;
+  nodes: ContentNode[];
+  edges: SemanticEdge[];
+  capturedAt: string;
+}
+
+export interface GraphDelta {
+  graphId: string;
+  projectId: GraphProjectId;
+  fromVersion: number;
+  toVersion: number;
+  upsertedNodes: ContentNode[];
+  removedNodeIds: ContentNodeId[];
+  upsertedEdges: SemanticEdge[];
+  removedEdgeIds: SemanticEdgeId[];
+}
+
+export interface GraphCluster {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  nodeCount: number;
+  edgeCount: number;
+  dominantKind: ContentNodeKind;
+  nodeIds: ContentNodeId[];
+}
+
+export interface GraphViewportNode {
+  node: ContentNode;
+  x: number;
+  y: number;
+  z?: number;
+}
+
+export interface GraphViewportEdge {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  relation: SemanticEdge["relation"];
+  weight?: number;
+  count: number;
+  edge?: SemanticEdge;
+}
+
+export interface GraphViewport {
+  graphId: string;
+  projectId: GraphProjectId;
+  graphVersion: number;
+  etag: string;
+  zoom: number;
+  level: "clusters" | "mixed" | "nodes";
+  bounds: GraphBounds;
+  nodes: GraphViewportNode[];
+  edges: GraphViewportEdge[];
+  clusters: GraphCluster[];
+  omittedNodeCount: number;
+  omittedEdgeCount: number;
+  page: PageInfo;
+}
+
+export interface GraphSubgraph {
+  graphId: string;
+  projectId: GraphProjectId;
+  graphVersion: number;
+  focusNodeId?: ContentNodeId;
+  depth: number;
+  nodes: ContentNode[];
+  edges: SemanticEdge[];
+  omittedNodeCount: number;
+  omittedEdgeCount: number;
+}
+
+export interface GraphSearchAnchor {
+  id: string;
+  kind: "node" | "source";
+  label: string;
+  summary?: string;
+  score: number;
+  nodeId?: ContentNodeId;
+  sourceId?: SourceId;
+}
+
 export interface Signal {
   id: SignalId;
   projectId: GraphProjectId;
@@ -855,6 +992,30 @@ export interface ActionRun {
   errorCode?: string;
   error?: string;
   startedAt: string;
+  finishedAt?: string;
+}
+
+export interface ActionAdapter {
+  id: string;
+  actionTypes: string[];
+  callsExternalSystem: true;
+  execute(proposal: ActionProposal): Promise<{ externalId: string; metadata: Record<string, unknown> }>;
+}
+
+export interface Job {
+  id: string;
+  projectId: GraphProjectId;
+  queue: string;
+  kind: string;
+  status: "queued" | "leased" | "running" | "retry" | "succeeded" | "failed" | "cancelled";
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+  result: Record<string, unknown>;
+  attempt: number;
+  maxAttempts: number;
+  traceId: string;
+  createdAt: string;
+  updatedAt: string;
   finishedAt?: string;
 }
 
@@ -1114,6 +1275,40 @@ export interface ConnectorSyncRun {
   traceId: string;
   startedAt: string;
   finishedAt?: string;
+}
+
+export interface ConnectorCursor {
+  targetId: ConnectorTarget["id"];
+  cursor?: string;
+  leaseOwner?: string;
+  leasedUntil?: string;
+  updatedAt: string;
+}
+
+export interface ConnectorHealth {
+  targetId: ConnectorTarget["id"];
+  status: "healthy" | "syncing" | "degraded" | "auth_failed" | "rate_limited" | "disabled";
+  lastSuccessAt?: string;
+  nextScheduledAt?: string;
+  cursor: ConnectorCursor;
+  retryAttempt: number;
+  importedCount: number;
+  deletedCount: number;
+  actionableFailure?: string;
+}
+
+export interface VersionedEventEnvelope<TPayload = Record<string, unknown>> {
+  id: string;
+  eventType: string;
+  schemaVersion: number;
+  projectId: GraphProjectId;
+  graphId: string;
+  traceId: string;
+  actor: { id?: string; authority: string };
+  occurredAt: string;
+  receivedAt: string;
+  replayCursor: string;
+  payload: TPayload;
 }
 
 export interface SourceChunk {

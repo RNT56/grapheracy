@@ -8,7 +8,7 @@ authoritatively included.
 
 ## Setup
 
-1. Create an adapter token with `POST /agent-context/clients`.
+1. Create an adapter token with `POST /api/v1/agent-context/clients`.
 2. Configure `graphview.apiBaseUrl` and `graphview.agentContextToken`.
 3. Run `Graphview: Start Agent Context Session`.
 

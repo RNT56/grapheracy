@@ -11,6 +11,7 @@ DEFAULT_SAFE_ACTION_TYPES = (
     "connector_sync",
     "create_graph_proposal",
     "request_owner_confirmation",
+    "trigger_workflow",
 )
 
 

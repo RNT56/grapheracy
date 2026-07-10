@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from html import unescape
@@ -9,8 +11,9 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
+import jwt
 
-from graphview_api.ingestion import GeneratedProposal, fetch_url_text, normalize_for_kind, normalize_text
+from graphview_api.ingestion import GeneratedProposal, fetch_safe_url_text, normalize_for_kind, normalize_text
 
 ConnectorKind = Literal["upload", "url", "repository", "google-workspace", "notion"]
 SourceKind = Literal["text", "markdown", "url", "pdf", "repository", "ops-document"]
@@ -47,6 +50,14 @@ class NormalizedSourceDocument:
     @property
     def checksum(self) -> str:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class ConnectorFetchResult:
+    documents: list[NormalizedSourceDocument]
+    cursor: str | None = None
+    tombstone_remote_ids: tuple[str, ...] = ()
+    full_snapshot: bool = True
 
 
 def connector_descriptors() -> list[dict[str, Any]]:
@@ -94,20 +105,26 @@ async def fetch_connector_documents(
     account: dict[str, Any],
     target: dict[str, Any],
     token_json: dict[str, Any] | None,
-) -> list[NormalizedSourceDocument]:
+) -> ConnectorFetchResult:
     kind = account["kind"]
     settings = {**account.get("settings", {}), **target.get("sync_settings", {})}
     if kind == "upload":
-        return _upload_documents(target, settings)
+        documents = _upload_documents(target, settings)
+        return _snapshot_result(documents)
     if kind == "url":
-        return [await _url_document(target, settings)]
+        return _snapshot_result([await _url_document(target, settings)])
     if kind == "repository":
-        return _repository_documents(target, settings)
+        return _snapshot_result(await _repository_documents(target, settings, token_json or {}))
     if kind == "google-workspace":
         return await _google_documents(target, settings, token_json or {})
     if kind == "notion":
-        return await _notion_documents(target, settings, token_json or {})
+        return _snapshot_result(await _notion_documents(target, settings, token_json or {}))
     raise ValueError(f"Unsupported connector kind: {kind}")
+
+
+def _snapshot_result(documents: list[NormalizedSourceDocument]) -> ConnectorFetchResult:
+    digest = hashlib.sha256("\n".join(sorted(document.remote_id for document in documents)).encode("utf-8")).hexdigest()
+    return ConnectorFetchResult(documents=documents, cursor=f"snapshot:{digest}")
 
 
 def build_connector_proposals(document: NormalizedSourceDocument) -> list[GeneratedProposal]:
@@ -359,7 +376,10 @@ async def _url_document(target: dict[str, Any], settings: dict[str, Any]) -> Nor
     uri = settings.get("uri") or target["remote_id"]
     raw = settings.get("content")
     if not raw:
-        raw = await fetch_url_text(uri)
+        allowed_hosts = {str(host).strip().lower() for host in settings.get("allowed_hosts", []) if str(host).strip()}
+        if settings.get("require_allowed_hosts") and not allowed_hosts:
+            raise ValueError("URL connector requires an outbound host allowlist in production")
+        raw = await fetch_safe_url_text(uri, allowed_hosts=allowed_hosts or None)
     title = settings.get("title") or _html_title(raw) or target["title"]
     text = normalize_text(_strip_html(raw))
     return _make_document(
@@ -374,10 +394,16 @@ async def _url_document(target: dict[str, Any], settings: dict[str, Any]) -> Nor
     )
 
 
-def _repository_documents(target: dict[str, Any], settings: dict[str, Any]) -> list[NormalizedSourceDocument]:
+async def _repository_documents(
+    target: dict[str, Any],
+    settings: dict[str, Any],
+    token_json: dict[str, Any],
+) -> list[NormalizedSourceDocument]:
     files = settings.get("files")
     if isinstance(files, list):
         return [_document_from_mapping("repository", item, target, index) for index, item in enumerate(files)]
+    if settings.get("provider") == "github" or token_json.get("installation_id"):
+        return await _github_repository_documents(target, settings, token_json)
     return [
         _make_document(
             connector_kind="repository",
@@ -393,32 +419,175 @@ def _repository_documents(target: dict[str, Any], settings: dict[str, Any]) -> l
     ]
 
 
-async def _google_documents(
+async def _github_repository_documents(
     target: dict[str, Any],
     settings: dict[str, Any],
     token_json: dict[str, Any],
 ) -> list[NormalizedSourceDocument]:
+    repository = str(settings.get("repository") or target["remote_id"])
+    if repository.count("/") != 1:
+        raise ValueError("GitHub repository target must be owner/name")
+    api_url = str(settings.get("api_url") or "https://api.github.com").rstrip("/")
+    access_token = token_json.get("access_token")
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
+        if not access_token:
+            app_id = str(token_json.get("app_id") or "")
+            installation_id = str(token_json.get("installation_id") or "")
+            private_key = str(token_json.get("private_key") or "")
+            if not app_id or not installation_id or not private_key:
+                raise ValueError("GitHub App credentials require app_id, installation_id, and private_key")
+            now_seconds = int(time.time())
+            app_jwt = jwt.encode({"iat": now_seconds - 60, "exp": now_seconds + 540, "iss": app_id}, private_key, algorithm="RS256")
+            token_response = await client.post(
+                f"{api_url}/app/installations/{installation_id}/access_tokens",
+                headers={"Authorization": f"Bearer {app_jwt}", "Accept": "application/vnd.github+json"},
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json()["token"]
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        reference = str(settings.get("ref") or "HEAD")
+        commit_response = await client.get(f"{api_url}/repos/{repository}/commits/{reference}", headers=headers)
+        commit_response.raise_for_status()
+        commit = commit_response.json()
+        commit_sha = str(commit["sha"])
+        tree_response = await client.get(
+            f"{api_url}/repos/{repository}/git/trees/{commit_sha}",
+            params={"recursive": "1"},
+            headers=headers,
+        )
+        tree_response.raise_for_status()
+        tree = tree_response.json()
+        documents: list[NormalizedSourceDocument] = []
+        allowed_suffixes = tuple(settings.get("allowed_suffixes") or [".md", ".txt", ".py", ".ts", ".tsx", ".js", ".json", ".yml", ".yaml", ".go", ".rs", ".java"])
+        max_files = min(2_000, max(1, int(settings.get("max_files", 500))))
+        for item in tree.get("tree", []):
+            path = str(item.get("path") or "")
+            if item.get("type") != "blob" or not path.endswith(allowed_suffixes) or int(item.get("size") or 0) > 1_000_000:
+                continue
+            content_response = await client.get(f"{api_url}/repos/{repository}/contents/{path}", params={"ref": commit_sha}, headers=headers)
+            content_response.raise_for_status()
+            content_document = content_response.json()
+            content = base64.b64decode(content_document.get("content", "")).decode("utf-8", errors="replace")
+            documents.append(
+                _make_document(
+                    connector_kind="repository",
+                    source_kind="repository",
+                    title=path,
+                    text=normalize_for_kind("repository", content),
+                    uri=content_document.get("html_url"),
+                    remote_id=f"{repository}:{path}",
+                    remote_parent_id=repository,
+                    remote_modified_at=_parse_datetime(commit.get("commit", {}).get("committer", {}).get("date")),
+                    remote_url=content_document.get("html_url"),
+                    metadata={
+                        "targetType": "file",
+                        "path": path,
+                        "repository": repository,
+                        "commitSha": commit_sha,
+                        "blobSha": item.get("sha"),
+                    },
+                )
+            )
+            if len(documents) >= max_files:
+                break
+        if bool(settings.get("include_issues", True)):
+            page = 1
+            while page <= 10 and len(documents) < max_files:
+                issues_response = await client.get(
+                    f"{api_url}/repos/{repository}/issues",
+                    params={"state": "all", "per_page": 100, "page": page, "sort": "updated", "direction": "desc"},
+                    headers=headers,
+                )
+                issues_response.raise_for_status()
+                issues = issues_response.json()
+                for issue in issues:
+                    number = issue.get("number")
+                    is_pull_request = "pull_request" in issue
+                    documents.append(
+                        _make_document(
+                            connector_kind="repository",
+                            source_kind="repository",
+                            title=f"{'PR' if is_pull_request else 'Issue'} #{number}: {issue.get('title') or ''}",
+                            text=normalize_for_kind("repository", f"{issue.get('title') or ''}\n\n{issue.get('body') or ''}"),
+                            uri=issue.get("html_url"),
+                            remote_id=f"{repository}:{'pr' if is_pull_request else 'issue'}:{number}",
+                            remote_parent_id=repository,
+                            remote_modified_at=_parse_datetime(issue.get("updated_at")),
+                            remote_url=issue.get("html_url"),
+                            metadata={
+                                "targetType": "pull_request" if is_pull_request else "issue",
+                                "repository": repository,
+                                "number": number,
+                                "state": issue.get("state"),
+                                "labels": [label.get("name") for label in issue.get("labels", [])],
+                            },
+                        )
+                    )
+                    if len(documents) >= max_files:
+                        break
+                if len(issues) < 100:
+                    break
+                page += 1
+        return documents
+
+
+async def _google_documents(
+    target: dict[str, Any],
+    settings: dict[str, Any],
+    token_json: dict[str, Any],
+) -> ConnectorFetchResult:
     documents = settings.get("documents") or settings.get("files")
     if isinstance(documents, list):
-        return [_document_from_mapping("google-workspace", item, target, index) for index, item in enumerate(documents)]
+        return _snapshot_result([_document_from_mapping("google-workspace", item, target, index) for index, item in enumerate(documents)])
 
-    access_token = token_json.get("access_token")
+    access_token = await _google_access_token(token_json)
     if not access_token:
-        return []
+        return _snapshot_result([])
 
     headers = {"Authorization": f"Bearer {access_token}"}
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
-        if target["target_type"] == "folder":
-            response = await client.get(
-                "https://www.googleapis.com/drive/v3/files",
-                params={
-                    "q": f"'{target['remote_id']}' in parents and trashed = false",
-                    "fields": "files(id,name,mimeType,modifiedTime,webViewLink,parents)",
-                },
+        connector_cursor = str(settings.get("connector_cursor") or "")
+        existing_remote_ids = {str(value) for value in settings.get("existing_remote_ids", [])}
+        tombstones: set[str] = set()
+        incremental = connector_cursor.startswith("google:")
+        next_cursor: str | None = None
+        if incremental:
+            files, tombstones, next_cursor = await _google_changes(
+                client,
+                connector_cursor.removeprefix("google:"),
+                target=target,
+                existing_remote_ids=existing_remote_ids,
             )
-            response.raise_for_status()
-            files = response.json().get("files", [])
+        elif target["target_type"] == "folder":
+            start_token_response = await client.get("https://www.googleapis.com/drive/v3/changes/startPageToken")
+            start_token_response.raise_for_status()
+            next_cursor = str(start_token_response.json()["startPageToken"])
+            files = []
+            page_token = None
+            while True:
+                response = await client.get(
+                    "https://www.googleapis.com/drive/v3/files",
+                    params={
+                        "q": f"'{target['remote_id']}' in parents and trashed = false",
+                        "fields": "nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,parents,trashed)",
+                        "pageSize": 1000,
+                        **({"pageToken": page_token} if page_token else {}),
+                    },
+                )
+                response.raise_for_status()
+                body = response.json()
+                files.extend(body.get("files", []))
+                page_token = body.get("nextPageToken")
+                if not page_token:
+                    break
         else:
+            start_token_response = await client.get("https://www.googleapis.com/drive/v3/changes/startPageToken")
+            start_token_response.raise_for_status()
+            next_cursor = str(start_token_response.json()["startPageToken"])
             response = await client.get(
                 f"https://www.googleapis.com/drive/v3/files/{target['remote_id']}",
                 params={"fields": "id,name,mimeType,modifiedTime,webViewLink,parents"},
@@ -443,7 +612,82 @@ async def _google_documents(
                     metadata={"mimeType": item.get("mimeType"), "targetType": target["target_type"]},
                 )
             )
-        return docs
+        return ConnectorFetchResult(
+            documents=docs,
+            cursor=f"google:{next_cursor}" if next_cursor else connector_cursor or None,
+            tombstone_remote_ids=tuple(sorted(tombstones)),
+            full_snapshot=not incremental,
+        )
+
+
+async def _google_access_token(token_json: dict[str, Any]) -> str | None:
+    access_token = token_json.get("access_token")
+    expires_at = float(token_json.get("expires_at") or 0)
+    if access_token and (not expires_at or expires_at > time.time() + 120):
+        return str(access_token)
+    if not all(token_json.get(key) for key in ("refresh_token", "client_id", "client_secret")):
+        return str(access_token) if access_token else None
+    async with httpx.AsyncClient(timeout=20) as client:
+        response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": token_json["refresh_token"],
+                "client_id": token_json["client_id"],
+                "client_secret": token_json["client_secret"],
+            },
+        )
+        response.raise_for_status()
+        refreshed = response.json()
+        token_json["access_token"] = str(refreshed["access_token"])
+        token_json["expires_at"] = time.time() + int(refreshed.get("expires_in") or 3600)
+        if refreshed.get("scope"):
+            token_json["scope"] = refreshed["scope"]
+        if refreshed.get("token_type"):
+            token_json["token_type"] = refreshed["token_type"]
+        return str(token_json["access_token"])
+
+
+async def _google_changes(
+    client: httpx.AsyncClient,
+    page_token: str,
+    *,
+    target: dict[str, Any],
+    existing_remote_ids: set[str],
+) -> tuple[list[dict[str, Any]], set[str], str | None]:
+    files: list[dict[str, Any]] = []
+    tombstones: set[str] = set()
+    next_cursor: str | None = None
+    while page_token:
+        response = await client.get(
+            "https://www.googleapis.com/drive/v3/changes",
+            params={
+                "pageToken": page_token,
+                "pageSize": 1000,
+                "includeRemoved": "true",
+                "fields": "nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,webViewLink,parents,trashed))",
+            },
+        )
+        response.raise_for_status()
+        body = response.json()
+        for change in body.get("changes", []):
+            file_id = str(change.get("fileId") or "")
+            file = change.get("file") or {}
+            parents = {str(value) for value in file.get("parents") or []}
+            belongs = (
+                (target["target_type"] == "file" and file_id == target["remote_id"])
+                or (target["target_type"] == "folder" and target["remote_id"] in parents)
+            )
+            removed = bool(change.get("removed") or file.get("trashed"))
+            moved_out = file_id in existing_remote_ids and target["target_type"] == "folder" and target["remote_id"] not in parents
+            if removed or moved_out:
+                if file_id in existing_remote_ids:
+                    tombstones.add(file_id)
+            elif belongs:
+                files.append(file)
+        page_token = str(body.get("nextPageToken") or "")
+        next_cursor = str(body.get("newStartPageToken") or next_cursor or page_token or "") or None
+    return files, tombstones, next_cursor
 
 
 async def _download_google_file(client: httpx.AsyncClient, item: dict[str, Any]) -> str:
@@ -479,9 +723,19 @@ async def _notion_documents(
     }
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
         if target["target_type"] == "database":
-            response = await client.post(f"https://api.notion.com/v1/databases/{target['remote_id']}/query", json={})
-            response.raise_for_status()
-            pages = response.json().get("results", [])
+            pages = []
+            cursor = None
+            while True:
+                response = await client.post(
+                    f"https://api.notion.com/v1/databases/{target['remote_id']}/query",
+                    json={**({"start_cursor": cursor} if cursor else {}), "page_size": 100},
+                )
+                response.raise_for_status()
+                body = response.json()
+                pages.extend(body.get("results", []))
+                cursor = body.get("next_cursor")
+                if not body.get("has_more") or not cursor:
+                    break
         else:
             response = await client.get(f"https://api.notion.com/v1/pages/{target['remote_id']}")
             response.raise_for_status()

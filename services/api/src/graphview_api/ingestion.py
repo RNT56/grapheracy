@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import hashlib
+import ipaddress
 import re
+import socket
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Literal
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 from pypdf import PdfReader
@@ -47,8 +51,15 @@ async def build_document(
     content: str | None = None,
     uri: str | None = None,
     content_base64: str | None = None,
+    allowed_hosts: set[str] | None = None,
 ) -> NormalizedDocument:
-    raw_text = await _load_raw_text(kind=kind, content=content, uri=uri, content_base64=content_base64)
+    raw_text = await _load_raw_text(
+        kind=kind,
+        content=content,
+        uri=uri,
+        content_base64=content_base64,
+        allowed_hosts=allowed_hosts,
+    )
     text = normalize_for_kind(kind, raw_text)
     checksum = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return NormalizedDocument(
@@ -67,13 +78,14 @@ async def _load_raw_text(
     content: str | None,
     uri: str | None,
     content_base64: str | None,
+    allowed_hosts: set[str] | None,
 ) -> str:
     if kind == "url":
         if content:
             return content
         if not uri:
             raise ValueError("URL ingestion requires uri or content.")
-        return await fetch_url_text(uri)
+        return await fetch_safe_url_text(uri, allowed_hosts=allowed_hosts) if allowed_hosts else await fetch_url_text(uri)
     if kind == "pdf":
         if content:
             return content
@@ -86,14 +98,68 @@ async def _load_raw_text(
 
 
 async def fetch_url_text(uri: str) -> str:
+    return await fetch_safe_url_text(uri)
+
+
+async def validate_outbound_url(uri: str, allowed_hosts: set[str] | None = None) -> str:
+    parsed = urlsplit(uri)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("URL must use HTTP(S), include a hostname, and omit embedded credentials")
+    hostname = parsed.hostname.rstrip(".").lower()
+    if allowed_hosts and hostname not in allowed_hosts and not any(hostname.endswith(f".{host}") for host in allowed_hosts):
+        raise ValueError("URL hostname is outside the configured allowlist")
+    try:
+        addresses = await asyncio.to_thread(socket.getaddrinfo, hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+    except socket.gaierror as error:
+        raise ValueError("URL hostname could not be resolved") from error
+    for address in {item[4][0] for item in addresses}:
+        ip = ipaddress.ip_address(address)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise ValueError("URL resolves to a prohibited network address")
+    return uri
+
+
+async def fetch_safe_url_text(
+    uri: str,
+    *,
+    allowed_hosts: set[str] | None = None,
+    max_bytes: int = 10_000_000,
+    max_redirects: int = 5,
+) -> str:
+    current = uri
     async with httpx.AsyncClient(
         timeout=10,
-        follow_redirects=True,
-        headers={"User-Agent": "GraphviewPhase16Ingestion/0.16"},
+        follow_redirects=False,
+        headers={"User-Agent": "Graphview/1.0 (+self-hosted-ingestion)"},
     ) as client:
-        response = await client.get(uri)
-        response.raise_for_status()
-        return response.text
+        for redirect_count in range(max_redirects + 1):
+            await validate_outbound_url(current, allowed_hosts)
+            async with client.stream("GET", current, headers={"Accept": "text/html,text/plain,application/json,application/xml;q=0.8"}) as response:
+                if response.is_redirect:
+                    if redirect_count == max_redirects:
+                        raise ValueError("URL exceeded the redirect limit")
+                    location = response.headers.get("location")
+                    if not location:
+                        raise ValueError("URL redirect omitted its destination")
+                    current = urljoin(current, location)
+                    continue
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                if content_type and not (
+                    content_type.startswith("text/")
+                    or content_type in {"application/json", "application/xml", "application/xhtml+xml"}
+                ):
+                    raise ValueError("URL returned an unsupported content type")
+                chunks = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise ValueError("URL response exceeds the configured size limit")
+                    chunks.append(chunk)
+                encoding = response.encoding or "utf-8"
+                return b"".join(chunks).decode(encoding, errors="replace")
+    raise ValueError("URL fetch did not produce content")
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:

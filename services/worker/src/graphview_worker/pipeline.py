@@ -1,5 +1,11 @@
 from dataclasses import dataclass
 
+from arq.connections import RedisSettings
+from arq.cron import cron
+
+from graphview_api.settings import Settings
+from graphview_worker.jobs import dispatch_outbox, enqueue_scheduled_connector_syncs, execute_durable_job, run_context_retention, shutdown, startup, worker_health
+
 
 @dataclass(frozen=True)
 class WorkerStage:
@@ -34,10 +40,18 @@ def build_stage_plan() -> list[WorkerStage]:
     ]
 
 
-class WorkerSettings:
-    redis_url = "redis://127.0.0.1:6379/0"
-
-
 class WorkerSettingsForArq:
-    functions = []
-    redis_settings = None
+    functions = [execute_durable_job, dispatch_outbox, enqueue_scheduled_connector_syncs, run_context_retention, worker_health]
+    cron_jobs = [
+        cron(dispatch_outbox, second={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}, unique=True),
+        cron(enqueue_scheduled_connector_syncs, minute=set(range(60)), second=15, unique=True),
+        cron(run_context_retention, hour=3, minute=15, unique=True),
+    ]
+    redis_settings = RedisSettings.from_dsn(Settings().arq_redis_url)
+    on_startup = startup
+    on_shutdown = shutdown
+    max_jobs = 12
+    max_tries = 5
+    job_timeout = 900
+    health_check_interval = 30
+    retry_jobs = True

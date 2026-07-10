@@ -1,17 +1,29 @@
 import importlib.util
+import asyncio
+import hashlib
+import hmac
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from graphview_api import db
+from graphview_api.auth import CurrentUser, get_current_user
+from graphview_api.jobs.repository import JobRepository
+from graphview_api.jobs.schemas import JobCreate
+from graphview_api.jobs.executor import GraphJobExecutor
 from graphview_api.main import create_app
+from graphview_api.schemas import IngestionCreate
 from graphview_api.settings import Settings
 
 
 def make_client(settings: Settings | None = None) -> TestClient:
-    return TestClient(create_app(settings or Settings(database_url="sqlite://")))
+    resolved = settings or Settings(database_url="sqlite://")
+    if resolved.object_store_provider == "local" and resolved.object_store_path == "./.graphview/objects":
+        resolved = resolved.model_copy(update={"object_store_path": tempfile.mkdtemp(prefix="graphview-test-objects-")})
+    return TestClient(create_app(resolved))
 
 
 ADMIN_HEADERS = {"X-Graphview-User": "maintainer"}
@@ -62,6 +74,18 @@ def test_health() -> None:
     assert response.json() == {"status": "ok", "service": "graphview-api"}
 
 
+def test_rate_limiter_returns_problem_details_and_retry_after() -> None:
+    client = make_client(Settings(database_url="sqlite://", rate_limit_requests=2))
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/health").status_code == 200
+    limited = client.get("/health")
+
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "60"
+    assert limited.headers["content-type"].startswith("application/problem+json")
+
+
 def test_version() -> None:
     client = make_client()
 
@@ -69,6 +93,407 @@ def test_version() -> None:
 
     assert response.status_code == 200
     assert response.json()["version"] == "0.24.0"
+
+
+def test_v1_compatibility_routes_match_legacy_and_deprecate_only_legacy() -> None:
+    client = make_client()
+
+    legacy = client.get("/graph", headers=READER_HEADERS)
+    versioned = client.get("/api/v1/graph", headers=READER_HEADERS)
+
+    assert legacy.status_code == 200
+    assert versioned.status_code == 200
+    assert versioned.json() == legacy.json()
+    assert legacy.headers["Deprecation"] == "true"
+    assert legacy.headers["Link"].startswith("</api/v1/graph>")
+    assert "Deprecation" not in versioned.headers
+
+
+def test_v1_graph_viewport_layout_search_and_etag() -> None:
+    client = make_client()
+    graph_id = "project-ios26-swift-demo"
+
+    clustered = client.get(
+        f"/api/v1/graphs/{graph_id}/viewport",
+        params={"zoom": 0.25, "max_nodes": 20, "max_edges": 100},
+        headers=READER_HEADERS,
+    )
+    assert clustered.status_code == 200
+    viewport = clustered.json()
+    assert viewport["graph_id"] == graph_id
+    assert viewport["graph_version"] >= 1
+    assert viewport["level"] in {"clusters", "mixed"}
+    assert viewport["clusters"]
+    assert clustered.headers["etag"] == viewport["etag"]
+
+    not_modified = client.get(
+        f"/api/v1/graphs/{graph_id}/viewport",
+        params={"zoom": 0.25, "max_nodes": 20, "max_edges": 100},
+        headers={**READER_HEADERS, "If-None-Match": viewport["etag"]},
+    )
+    assert not_modified.status_code == 304
+
+    graph = client.get("/graph", params={"graph_id": graph_id}, headers=READER_HEADERS).json()
+    positions = [
+        {"node_id": node["id"], "x": index / 10, "y": -(index / 10), "z": index / 100}
+        for index, node in enumerate(graph["nodes"][:4])
+    ]
+    saved = client.put(
+        f"/api/v1/graphs/{graph_id}/layouts/review",
+        headers=ADMIN_HEADERS,
+        json={"name": "review", "algorithm": "manual", "positions": positions},
+    )
+    assert saved.status_code == 200
+    assert saved.json()["position_count"] == len(positions)
+    layouts = client.get(
+        f"/api/v1/graphs/{graph_id}/layouts",
+        params={"include_positions": True},
+        headers=READER_HEADERS,
+    )
+    assert layouts.status_code == 200
+    returned_positions = sorted(layouts.json()[0]["positions"], key=lambda position: position["node_id"])
+    expected_positions = sorted(positions, key=lambda position: position["node_id"])
+    assert [position["node_id"] for position in returned_positions] == [position["node_id"] for position in expected_positions]
+    assert [(position["x"], position["y"], position["z"]) for position in returned_positions] == [
+        (position["x"], position["y"], position["z"]) for position in expected_positions
+    ]
+
+    searched = client.get(
+        f"/api/v1/graphs/{graph_id}/search",
+        params={"q": "Liquid Glass"},
+        headers=READER_HEADERS,
+    )
+    assert searched.status_code == 200
+    assert any(anchor["label"] == "Liquid Glass" for anchor in searched.json()["anchors"])
+
+
+def test_v1_project_scope_blocks_bola_for_graphs_jobs_and_job_lists() -> None:
+    settings = Settings(database_url="sqlite://", object_store_path=tempfile.mkdtemp(prefix="graphview-bola-objects-"))
+    app = create_app(settings)
+
+    async def scoped_admin() -> CurrentUser:
+        return CurrentUser(
+            id="scoped-admin",
+            email="scoped@example.test",
+            role="admin",
+            project_ids=("project-default",),
+        )
+
+    app.dependency_overrides[get_current_user] = scoped_admin
+    with TestClient(app) as client:
+        hidden_job = JobRepository(app.state.repository.engine).enqueue(
+            JobCreate(
+                kind="ingestion.run",
+                queue="ingestion",
+                idempotency_key="bola-hidden-job",
+                payload={"project_id": "project-ios26-swift-demo", "ingestion": {"kind": "text", "title": "Hidden", "content": "Hidden"}},
+            ),
+            project_id="project-ios26-swift-demo",
+        )
+
+        assert client.get("/api/v1/graphs/project-ios26-swift-demo/viewport").status_code == 404
+        assert client.get("/api/v1/jobs", params={"project_id": "project-ios26-swift-demo"}).status_code == 404
+        assert client.get(f"/api/v1/jobs/{hidden_job['id']}").status_code == 404
+        assert client.post(f"/api/v1/jobs/{hidden_job['id']}/cancel").status_code == 404
+
+
+def test_v1_ingestion_jobs_are_durable_and_idempotent() -> None:
+    client = make_client()
+    payload = {
+        "kind": "text",
+        "title": "Durable ingestion",
+        "content": "# Durable ingestion\nGraphview queues this work transactionally.",
+    }
+
+    first = client.post("/api/v1/ingestions", headers=ADMIN_HEADERS, json=payload)
+    second = client.post("/api/v1/ingestions", headers=ADMIN_HEADERS, json=payload)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["id"] == first.json()["id"]
+    assert first.json()["kind"] == "ingestion.run"
+    assert first.json()["status"] == "queued"
+
+    jobs = JobRepository(client.app.state.repository.engine)
+    outbox = jobs.pending_outbox()
+    assert len(outbox) == 1
+    assert outbox[0]["aggregate_id"] == first.json()["id"]
+
+    claimed = jobs.claim(first.json()["id"], worker_id="test-worker")
+    assert claimed is not None
+    assert claimed["status"] == "running"
+    assert claimed["attempt"] == 1
+
+    completed = jobs.complete(first.json()["id"], {"source_id": "source-test"})
+    assert completed["status"] == "succeeded"
+    assert completed["result"] == {"source_id": "source-test"}
+
+
+def test_v1_ai_query_and_research_are_durable_cited_worker_jobs() -> None:
+    client = make_client()
+    repository = client.app.state.repository
+    settings = Settings(database_url="sqlite://", object_store_path=tempfile.mkdtemp(prefix="graphview-ai-objects-"))
+    executor = GraphJobExecutor(repository, settings, object_store=client.app.state.object_store)
+    asyncio.run(
+        executor.ingestion(
+            IngestionCreate(
+                kind="markdown",
+                title="Liquid Glass evidence",
+                content="# Liquid Glass\nLiquid Glass enables adaptive, depth-aware interface materials.",
+            ),
+            actor_id="evidence-seed",
+            graph_id="project-ios26-swift-demo",
+        )
+    )
+
+    query_job = client.post(
+        "/api/v1/ai/query",
+        headers=READER_HEADERS,
+        json={"question": "Liquid Glass evidence", "graph_id": "project-ios26-swift-demo"},
+    )
+    assert query_job.status_code == 202
+    jobs = JobRepository(repository.engine)
+    claimed_query = jobs.claim(query_job.json()["id"], worker_id="ai-test")
+    query_result = asyncio.run(executor.execute(claimed_query))
+    assert query_result["citations"]
+    assert query_result["agent_run"]["status"] == "completed"
+
+    research_job = client.post(
+        "/api/v1/ai/research",
+        headers=ADMIN_HEADERS,
+        json={"query": "Liquid Glass evidence", "graph_id": "project-ios26-swift-demo", "lens": "research"},
+    )
+    assert research_job.status_code == 202
+    claimed_research = jobs.claim(research_job.json()["id"], worker_id="ai-test")
+    research_result = asyncio.run(executor.execute(claimed_research))
+    assert research_result["proposals"]
+    assert research_result["agent_run"]["output"]["citations"]
+    assert research_result["agent_run"]["status"] == "waiting_for_review"
+
+
+def test_v1_failed_job_is_a_visible_dead_letter_and_can_be_requeued() -> None:
+    client = make_client()
+    created = client.post(
+        "/api/v1/jobs",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "agent_context.retention",
+            "queue": "maintenance",
+            "idempotency_key": "maintenance-test-1",
+            "payload": {"project_id": "project-default"},
+            "max_attempts": 1,
+        },
+    ).json()
+    jobs = JobRepository(client.app.state.repository.engine)
+    assert jobs.claim(created["id"], worker_id="failing-worker") is not None
+    failed = jobs.fail(created["id"], error_code="InjectedFailure", error="failure injection")
+    assert failed["status"] == "failed"
+
+    retried = client.post(f"/api/v1/jobs/{created['id']}/retry", headers=ADMIN_HEADERS)
+
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "queued"
+    assert retried.json()["attempt"] == 0
+    assert len(jobs.pending_outbox()) == 2
+
+
+def test_v1_approved_action_can_be_enqueued_once() -> None:
+    client = make_client()
+    proposal = client.post(
+        "/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "webhook",
+            "title": "Notify workflow",
+            "summary": "Send an approved workflow notification.",
+            "payload": {"destination": "https://example.invalid/hook"},
+        },
+    ).json()
+    approved = client.post(
+        f"/action-proposals/{proposal['id']}/approve",
+        headers=ADMIN_HEADERS,
+        json={"rationale": "Approved by test"},
+    )
+    assert approved.status_code == 200
+
+    first = client.post(f"/api/v1/action-proposals/{proposal['id']}/run", headers=ADMIN_HEADERS)
+    second = client.post(f"/api/v1/action-proposals/{proposal['id']}/run", headers=ADMIN_HEADERS)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert first.json()["id"] == second.json()["id"]
+    assert first.json()["kind"] == "action.run"
+
+
+def test_v1_upload_streams_to_object_storage_and_worker_ingests(tmp_path: Path) -> None:
+    settings = Settings(database_url="sqlite://", object_store_path=str(tmp_path / "objects"))
+    client = make_client(settings)
+
+    accepted = client.post(
+        "/api/v1/uploads",
+        headers=ADMIN_HEADERS,
+        data={"title": "Uploaded evidence"},
+        files={"file": ("../evidence.md", b"# Evidence\nA durable uploaded source.", "text/markdown")},
+    )
+
+    assert accepted.status_code == 202
+    body = accepted.json()
+    assert body["filename"] == "evidence.md"
+    object_path = tmp_path / "objects" / body["object_key"]
+    assert object_path.read_bytes().startswith(b"# Evidence")
+
+    jobs = JobRepository(client.app.state.repository.engine)
+    claimed = jobs.claim(body["job_id"], worker_id="upload-test")
+    assert claimed is not None
+    result = asyncio.run(
+        GraphJobExecutor(
+            client.app.state.repository,
+            settings,
+            object_store=client.app.state.object_store,
+        ).execute(claimed)
+    )
+    completed = jobs.complete(body["job_id"], result)
+    assert completed["status"] == "succeeded"
+    assert result["source"]["title"] == "Uploaded evidence"
+    assert result["proposals"]
+
+
+def test_v1_resumable_upload_persists_offset_and_enqueues_completion(tmp_path: Path) -> None:
+    settings = Settings(database_url="sqlite://", object_store_path=str(tmp_path / "objects"))
+    client = make_client(settings)
+    content = b"# Resumable evidence\nGraphview preserves upload ordering."
+    created = client.post(
+        "/api/v1/uploads/resumable",
+        headers=ADMIN_HEADERS,
+        json={
+            "filename": "evidence.md",
+            "content_type": "text/markdown",
+            "expected_bytes": len(content),
+            "title": "Resumable evidence",
+        },
+    )
+    assert created.status_code == 201
+    upload_id = created.json()["id"]
+    assert created.headers["upload-offset"] == "0"
+    assert client.head(f"/api/v1/uploads/resumable/{upload_id}", headers=READER_HEADERS).headers["upload-offset"] == "0"
+
+    mismatch = client.patch(
+        f"/api/v1/uploads/resumable/{upload_id}",
+        headers={**ADMIN_HEADERS, "Upload-Offset": "1", "Content-Type": "application/offset+octet-stream"},
+        content=content,
+    )
+    assert mismatch.status_code == 409
+    completed = client.patch(
+        f"/api/v1/uploads/resumable/{upload_id}",
+        headers={**ADMIN_HEADERS, "Upload-Offset": "0", "Content-Type": "application/offset+octet-stream"},
+        content=content,
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "completed"
+    assert completed.json()["job_id"].startswith("job_")
+    assert (tmp_path / "objects" / completed.json()["object_key"]).read_bytes() == content
+    assert JobRepository(client.app.state.repository.engine).get(completed.json()["job_id"])["status"] == "queued"
+
+
+def test_github_connector_webhook_verifies_signature_and_deduplicates_delivery() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "repository",
+            "display_name": "GitHub App",
+            "token_json": {"webhook_secret": "webhook-test-secret", "access_token": "installation-token"},
+        },
+    ).json()
+    target = client.post(
+        "/connector-targets",
+        headers=ADMIN_HEADERS,
+        json={
+            "account_id": account["id"],
+            "target_type": "repository",
+            "remote_id": "owner/repository",
+            "title": "Repository",
+            "sync_settings": {"provider": "github"},
+        },
+    ).json()
+    payload = b'{"ref":"refs/heads/main"}'
+    signature = "sha256=" + hmac.new(b"webhook-test-secret", payload, hashlib.sha256).hexdigest()
+    headers = {
+        "X-Hub-Signature-256": signature,
+        "X-GitHub-Delivery": "delivery-1",
+        "X-GitHub-Event": "push",
+        "Content-Type": "application/json",
+    }
+
+    first = client.post(f"/api/v1/connectors/github/{target['id']}/webhook", headers=headers, content=payload)
+    second = client.post(f"/api/v1/connectors/github/{target['id']}/webhook", headers=headers, content=payload)
+    invalid = client.post(
+        f"/api/v1/connectors/github/{target['id']}/webhook",
+        headers={**headers, "X-Hub-Signature-256": "sha256=invalid", "X-GitHub-Delivery": "delivery-2"},
+        content=payload,
+    )
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["id"] == first.json()["id"]
+    assert invalid.status_code == 401
+
+
+def test_v1_connector_health_tracks_queue_lease_and_actionable_failure() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={"kind": "upload", "display_name": "Health uploads"},
+    ).json()
+    target = client.post(
+        "/connector-targets",
+        headers=ADMIN_HEADERS,
+        json={
+            "account_id": account["id"],
+            "target_type": "upload",
+            "remote_id": "health-target",
+            "title": "Health target",
+            "sync_settings": {"content": "# Health"},
+        },
+    ).json()
+
+    initial = client.get(f"/api/v1/connectors/{target['id']}/health", headers=READER_HEADERS)
+    assert initial.status_code == 200
+    assert initial.json()["status"] == "healthy"
+    queued = client.post(f"/api/v1/connectors/{target['id']}/sync", headers=ADMIN_HEADERS)
+    assert queued.status_code == 202
+    assert client.get(f"/api/v1/connectors/{target['id']}/health", headers=READER_HEADERS).json()["status"] == "syncing"
+
+    from graphview_api.connector_state import ConnectorStateRepository
+
+    state = ConnectorStateRepository(client.app.state.repository.engine)
+    state.claim(target["id"], worker_id="worker-health")
+    state.fail(target["id"], RuntimeError("429 provider rate limit"), retry_attempt=2)
+    failed = client.get(f"/api/v1/connectors/{target['id']}/health", headers=READER_HEADERS).json()
+    assert failed["status"] == "rate_limited"
+    assert failed["retry_attempt"] == 2
+    assert "429" in failed["actionable_failure"]
+
+
+def test_v1_subgraph_is_bounded_and_project_scoped() -> None:
+    client = make_client()
+    graph_id = "project-ios26-swift-demo"
+    graph = client.get("/graph", params={"graph_id": graph_id}, headers=READER_HEADERS).json()
+    focus_id = graph["nodes"][0]["id"]
+
+    response = client.get(
+        f"/api/v1/graphs/{graph_id}/subgraph",
+        params={"focus_node_id": focus_id, "depth": 1, "max_nodes": 12},
+        headers=READER_HEADERS,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["focus_node_id"] == focus_id
+    assert len(body["nodes"]) <= 12
+    assert all(node["project_id"] == graph_id for node in body["nodes"])
 
 
 def test_local_auth_rejects_unknown_user() -> None:
@@ -79,6 +504,32 @@ def test_local_auth_rejects_unknown_user() -> None:
     assert response.status_code == 401
 
 
+def test_cookie_authenticated_mutations_require_csrf() -> None:
+    client = make_client()
+    asyncio.run(
+        client.app.state.identity.store.put(
+            "session:test-session",
+            {
+                "user": {"id": "oidc-admin", "email": "admin@example.test", "role": "admin"},
+                "csrf_token": "csrf-test-token",
+            },
+            300,
+        )
+    )
+    client.cookies.set("graphview_session", "test-session")
+
+    denied = client.post("/sources", json={"kind": "text", "title": "Denied without CSRF"})
+    accepted = client.post(
+        "/sources",
+        headers={"X-CSRF-Token": "csrf-test-token"},
+        json={"kind": "text", "title": "Accepted with CSRF"},
+    )
+
+    assert denied.status_code == 403
+    assert denied.headers["content-type"].startswith("application/problem+json")
+    assert accepted.status_code == 201
+
+
 def test_reader_can_read_but_cannot_write() -> None:
     client = make_client()
 
@@ -87,6 +538,41 @@ def test_reader_can_read_but_cannot_write() -> None:
 
     created = client.post("/sources", headers=READER_HEADERS, json={"kind": "text", "title": "Reader note"})
     assert created.status_code == 403
+
+
+def test_connector_and_provider_secrets_use_authenticated_envelopes() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "repository",
+            "display_name": "GitHub App",
+            "token_json": {"access_token": "top-secret-token"},
+        },
+    )
+    assert account.status_code == 201
+    provider = client.patch(
+        "/providers/openai/credentials",
+        headers=ADMIN_HEADERS,
+        json={"api_key": "top-secret-provider-key", "make_default": True},
+    )
+    assert provider.status_code == 200
+
+    with client.app.state.repository.engine.begin() as connection:
+        token_envelope = connection.execute(
+            select(db.connector_accounts.c.encrypted_token_json).where(
+                db.connector_accounts.c.id == account.json()["id"]
+            )
+        ).scalar_one()
+        settings_json = connection.execute(
+            select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == "project-default")
+        ).scalar_one()
+
+    assert token_envelope.startswith("gvenc:aesgcm:v2:")
+    assert "top-secret-token" not in token_envelope
+    assert "top-secret-provider-key" not in settings_json
+    assert "gvenc:aesgcm:v2:" in settings_json
 
 
 def test_lenses_expose_extraction_and_graph_descriptors() -> None:
@@ -876,8 +1362,11 @@ def test_agent_context_capture_lifecycle_encryption_graph_stream_retention_and_b
     with client.app.state.repository.engine.begin() as conn:
         stored_blob = conn.execute(db.agent_context_blobs.select()).mappings().first()
         assert stored_blob is not None
-        assert stored_blob["encrypted_content"].startswith("gvenc:fernet:v1:")
-        assert "class Settings" not in stored_blob["encrypted_content"]
+        assert stored_blob["encrypted_content"] is None
+        assert stored_blob["object_key"]
+        stored_object_path = client.app.state.object_store.root / stored_blob["object_key"]
+        assert stored_object_path.read_text().startswith("gvenc:fernet:v1:")
+        assert "class Settings" not in stored_object_path.read_text()
         conn.execute(
             update(db.agent_context_blobs)
             .where(db.agent_context_blobs.c.id == stored_blob["id"])
@@ -912,6 +1401,8 @@ def test_agent_context_capture_lifecycle_encryption_graph_stream_retention_and_b
         ).mappings().first()
         assert retained_blob is not None
         assert retained_blob["encrypted_content"] is None
+        assert retained_blob["object_key"] is None
+        assert not stored_object_path.exists()
         assert "retention_purged_at" in retained_blob["metadata_json"]
         assert retained_event is not None
 
@@ -1394,7 +1885,7 @@ def test_phase26_action_policy_is_configurable_and_source_actions_are_scoped() -
     assert failed_run.json()["error_code"] == "source_not_found"
 
 
-def test_phase27_migrations_are_linear_through_activity_nervous_system_and_context_tables() -> None:
+def test_migrations_are_linear_through_graphview_v1_foundation() -> None:
     migration_dir = Path(__file__).parents[1] / "migrations" / "versions"
     revisions: dict[str, str | None] = {}
 
@@ -1410,9 +1901,16 @@ def test_phase27_migrations_are_linear_through_activity_nervous_system_and_conte
     assert revisions["20260605_0008"] == "20260605_0007"
     assert revisions["20260606_0009"] == "20260605_0008"
     assert revisions["20260614_0010"] == "20260606_0009"
+    assert revisions["20260710_0011"] == "20260614_0010"
+    assert revisions["20260710_0012"] == "20260710_0011"
+    assert revisions["20260710_0013"] == "20260710_0012"
+    assert revisions["20260710_0014"] == "20260710_0013"
+    assert revisions["20260710_0015"] == "20260710_0014"
+    assert revisions["20260710_0016"] == "20260710_0015"
+    assert revisions["20260710_0017"] == "20260710_0016"
 
     seen: set[str] = set()
-    current = "20260614_0010"
+    current = "20260710_0017"
     while current is not None:
         assert current not in seen
         seen.add(current)

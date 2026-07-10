@@ -1,0 +1,28 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: {{ .Release.Name }}-backup }
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata: { labels: { app.kubernetes.io/name: graphview-backup, app.kubernetes.io/part-of: graphview } }
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image | quote }}
+              args: [backup, --retention-days, {{ .Values.backup.retentionDays | quote }}]
+              envFrom:
+                - configMapRef: { name: {{ .Release.Name }}-config }
+                - secretRef: { name: {{ .Values.runtimeSecretName }} }
+              securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+              volumeMounts: [{ name: tmp, mountPath: /tmp }]
+          volumes: [{ name: tmp, emptyDir: { sizeLimit: 20Gi } }]
+{{- end }}

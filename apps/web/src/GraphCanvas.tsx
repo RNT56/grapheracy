@@ -16,6 +16,9 @@ import {
   type GraphVisualStatus,
   type SemanticEdge
 } from "@graphview/shared-types";
+import { SigmaGraphScene } from "./SigmaGraphScene";
+import { AccessibleGraphData } from "./AccessibleGraphData";
+import { projectedGraphPositions } from "./projectedGraphPositions";
 
 export type GraphLayoutMode = "force" | "radial" | "arc";
 export type GraphDimensionMode = "2d" | "3d";
@@ -45,6 +48,7 @@ interface Props {
   selectedNodeId?: ContentNode["id"];
   fitSequence: number;
   onSelectNode?: (nodeId: ContentNode["id"]) => void;
+  onViewportZoom?: (zoom: number) => void;
 }
 
 interface ViewNode {
@@ -138,7 +142,8 @@ export function GraphCanvas({
   query,
   selectedNodeId,
   fitSequence,
-  onSelectNode
+  onSelectNode,
+  onViewportZoom
 }: Props) {
   const [camera, setCamera] = useState<CameraState>(DEFAULT_CAMERA);
   const [hoveredObjectId, setHoveredObjectId] = useState<string | undefined>();
@@ -156,6 +161,7 @@ export function GraphCanvas({
   );
   const effectiveDimension = layout === "arc" ? "2d" : dimension;
   const use3d = effectiveDimension === "3d";
+  const useSigma2d = !use3d;
   const activityHints = useMemo(() => graphActivityHints(activityEvents, edges), [activityEvents, edges]);
   const visualStates = useMemo(
     () =>
@@ -257,7 +263,7 @@ export function GraphCanvas({
   );
 
   useEffect(() => {
-    if (!use3d) setThreeActiveNodePosition(undefined);
+    if (use3d) setThreeActiveNodePosition(undefined);
   }, [use3d]);
 
   const handleWheel = (event: WheelEvent<SVGSVGElement>) => {
@@ -319,12 +325,12 @@ export function GraphCanvas({
 
   return (
     <div
-      className={`graph-canvas-wrap graph-view-${layout} graph-view-${effectiveDimension} ${use3d ? "can-orbit" : "can-pan"}`}
+      className={`graph-canvas-wrap graph-view-${layout} graph-view-${effectiveDimension} ${use3d ? "can-orbit" : "has-sigma can-pan"}`}
       data-testid="graph-canvas-root"
       data-fit-sequence={fitSequence}
       data-motion-tier={animationBudget.tier}
-      role="img"
-      aria-label={`${view.nodes.length} rendered graph nodes and ${view.edges.length} rendered graph edges`}
+      role="region"
+      aria-label="Interactive graph viewer"
       onPointerLeave={() => setHoveredObjectId(undefined)}
     >
       {use3d && (
@@ -356,9 +362,37 @@ export function GraphCanvas({
           />
         </Suspense>
       )}
+      {useSigma2d && (
+        <SigmaGraphScene
+          nodes={view.nodes.map((viewNode) => ({
+            id: viewNode.node.id,
+            label: viewNode.node.label,
+            x: viewNode.x,
+            y: viewNode.y,
+            radius: viewNode.radius,
+            statuses: viewNode.statuses
+          }))}
+          edges={view.edges.map((viewEdge) => ({
+            id: viewEdge.edge.id,
+            sourceNodeId: viewEdge.edge.sourceNodeId,
+            targetNodeId: viewEdge.edge.targetNodeId,
+            statuses: viewEdge.statuses
+          }))}
+          selectedNodeId={selectedNodeId}
+          activeNodeId={activeTooltipNode?.node.id}
+          runForceLayout={layout === "force"}
+          reducedMotion={animationBudget.tier !== "full_motion"}
+          onHoverObject={setHoveredObjectId}
+          onSelectNode={(nodeId) => onSelectNode?.(nodeId as ContentNode["id"])}
+          onActiveNodePosition={setThreeActiveNodePosition}
+          onCameraRatio={(ratio) => onViewportZoom?.(clamp(2 - Math.log2(ratio), 0, 16))}
+        />
+      )}
       <svg
-        className={`graph-canvas ${use3d ? "graph-canvas-overlay" : ""}`}
+        className={`graph-canvas ${use3d || useSigma2d ? "graph-canvas-overlay" : ""}`}
         data-testid="graph-canvas-surface"
+        role="img"
+        aria-label={`${view.nodes.length} rendered graph nodes and ${view.edges.length} rendered graph edges`}
         onPointerCancel={handlePointerUp}
         onPointerDown={use3d ? undefined : handlePointerDown}
         onPointerMove={use3d ? undefined : handlePointerMove}
@@ -512,6 +546,12 @@ export function GraphCanvas({
           placement={tooltipAnchor.placement}
         />
       )}
+
+      <AccessibleGraphData
+        nodes={view.nodes.map((item) => item.node)}
+        edges={view.edges.map((item) => item.edge)}
+        onSelectNode={onSelectNode}
+      />
 
       {hasOmissions && (
         <div className="graph-render-budget" aria-label="Graph render budget">
@@ -950,6 +990,8 @@ function contentExpansionRole(entity: ContentNode | SemanticEdge): string | unde
 }
 
 function computePositions(nodes: ContentNode[], edges: SemanticEdge[], layout: GraphLayoutMode) {
+  const projected = projectedGraphPositions(nodes, VIEWBOX.width, VIEWBOX.height);
+  if (projected) return projected;
   if (layout === "radial") return radialPositions(nodes, edges);
   if (layout === "arc") return arcPositions(nodes);
   return forcePositions(nodes, edges);

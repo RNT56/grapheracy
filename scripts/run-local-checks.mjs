@@ -10,6 +10,8 @@ const checks = {
   "security:licenses": ["node", ["scripts/check-license-policy.mjs"]],
   "changelog:check": ["node", ["scripts/check-changelog.mjs"]],
   "release:check": ["node", ["scripts/check-release-readiness.mjs"]],
+  "architecture:check": ["node", ["scripts/check-architecture.mjs"]],
+  "api:check": ["node", ["scripts/run-api-check.mjs"]],
   typecheck: ["node", ["scripts/run-workspace-scripts.mjs", "typecheck"]],
   test: ["node", ["scripts/run-workspace-scripts.mjs", "test"]]
 };

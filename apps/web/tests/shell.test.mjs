@@ -7,7 +7,7 @@ function assertSourceIncludes(source, pattern, label) {
 }
 
 test("web shell is product-first and wired to API health", async () => {
-  const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const source = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8")}`;
   assert.match(source, /fetchHealth/);
   assert.match(source, /createSource/);
   assert.match(source, /ingestText/);
@@ -39,8 +39,8 @@ test("web shell is product-first and wired to API health", async () => {
   assert.match(source, /\/agent-context\/sessions/);
   assert.match(source, /AgentContextWorkspace/);
   assert.match(source, /Active context/);
-  assert.match(source, /\/graph\/query/);
-  assert.match(source, /\/graph\/research/);
+  assert.match(source, /\/ai\/query/);
+  assert.match(source, /\/ai\/research/);
   assert.match(source, /approve-action/);
   assert.match(source, /PlanningWorkspace/);
   assert.match(source, /Planning Mode/);
@@ -241,8 +241,9 @@ test("phase 27 active context workspace and shared contracts are exposed", async
   assertSourceIncludes(styles, /authority-gateway/, "active context authority style");
 });
 
-test("phase 24 living graph contracts are exposed for web integration", async () => {
+test("living graph contracts are exposed for web integration", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const apiSource = await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8");
   const canvasSource = await readFile(new URL("../src/GraphCanvas.tsx", import.meta.url), "utf8");
   const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
   const webSource = `${appSource}\n${canvasSource}`;
@@ -259,7 +260,7 @@ test("phase 24 living graph contracts are exposed for web integration", async ()
   assertSourceIncludes(appSource, /GraphActivityEvent/, "app activity event usage");
   assertSourceIncludes(appSource, /graphActivityEvents/, "app activity event query state");
   assertSourceIncludes(appSource, /\/graph\/activity/, "app graph activity route");
-  assertSourceIncludes(appSource, /\/agent-runs\/.*\/activity/, "app agent activity route");
+  assertSourceIncludes(apiSource, /\/agent-runs\/.*\/activity/, "app agent activity route");
   assertSourceIncludes(appSource, /Graph AI agent/, "app graph AI panel");
   assertSourceIncludes(appSource, /Graph agent activity/, "app graph agent activity panel");
 

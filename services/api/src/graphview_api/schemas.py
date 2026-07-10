@@ -207,7 +207,7 @@ AgentContextEventStatus = Literal["accepted", "duplicate", "rejected"]
 AgentContextArtifactKind = Literal["file", "selection", "search_result", "shell", "prompt", "model", "diff", "test", "commit", "editor", "other"]
 AgentContextContentKind = Literal["text", "binary", "metadata"]
 AgentContextRedactionStatus = Literal["redacted", "not_required", "metadata_only"]
-AgentContextEncryptionStatus = Literal["encrypted", "metadata_only"]
+AgentContextEncryptionStatus = Literal["encrypted", "object_encrypted", "metadata_only"]
 SignalKind = Literal[
     "source_changed",
     "source_stale",

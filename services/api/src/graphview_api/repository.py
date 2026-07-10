@@ -17,8 +17,11 @@ from sqlalchemy import Engine, and_, delete, insert, or_, select, text, update
 from graphview_api import db
 from graphview_api.action_policy import normalize_safe_action_types
 from graphview_api.connectors import NormalizedSourceDocument, stable_id
-from graphview_api.demo_seed import DEMO_PROJECT_ID, seed_demo_graph
 from graphview_api.lenses import normalize_graph_lens
+from graphview_api.json_compat import json_value, normalize_json_row
+from graphview_api.repository_actions import ActionRepositoryMixin
+from graphview_api.repository_connectors import ConnectorRepositoryMixin
+from graphview_api.repository_secrets import SecretRepositoryMixin
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
     ActionProposalCreate,
@@ -57,6 +60,7 @@ from graphview_api.schemas import (
 )
 
 DEFAULT_PROJECT_ID = "project-default"
+DEMO_PROJECT_ID = "project-ios26-swift-demo"
 
 
 @dataclass(frozen=True)
@@ -144,7 +148,7 @@ def load_json(value: str | None, fallback: object):
     return json.loads(value)
 
 
-class GraphRepository:
+class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRepositoryMixin):
     def __init__(
         self,
         engine: Engine,
@@ -154,6 +158,8 @@ class GraphRepository:
         safe_action_types: list[str] | tuple[str, ...] | set[str] | frozenset[str] | str | None = None,
         agent_context_max_blob_bytes: int = 512_000,
         agent_context_retention_days: int = 30,
+        secret_store=None,
+        object_store=None,
     ):
         self.engine = engine
         self.secret_key = secret_key
@@ -161,9 +167,12 @@ class GraphRepository:
         self.safe_action_types = normalize_safe_action_types(safe_action_types)
         self.agent_context_max_blob_bytes = max(0, agent_context_max_blob_bytes)
         self.agent_context_retention_days = max(1, agent_context_retention_days)
+        self.secret_store = secret_store
+        self.object_store = object_store
 
-    def initialize(self) -> None:
-        db.metadata.create_all(self.engine)
+    def initialize(self, *, create_schema: bool = True) -> None:
+        if create_schema:
+            db.metadata.create_all(self.engine)
         with self.engine.begin() as conn:
             self._ensure_sqlite_columns(conn)
             existing = conn.execute(
@@ -197,7 +206,7 @@ class GraphRepository:
                         updated_at=timestamp,
                     )
                 )
-            seed_demo_graph(conn, db, dump_json)
+            self._rotate_legacy_secrets(conn)
 
     def _ensure_sqlite_columns(self, conn) -> None:
         if self.engine.dialect.name != "sqlite":
@@ -214,6 +223,7 @@ class GraphRepository:
             self._ensure_sqlite_column(conn, "sources", column_name, column_type)
         self._ensure_sqlite_column(conn, "content_nodes", "metadata_json", "TEXT")
         self._ensure_sqlite_column(conn, "semantic_edges", "metadata_json", "TEXT")
+        self._ensure_sqlite_column(conn, "agent_context_blobs", "object_key", "TEXT"); db.ensure_sqlite_json_shadow_columns(conn)
 
     def _ensure_sqlite_column(self, conn, table_name: str, column_name: str, column_type: str) -> None:
         existing_columns = {
@@ -225,7 +235,7 @@ class GraphRepository:
 
     def list_graph_views(self) -> list[dict]:
         with self.engine.begin() as conn:
-            project_rows = [dict(row) for row in conn.execute(select(db.graph_projects)).mappings()]
+            project_rows = [normalize_json_row(row) for row in conn.execute(select(db.graph_projects)).mappings()]
 
         specs = [self._project_view_spec(project) for project in project_rows]
         if any(project["id"] == DEMO_PROJECT_ID for project in project_rows):
@@ -270,7 +280,7 @@ class GraphRepository:
         with self.engine.begin() as conn:
             row = conn.execute(select(db.graph_projects).where(db.graph_projects.c.id == requested_id)).mappings().first()
             if row is not None:
-                return self._project_view_spec(dict(row))
+                return self._project_view_spec(normalize_json_row(row))
             fallback = conn.execute(
                 select(db.graph_projects).where(db.graph_projects.c.id == DEFAULT_PROJECT_ID)
             ).mappings().one()
@@ -760,8 +770,20 @@ class GraphRepository:
                 row = conn.execute(
                     select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
                 ).mappings().one()
-                merged_settings = load_json(row["settings_json"], {})
+                merged_settings = load_json(json_value(row, "settings_json"), {})
                 for key, value in settings_payload.items():
+                    if key == "llm_api_key":
+                        credentials = dict(merged_settings.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
+                        if value:
+                            credentials["openai"] = {
+                                "encrypted_api_key": self._encrypt_json({"api_key": str(value)}),
+                                "updated_at": now().isoformat(),
+                            }
+                        else:
+                            credentials.pop("openai", None)
+                        merged_settings[AI_PROVIDER_CREDENTIALS_KEY] = credentials
+                        merged_settings.pop("llm_api_key", None)
+                        continue
                     if value is None:
                         merged_settings.pop(key, None)
                     else:
@@ -812,7 +834,7 @@ class GraphRepository:
             row = conn.execute(
                 select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
             ).mappings().one()
-            settings_doc = load_json(row["settings_json"], {})
+            settings_doc = load_json(json_value(row, "settings_json"), {})
             credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
             credentials[provider_id] = {
                 "encrypted_api_key": self._encrypt_json({"api_key": cleaned_key}),
@@ -836,7 +858,7 @@ class GraphRepository:
             row = conn.execute(
                 select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
             ).mappings().one()
-            settings_doc = load_json(row["settings_json"], {})
+            settings_doc = load_json(json_value(row, "settings_json"), {})
             credentials = dict(settings_doc.get(AI_PROVIDER_CREDENTIALS_KEY) or {})
             credentials.pop(provider_id, None)
             if credentials:
@@ -1364,150 +1386,6 @@ class GraphRepository:
             ).mappings().first()
             return self._agent_action_proposal_from_row(row) if row else None
 
-    def list_connector_accounts(self) -> list[dict]:
-        with self.engine.begin() as conn:
-            return [
-                self._connector_account_from_row(row)
-                for row in conn.execute(
-                    select(db.connector_accounts)
-                    .where(db.connector_accounts.c.project_id == DEFAULT_PROJECT_ID)
-                    .order_by(db.connector_accounts.c.created_at.desc(), db.connector_accounts.c.id.desc())
-                ).mappings()
-            ]
-
-    def create_connector_account(self, payload: ConnectorAccountCreate, actor_id: str) -> dict:
-        timestamp = now()
-        account = {
-            "id": new_id("connacct"),
-            "project_id": DEFAULT_PROJECT_ID,
-            "kind": payload.kind,
-            "display_name": payload.display_name,
-            "status": "connected",
-            "created_by": actor_id,
-            "encrypted_token_json": self._encrypt_json(payload.token_json) if payload.token_json else None,
-            "scopes_json": dump_json(payload.scopes),
-            "settings_json": dump_json(payload.settings),
-            "created_at": timestamp,
-            "updated_at": timestamp,
-        }
-        with self.engine.begin() as conn:
-            conn.execute(insert(db.connector_accounts).values(**account))
-        return self._connector_account_from_row(account)
-
-    def list_connector_targets(self) -> list[dict]:
-        with self.engine.begin() as conn:
-            return [
-                self._connector_target_from_row(row)
-                for row in conn.execute(
-                    select(db.connector_targets)
-                    .where(db.connector_targets.c.project_id == DEFAULT_PROJECT_ID)
-                    .order_by(db.connector_targets.c.created_at.desc(), db.connector_targets.c.id.desc())
-                ).mappings()
-            ]
-
-    def create_connector_target(self, payload: ConnectorTargetCreate) -> dict:
-        with self.engine.begin() as conn:
-            account_row = conn.execute(
-                select(db.connector_accounts).where(
-                    and_(
-                        db.connector_accounts.c.id == payload.account_id,
-                        db.connector_accounts.c.project_id == DEFAULT_PROJECT_ID,
-                    )
-                )
-            ).mappings().first()
-            if account_row is None:
-                raise KeyError(payload.account_id)
-            timestamp = now()
-            target = {
-                "id": new_id("conntgt"),
-                "project_id": DEFAULT_PROJECT_ID,
-                "account_id": payload.account_id,
-                "connector_kind": account_row["kind"],
-                "target_type": payload.target_type,
-                "remote_id": payload.remote_id,
-                "title": payload.title,
-                "parent_remote_id": payload.parent_remote_id,
-                "sync_settings_json": dump_json(payload.sync_settings),
-                "last_synced_at": None,
-                "created_at": timestamp,
-                "updated_at": timestamp,
-            }
-            conn.execute(insert(db.connector_targets).values(**target))
-        return self._connector_target_from_row(target)
-
-    def update_connector_target(self, target_id: str, payload: ConnectorTargetUpdate) -> dict | None:
-        values = payload.model_dump(exclude_unset=True)
-        if "sync_settings" in values:
-            values["sync_settings_json"] = dump_json(values.pop("sync_settings") or {})
-        if not values:
-            bundle = self.connector_target_bundle(target_id)
-            return bundle[1] if bundle else None
-        values["updated_at"] = now()
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                update(db.connector_targets)
-                .where(
-                    and_(
-                        db.connector_targets.c.id == target_id,
-                        db.connector_targets.c.project_id == DEFAULT_PROJECT_ID,
-                    )
-                )
-                .values(**values)
-            )
-            if result.rowcount == 0:
-                return None
-            row = conn.execute(
-                select(db.connector_targets).where(db.connector_targets.c.id == target_id)
-            ).mappings().one()
-            return self._connector_target_from_row(row)
-
-    def connector_target_bundle(self, target_id: str) -> tuple[dict, dict, dict | None] | None:
-        with self.engine.begin() as conn:
-            target_row = conn.execute(
-                select(db.connector_targets).where(
-                    and_(db.connector_targets.c.id == target_id, db.connector_targets.c.project_id == DEFAULT_PROJECT_ID)
-                )
-            ).mappings().first()
-            if target_row is None:
-                return None
-            account_row = conn.execute(
-                select(db.connector_accounts).where(
-                    and_(
-                        db.connector_accounts.c.id == target_row["account_id"],
-                        db.connector_accounts.c.project_id == DEFAULT_PROJECT_ID,
-                    )
-                )
-            ).mappings().first()
-            if account_row is None:
-                return None
-            account = self._connector_account_from_row(account_row)
-            target = self._connector_target_from_row(target_row)
-            token_json = self._decrypt_json(account_row["encrypted_token_json"]) if account_row["encrypted_token_json"] else None
-            return account, target, token_json
-
-    def list_connector_sync_runs(self) -> list[dict]:
-        with self.engine.begin() as conn:
-            return [
-                self._connector_sync_run_from_row(row)
-                for row in conn.execute(
-                    select(db.connector_sync_runs)
-                    .where(db.connector_sync_runs.c.project_id == DEFAULT_PROJECT_ID)
-                    .order_by(db.connector_sync_runs.c.started_at.desc(), db.connector_sync_runs.c.id.desc())
-                ).mappings()
-            ]
-
-    def get_connector_sync_run(self, sync_run_id: str) -> dict | None:
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.connector_sync_runs).where(
-                    and_(
-                        db.connector_sync_runs.c.id == sync_run_id,
-                        db.connector_sync_runs.c.project_id == DEFAULT_PROJECT_ID,
-                    )
-                )
-            ).mappings().first()
-            return self._connector_sync_run_from_row(row) if row else None
-
     def list_source_chunks(self, source_id: str | None = None, graph_id: str | None = None) -> list[dict]:
         spec = self._graph_view_spec(graph_id)
         stmt = select(db.source_chunks).where(db.source_chunks.c.project_id == spec.project_id)
@@ -1522,7 +1400,7 @@ class GraphRepository:
     def list_ingestion_runs(self) -> list[dict]:
         with self.engine.begin() as conn:
             return [
-                dict(row)
+                normalize_json_row(row)
                 for row in conn.execute(
                     select(db.ingestion_runs)
                     .where(db.ingestion_runs.c.project_id == DEFAULT_PROJECT_ID)
@@ -1718,12 +1596,14 @@ class GraphRepository:
         embedding_vectors_by_remote_id: dict[str, list[float]],
         actor_id: str,
         auto_commit_threshold: float | None = None,
+        full_snapshot: bool = True,
+        tombstone_remote_ids: set[str] | None = None,
     ) -> dict:
         timestamp = now()
         threshold = self.auto_commit_threshold if auto_commit_threshold is None else auto_commit_threshold
         sync_run = {
             "id": new_id("sync"),
-            "project_id": DEFAULT_PROJECT_ID,
+            "project_id": "",
             "target_id": target_id,
             "status": "running",
             "stage": "connector.fetch",
@@ -1740,15 +1620,17 @@ class GraphRepository:
         inserted_embeddings: list[dict] = []
         source_outputs: list[dict] = []
         chunk_count = 0
+        deleted_count = 0
+        tombstone_remote_ids = tombstone_remote_ids or set()
 
         with self.engine.begin() as conn:
             target_row = conn.execute(
-                select(db.connector_targets).where(
-                    and_(db.connector_targets.c.id == target_id, db.connector_targets.c.project_id == DEFAULT_PROJECT_ID)
-                )
+                select(db.connector_targets).where(db.connector_targets.c.id == target_id)
             ).mappings().first()
             if target_row is None:
                 raise KeyError(target_id)
+            project_id = target_row["project_id"]
+            sync_run["project_id"] = project_id
             conn.execute(insert(db.connector_sync_runs).values(**sync_run))
 
             observed_remote_ids = {document.remote_id for document in documents}
@@ -1756,22 +1638,24 @@ class GraphRepository:
             for row in conn.execute(
                 select(db.sources).where(
                     and_(
-                        db.sources.c.project_id == DEFAULT_PROJECT_ID,
+                        db.sources.c.project_id == project_id,
                         db.sources.c.connector_kind == target_row["connector_kind"],
                     )
                 )
             ).mappings():
-                source_metadata = load_json(row["metadata_json"], {})
-                if (
+                source_metadata = load_json(json_value(row, "metadata_json"), {})
+                should_stale = (
                     source_metadata.get("targetId") == target_id
                     and row["remote_id"]
-                    and row["remote_id"] not in observed_remote_ids
-                ):
+                    and ((full_snapshot and row["remote_id"] not in observed_remote_ids) or row["remote_id"] in tombstone_remote_ids)
+                )
+                if should_stale:
                     conn.execute(
                         update(db.sources)
                         .where(db.sources.c.id == row["id"])
                         .values(stale_at=stale_timestamp, updated_at=timestamp)
                     )
+                    deleted_count += 1
 
             for document in documents:
                 source = self._upsert_connector_source(conn, document, timestamp, target_id=target_id)
@@ -1785,7 +1669,7 @@ class GraphRepository:
                     chunk_rows.append(
                         {
                             "id": chunk_id,
-                            "project_id": DEFAULT_PROJECT_ID,
+                            "project_id": project_id,
                             "source_id": source["id"],
                             "parent_chunk_id": chunk_id_by_key.get(chunk.parent_stable_key or ""),
                             "heading_path_json": dump_json(chunk.heading_path),
@@ -1806,7 +1690,7 @@ class GraphRepository:
 
                 ingestion_run = {
                     "id": new_id("run"),
-                    "project_id": DEFAULT_PROJECT_ID,
+                    "project_id": project_id,
                     "source_id": source["id"],
                     "status": "proposal_ready",
                     "stage": "propose",
@@ -1839,7 +1723,7 @@ class GraphRepository:
                     ]
                     proposal = {
                         "id": new_id("proposal"),
-                        "project_id": DEFAULT_PROJECT_ID,
+                        "project_id": project_id,
                         "ingestion_run_id": ingestion_run["id"],
                         "kind": proposal_input.get("kind", "content_node"),
                         "status": "pending_review",
@@ -1850,7 +1734,7 @@ class GraphRepository:
                     }
                     embedding = {
                         "id": new_id("embedding"),
-                        "project_id": DEFAULT_PROJECT_ID,
+                        "project_id": project_id,
                         "proposal_id": proposal["id"],
                         "content_node_id": None,
                         "embedding_model": embedding_model,
@@ -1867,7 +1751,7 @@ class GraphRepository:
                 activity_lenses = self._activity_lenses_for_proposals(proposal_outputs)
                 self._record_activity_event(
                     conn,
-                    project_id=DEFAULT_PROJECT_ID,
+                    project_id=project_id,
                     event_type="source.synced",
                     actor_id=actor_id,
                     summary=f"Synced source {source['title']}.",
@@ -1886,7 +1770,7 @@ class GraphRepository:
                 )
                 self._record_activity_event(
                     conn,
-                    project_id=DEFAULT_PROJECT_ID,
+                    project_id=project_id,
                     event_type="ingestion.proposal_ready",
                     actor_id=actor_id,
                     summary=f"Ingested {source['title']} and generated {len(document_inserted_proposals)} proposals.",
@@ -1934,7 +1818,7 @@ class GraphRepository:
             )
             self._record_activity_event(
                 conn,
-                project_id=DEFAULT_PROJECT_ID,
+                project_id=project_id,
                 event_type="connector.sync_completed",
                 actor_id=actor_id,
                 summary=f"Completed connector sync for {target_row['title']}.",
@@ -1954,12 +1838,13 @@ class GraphRepository:
                 timestamp=timestamp,
             )
 
-        sync_run = self.get_connector_sync_run(sync_run["id"]) or sync_run
+        sync_run = self.get_connector_sync_run(sync_run["id"], project_id=project_id) or sync_run
         return {
             "sync_run": sync_run,
             "sources": source_outputs,
             "proposals": [self._proposal_from_row(proposal) for proposal in inserted_proposals],
             "embeddings": [self._embedding_from_row(embedding) for embedding in inserted_embeddings],
+            "deleted_count": deleted_count,
         }
 
     def create_proposal(self, payload: ProposalCreate, actor_id: str) -> dict:
@@ -2074,7 +1959,7 @@ class GraphRepository:
                 if proposal["status"] == "pending_review"
             ]
             runs_by_id = {
-                row["id"]: dict(row)
+                row["id"]: normalize_json_row(row)
                 for row in conn.execute(
                     select(db.ingestion_runs).where(db.ingestion_runs.c.project_id == spec.project_id)
                 ).mappings()
@@ -2175,7 +2060,7 @@ class GraphRepository:
                 for proposal in self._proposals_for_ids(conn, proposal_ids, spec.project_id)
             }
             runs_by_id = {
-                row["id"]: dict(row)
+                row["id"]: normalize_json_row(row)
                 for row in conn.execute(
                     select(db.ingestion_runs).where(db.ingestion_runs.c.project_id == spec.project_id)
                 ).mappings()
@@ -2483,7 +2368,7 @@ class GraphRepository:
             values = {
                 "status": payload.status,
                 "assignee_id": payload.assignee_id if payload.assignee_id is not None else row["assignee_id"],
-                "blockers_json": dump_json(payload.blockers) if payload.blockers is not None else row["blockers_json"],
+                "blockers_json": dump_json(payload.blockers) if payload.blockers is not None else json_value(row, "blockers_json"),
                 "updated_at": timestamp,
                 "resolved_at": resolved_at,
             }
@@ -2655,8 +2540,8 @@ class GraphRepository:
                 raise ValueError("Action proposal must be approved before execution.")
             if proposal_row["action_type"] not in self.safe_action_types:
                 raise ValueError("Action type is not in the configured safe execution allowlist.")
-            action_payload = load_json(proposal_row["payload_json"], {})
-            redacted_payload = load_json(proposal_row["redacted_payload_json"], {})
+            action_payload = load_json(json_value(proposal_row, "payload_json"), {})
+            redacted_payload = load_json(json_value(proposal_row, "redacted_payload_json"), {})
             status_value, external_id, error_code, error = self._execute_safe_action(conn, proposal_row, action_payload, timestamp)
             row = {
                 "id": new_id("run"),
@@ -2702,14 +2587,6 @@ class GraphRepository:
                 timestamp=timestamp,
             )
         return self._action_run_from_row(row)
-
-    def list_action_runs(self, *, status: str | None = None, limit: int = 50) -> list[dict]:
-        stmt = select(db.action_runs).where(db.action_runs.c.project_id == DEFAULT_PROJECT_ID)
-        if status:
-            stmt = stmt.where(db.action_runs.c.status == status)
-        stmt = stmt.order_by(db.action_runs.c.started_at.desc(), db.action_runs.c.id.desc()).limit(min(100, max(1, limit)))
-        with self.engine.begin() as conn:
-            return [self._action_run_from_row(row) for row in conn.execute(stmt).mappings()]
 
     def create_outcome(self, payload: OutcomeCreate, actor_id: str, *, action_run_id: str | None = None) -> dict:
         timestamp = now()
@@ -2947,7 +2824,7 @@ class GraphRepository:
             if payload.commit_sha is not None:
                 values["commit_sha"] = payload.commit_sha
             if payload.metadata is not None:
-                current_metadata = load_json(row["metadata_json"], {})
+                current_metadata = load_json(json_value(row, "metadata_json"), {})
                 current_metadata.update(self._redact_payload(payload.metadata))
                 values["metadata_json"] = dump_json(current_metadata)
             if payload.ended_at is not None:
@@ -3236,8 +3113,9 @@ class GraphRepository:
                 return None
             blob = self._agent_context_blob_from_row(row)
             text_content = None
-            if row["encrypted_content"]:
-                text_content = self._decrypt_agent_context_text(row["encrypted_content"])
+            envelope = self._agent_context_blob_envelope(row)
+            if envelope:
+                text_content = self._decrypt_agent_context_text(envelope)
             return {"blob": blob, "text": text_content}
 
     def agent_context_artifact_content(self, artifact_id: str) -> dict | None:
@@ -3250,7 +3128,8 @@ class GraphRepository:
             if row is None:
                 return None
             blob = self._agent_context_blob_from_row(row)
-            text_content = self._decrypt_agent_context_text(row["encrypted_content"]) if row["encrypted_content"] else None
+            envelope = self._agent_context_blob_envelope(row)
+            text_content = self._decrypt_agent_context_text(envelope) if envelope else None
             return {"blob": blob, "text": text_content}
 
     def run_agent_context_retention(self) -> dict:
@@ -3262,19 +3141,25 @@ class GraphRepository:
                         db.agent_context_blobs.c.id,
                         db.agent_context_blobs.c.metadata_json,
                         db.agent_context_blobs.c.redaction_status,
+                        db.agent_context_blobs.c.object_key,
                     ).where(
                         and_(
                             db.agent_context_blobs.c.project_id == DEFAULT_PROJECT_ID,
                             db.agent_context_blobs.c.expires_at.is_not(None),
                             db.agent_context_blobs.c.expires_at <= timestamp,
-                            db.agent_context_blobs.c.encrypted_content.is_not(None),
+                            or_(
+                                db.agent_context_blobs.c.encrypted_content.is_not(None),
+                                db.agent_context_blobs.c.object_key.is_not(None),
+                            ),
                         )
                     )
                 ).mappings()
             )
             expired_ids = [row["id"] for row in expired_rows]
             for row in expired_rows:
-                metadata = load_json(row["metadata_json"], {})
+                if row["object_key"] and self.object_store is not None:
+                    self.object_store.delete(str(row["object_key"]))
+                metadata = load_json(json_value(row, "metadata_json"), {})
                 metadata["retention_purged_at"] = timestamp.isoformat()
                 metadata["previous_redaction_status"] = row["redaction_status"]
                 conn.execute(
@@ -3282,6 +3167,7 @@ class GraphRepository:
                     .where(db.agent_context_blobs.c.id == row["id"])
                     .values(
                         encrypted_content=None,
+                        object_key=None,
                         redaction_status="metadata_only",
                         encryption_status="metadata_only",
                         metadata_json=dump_json(metadata),
@@ -3335,6 +3221,52 @@ class GraphRepository:
                     break
         return events
 
+    def list_graph_activity_events_after(
+        self,
+        *,
+        graph_id: str | None,
+        cursor: str,
+        limit: int = 100,
+    ) -> list[dict]:
+        normalized_limit = min(200, max(1, limit))
+        spec = self._graph_view_spec(graph_id)
+        with self.engine.begin() as conn:
+            cursor_row = conn.execute(
+                select(db.graph_activity_events.c.created_at, db.graph_activity_events.c.id).where(
+                    and_(
+                        db.graph_activity_events.c.id == cursor,
+                        db.graph_activity_events.c.project_id == spec.project_id,
+                    )
+                )
+            ).mappings().first()
+            if cursor_row is None:
+                return []
+            stmt = (
+                select(db.graph_activity_events)
+                .where(
+                    and_(
+                        db.graph_activity_events.c.project_id == spec.project_id,
+                        or_(
+                            db.graph_activity_events.c.created_at > cursor_row["created_at"],
+                            and_(
+                                db.graph_activity_events.c.created_at == cursor_row["created_at"],
+                                db.graph_activity_events.c.id > cursor_row["id"],
+                            ),
+                        ),
+                    )
+                )
+                .order_by(db.graph_activity_events.c.created_at.asc(), db.graph_activity_events.c.id.asc())
+            )
+            events: list[dict] = []
+            for row in conn.execute(stmt).mappings():
+                event = self._activity_event_from_row(row)
+                if spec.source_ids and not self._activity_event_matches_scope(event, spec.source_ids):
+                    continue
+                events.append(event)
+                if len(events) >= normalized_limit:
+                    break
+            return events
+
     def source_review_coverage(self, *, limit: int = 25, graph_id: str | None = None, lens: str | None = None) -> dict:
         normalized_limit = min(100, max(1, limit))
         spec = self._graph_view_spec(graph_id)
@@ -3351,7 +3283,7 @@ class GraphRepository:
                 source_id_set = set(spec.source_ids)
                 sources = [source for source in sources if source["id"] in source_id_set]
             runs_by_id = {
-                row["id"]: dict(row)
+                row["id"]: normalize_json_row(row)
                 for row in conn.execute(
                     select(db.ingestion_runs).where(db.ingestion_runs.c.project_id == spec.project_id)
                 ).mappings()
@@ -3468,7 +3400,7 @@ class GraphRepository:
         if decision_value not in {"accept", "edit"}:
             return
 
-        value = edited if edited is not None else load_json(proposal_row["proposed_value_json"], {})
+        value = edited if edited is not None else load_json(json_value(proposal_row, "proposed_value_json"), {})
         if proposal_row["kind"] == "content_node":
             node_id = value.get("id") or new_id("node")
             existing = conn.execute(
@@ -3486,7 +3418,7 @@ class GraphRepository:
                         summary=value.get("summary"),
                         topic_ids_json=dump_json(value.get("topicIds", [])),
                         metadata_json=dump_json(value.get("metadata") or {}),
-                        provenance_json=proposal_row["provenance_json"],
+                        provenance_json=json_value(proposal_row, "provenance_json"),
                         created_at=timestamp,
                         updated_at=timestamp,
                     )
@@ -3550,7 +3482,7 @@ class GraphRepository:
                         relation=value.get("relation", "relates_to"),
                         weight=value.get("weight"),
                         metadata_json=dump_json(value.get("metadata") or {}),
-                        provenance_json=proposal_row["provenance_json"],
+                        provenance_json=json_value(proposal_row, "provenance_json"),
                         created_at=timestamp,
                         updated_at=timestamp,
                     )
@@ -3609,7 +3541,7 @@ class GraphRepository:
         for proposal in proposals:
             if proposal["kind"] != "semantic_edge" or (proposal.get("confidence") or 0) < threshold:
                 continue
-            value = load_json(proposal["proposed_value_json"], {})
+            value = load_json(json_value(proposal, "proposed_value_json"), {})
             endpoint_ids = [value.get("sourceNodeId"), value.get("targetNodeId")]
             if not all(isinstance(node_id, str) and node_id for node_id in endpoint_ids):
                 continue
@@ -3630,7 +3562,7 @@ class GraphRepository:
         return committed
 
     def _node_proposal_conflicts(self, conn, proposal: dict) -> bool:
-        value = load_json(proposal["proposed_value_json"], {})
+        value = load_json(json_value(proposal, "proposed_value_json"), {})
         label = str(value.get("label") or "").strip().lower()
         node_id = value.get("id")
         if not label:
@@ -3708,7 +3640,7 @@ class GraphRepository:
             return None
 
         runs = [
-            dict(row)
+            normalize_json_row(row)
             for row in conn.execute(
                 select(db.ingestion_runs)
                 .where(and_(db.ingestion_runs.c.source_id == source_id, db.ingestion_runs.c.project_id == project_id))
@@ -3827,7 +3759,7 @@ class GraphRepository:
                 and_(db.ingestion_runs.c.id == run_id, db.ingestion_runs.c.project_id == project_id)
             )
         ).mappings().first()
-        return dict(row) if row else None
+        return normalize_json_row(row) if row else None
 
     def _node_by_id(self, conn, node_id: str, project_id: str = DEFAULT_PROJECT_ID) -> dict | None:
         row = conn.execute(
@@ -3955,14 +3887,14 @@ class GraphRepository:
         return [
             self._node_from_row(row)
             for row in conn.execute(select(db.content_nodes).where(db.content_nodes.c.project_id == project_id)).mappings()
-            if any(item.get("sourceId") == source_id for item in load_json(row["provenance_json"], []))
+            if any(item.get("sourceId") == source_id for item in load_json(json_value(row, "provenance_json"), []))
         ]
 
     def _edges_for_source(self, conn, source_id: str, project_id: str = DEFAULT_PROJECT_ID) -> list[dict]:
         return [
             self._edge_from_row(row)
             for row in conn.execute(select(db.semantic_edges).where(db.semantic_edges.c.project_id == project_id)).mappings()
-            if any(item.get("sourceId") == source_id for item in load_json(row["provenance_json"], []))
+            if any(item.get("sourceId") == source_id for item in load_json(json_value(row, "provenance_json"), []))
         ]
 
     def _edges_for_node(self, conn, node_id: str, project_id: str = DEFAULT_PROJECT_ID) -> list[dict]:
@@ -4229,32 +4161,6 @@ class GraphRepository:
         refs.append(self._activity_ref(kind, object_id, label))
         return refs
 
-    def _default_action_safety(self, action_type: str, approval_required: bool) -> dict:
-        external = action_type in {"create_external_ticket", "create_notification", "trigger_workflow"}
-        graph_mutation = action_type in {"mark_source_stale", "mark_source_refreshed", "create_graph_proposal", "connector_sync"}
-        return {
-            "safety_level": "external_stub" if external else ("graph_mutation" if graph_mutation else "internal_safe"),
-            "mutates_graphview": graph_mutation,
-            "calls_external_system": external,
-            "transfers_private_content": external,
-            "approval_required": approval_required or external or graph_mutation,
-        }
-
-    def _redact_payload(self, value):
-        if isinstance(value, dict):
-            redacted = {}
-            for key, item in value.items():
-                if key.lower() in SENSITIVE_PAYLOAD_KEYS:
-                    redacted[key] = "[redacted]"
-                else:
-                    redacted[key] = self._redact_payload(item)
-            return redacted
-        if isinstance(value, list):
-            return [self._redact_payload(item) for item in value]
-        if isinstance(value, str):
-            return self._redact_context_text(value)
-        return value
-
     def _agent_context_token_hash(self, token: str) -> str:
         return hmac.new(self.secret_key.encode("utf-8"), token.encode("utf-8"), hashlib.sha256).hexdigest()
 
@@ -4329,21 +4235,33 @@ class GraphRepository:
         encoded = redacted_text.encode("utf-8")
         within_limit = payload.content_kind == "text" and bool(raw_text) and len(encoded) <= self.agent_context_max_blob_bytes
         checksum = payload.checksum or hashlib.sha256(encoded or str(payload.metadata).encode("utf-8")).hexdigest()
+        blob_id = new_id("ctxblob")
         encrypted_content = self._encrypt_agent_context_text(redacted_text) if within_limit else None
+        object_key = None
+        if encrypted_content and self.object_store is not None:
+            object_key = f"{project_id}/agent-context/{session_id}/{blob_id}.gvenc"
+            self.object_store.put_bytes(
+                object_key,
+                encrypted_content.encode("utf-8"),
+                content_type="application/vnd.graphview.encrypted-context",
+                checksum=hashlib.sha256(encrypted_content.encode("utf-8")).hexdigest(),
+            )
+            encrypted_content = None
         byte_count = payload.byte_count if payload.byte_count is not None else len(encoded)
         return {
-            "id": new_id("ctxblob"),
+            "id": blob_id,
             "project_id": project_id,
             "session_id": session_id,
             "artifact_id": artifact_id,
             "content_kind": payload.content_kind,
             "media_type": payload.media_type,
             "redaction_status": "redacted" if within_limit and redacted_text != raw_text else ("metadata_only" if not within_limit else "not_required"),
-            "encryption_status": "encrypted" if encrypted_content else "metadata_only",
+            "encryption_status": "object_encrypted" if object_key else ("encrypted" if encrypted_content else "metadata_only"),
             "checksum": checksum,
             "byte_count": byte_count,
             "token_count": payload.token_count,
             "encrypted_content": encrypted_content,
+            "object_key": object_key,
             "metadata_json": dump_json(self._redact_payload(payload.metadata)),
             "created_at": timestamp,
             "expires_at": timestamp + timedelta(days=self.agent_context_retention_days),
@@ -4352,6 +4270,11 @@ class GraphRepository:
     def _encrypt_agent_context_text(self, text_value: str) -> str:
         encrypted = self._agent_context_fernet().encrypt(text_value.encode("utf-8")).decode("ascii")
         return f"gvenc:fernet:v1:{encrypted}"
+
+    def _agent_context_blob_envelope(self, row) -> str | None:
+        if row.get("object_key") and self.object_store is not None:
+            return self.object_store.get_bytes(str(row["object_key"])).decode("utf-8")
+        return row.get("encrypted_content")
 
     def _decrypt_agent_context_text(self, envelope_value: str) -> str:
         if not envelope_value.startswith("gvenc:fernet:v1:"):
@@ -4412,10 +4335,8 @@ class GraphRepository:
             if result.rowcount == 0:
                 return "failed", None, "source_not_found", "source_id was not found in this project."
             return "succeeded", None, None, None
-        if action_type == "create_external_ticket":
-            return "succeeded", f"ticket-{uuid4().hex[:10]}", None, None
-        if action_type == "create_notification":
-            return "succeeded", f"notification-{uuid4().hex[:10]}", None, None
+        if action_type in {"create_external_ticket", "create_notification", "trigger_workflow"}:
+            return "failed", None, "external_adapter_required", "External actions execute only through durable workers."
         if action_type in {"connector_sync", "create_graph_proposal", "request_owner_confirmation"}:
             return "succeeded", f"{action_type}-{uuid4().hex[:10]}", None, None
         return "failed", None, "unsupported_action", "Action type is not executable."
@@ -4751,7 +4672,7 @@ class GraphRepository:
                 "nodes": nodes,
                 "edges": edges,
                 "ingestion_runs": [
-                    dict(row)
+                    normalize_json_row(row)
                     for row in conn.execute(
                         select(db.ingestion_runs).where(db.ingestion_runs.c.project_id == spec.project_id)
                     ).mappings()
@@ -4904,17 +4825,21 @@ class GraphRepository:
                 "agent_context_blob_contents": [
                     {
                         "blob_id": row["id"],
-                        "encrypted_content": row["encrypted_content"],
+                        "encrypted_content": envelope,
                         "exported_at": exported_at,
                     }
                     for row in conn.execute(
-                        select(db.agent_context_blobs.c.id, db.agent_context_blobs.c.encrypted_content).where(
+                        select(db.agent_context_blobs).where(
                             and_(
                                 db.agent_context_blobs.c.project_id == spec.project_id,
-                                db.agent_context_blobs.c.encrypted_content.is_not(None),
+                                or_(
+                                    db.agent_context_blobs.c.encrypted_content.is_not(None),
+                                    db.agent_context_blobs.c.object_key.is_not(None),
+                                ),
                             )
                         )
                     ).mappings()
+                    if (envelope := self._agent_context_blob_envelope(row))
                 ]
                 if include_agent_context_content
                 else [],
@@ -5512,6 +5437,17 @@ class GraphRepository:
             agent_context_blob_content_by_id = {
                 content.blob_id: content.encrypted_content for content in bundle.agent_context_blob_contents
             }
+            restored_blob_object_keys: dict[str, str] = {}
+            if self.object_store is not None:
+                for blob_id, envelope in agent_context_blob_content_by_id.items():
+                    object_key = f"{bundle.project.id}/agent-context/restored/{blob_id}.gvenc"
+                    self.object_store.put_bytes(
+                        object_key,
+                        envelope.encode("utf-8"),
+                        content_type="application/vnd.graphview.encrypted-context",
+                        checksum=hashlib.sha256(envelope.encode("utf-8")).hexdigest(),
+                    )
+                    restored_blob_object_keys[blob_id] = object_key
             agent_context_blobs = [
                 {
                     "id": blob.id,
@@ -5529,7 +5465,10 @@ class GraphRepository:
                     "checksum": blob.checksum,
                     "byte_count": blob.byte_count,
                     "token_count": blob.token_count,
-                    "encrypted_content": agent_context_blob_content_by_id.get(blob.id),
+                    "encrypted_content": None
+                    if blob.id in restored_blob_object_keys
+                    else agent_context_blob_content_by_id.get(blob.id),
+                    "object_key": restored_blob_object_keys.get(blob.id),
                     "metadata_json": dump_json(blob.metadata),
                     "created_at": blob.created_at,
                     "expires_at": blob.expires_at,
@@ -5680,7 +5619,7 @@ class GraphRepository:
                 )
             )
         ).mappings():
-            existing = load_json(row["proposed_value_json"], {})
+            existing = load_json(json_value(row, "proposed_value_json"), {})
             if proposed_id and existing.get("id") == proposed_id:
                 return True
             if kind == "content_node" and existing.get("label") == value.get("label"):
@@ -5801,24 +5740,24 @@ class GraphRepository:
         return citations[:10]
 
     def _planning_session_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         data.setdefault("messages", [])
         data.setdefault("build_spec", None)
         return data
 
     def _planning_message_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _graph_build_spec_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["spec"] = load_json(data.pop("spec_json"), {})
         return data
 
     def _agent_run_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["input"] = load_json(data.pop("input_json"), {})
         data["output"] = load_json(data.pop("output_json"), {})
         data["mode"] = data["input"].get("_agent_mode") or ("planning" if data.get("planning_session_id") or data.get("kind") == "planning" else "graph")
@@ -5899,28 +5838,28 @@ class GraphRepository:
         return []
 
     def _agent_step_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _research_task_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["result"] = load_json(data.pop("result_json"), {})
         return data
 
     def _agent_action_proposal_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["payload"] = load_json(data.pop("payload_json"), {})
         data["citations"] = load_json(data.pop("citations_json"), [])
         return data
 
     def _signal_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["payload"] = self._redact_payload(load_json(data.pop("payload_json"), {}))
         return data
 
     def _observation_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["evidence"] = load_json(data.pop("evidence_json"), [])
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         data["source_ids"] = load_json(data.pop("source_ids_json"), [])
@@ -5930,24 +5869,24 @@ class GraphRepository:
         return data
 
     def _owner_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _routing_policy_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["match"] = load_json(data.pop("match_json"), {})
         data["suggested_actions"] = load_json(data.pop("suggested_actions_json"), [])
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _alert_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         return data
 
     def _attention_item_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         data["evidence"] = load_json(data.pop("evidence_json"), [])
         data["suggested_actions"] = load_json(data.pop("suggested_actions_json"), [])
@@ -5956,73 +5895,74 @@ class GraphRepository:
         return data
 
     def _decision_record_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["evidence"] = load_json(data.pop("evidence_json"), [])
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         return data
 
     def _action_proposal_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data.pop("payload_json", None)
         data["redacted_payload"] = load_json(data.pop("redacted_payload_json"), {})
         data["safety"] = load_json(data.pop("safety_json"), {})
         return data
 
     def _action_run_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data.pop("payload_json", None)
         data["redacted_payload"] = load_json(data.pop("redacted_payload_json"), {})
         return data
 
     def _outcome_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["result"] = load_json(data.pop("result_json"), {})
         return data
 
     def _feedback_event_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["effect"] = load_json(data.pop("effect_json"), {})
         data["proposed_value"] = load_json(data.pop("proposed_value_json"), None)
         return data
 
     def _agent_context_client_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data.pop("token_hash", None)
         data["scopes"] = load_json(data.pop("scopes_json"), [])
         data["settings"] = self._redact_payload(load_json(data.pop("settings_json"), {}))
         return data
 
     def _agent_context_session_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _agent_context_artifact_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _agent_context_blob_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data.pop("encrypted_content", None)
+        data.pop("object_key", None)
         data["metadata"] = load_json(data.pop("metadata_json"), {})
         return data
 
     def _agent_context_event_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["payload"] = load_json(data.pop("payload_json"), {})
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         return data
 
     def _activity_event_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["object_refs"] = load_json(data.pop("object_refs_json"), [])
         data["payload"] = load_json(data.pop("payload_json"), {})
         data["lenses"] = load_json(data.pop("lenses_json"), [])
         return data
 
     def _settings_from_row(self, row, *, redact: bool = True) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         settings = load_json(data.pop("settings_json"), {})
         data["settings"] = self._redact_settings(settings) if redact else settings
         return data
@@ -6050,41 +5990,29 @@ class GraphRepository:
         return value
 
     def _connector_account_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data.pop("encrypted_token_json", None)
         data["scopes"] = load_json(data.pop("scopes_json"), [])
         data["settings"] = load_json(data.pop("settings_json"), {})
         return data
 
     def _connector_target_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["sync_settings"] = load_json(data.pop("sync_settings_json"), {})
         return data
 
     def _connector_sync_run_from_row(self, row) -> dict:
-        return dict(row)
+        return normalize_json_row(row)
 
     def _source_chunk_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["heading_path"] = load_json(data.pop("heading_path_json"), [])
         data["links"] = load_json(data.pop("links_json"), [])
         data["mentions"] = load_json(data.pop("mentions_json"), [])
         return data
 
     def _topic_from_row(self, row) -> dict:
-        return dict(row)
-
-    def _encrypt_json(self, value: dict) -> str:
-        raw = dump_json(value).encode("utf-8")
-        key = hashlib.sha256(self.secret_key.encode("utf-8")).digest()
-        encrypted = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(raw))
-        return base64.urlsafe_b64encode(encrypted).decode("ascii")
-
-    def _decrypt_json(self, value: str) -> dict:
-        encrypted = base64.urlsafe_b64decode(value.encode("ascii"))
-        key = hashlib.sha256(self.secret_key.encode("utf-8")).digest()
-        raw = bytes(byte ^ key[index % len(key)] for index, byte in enumerate(encrypted))
-        return json.loads(raw.decode("utf-8"))
+        return normalize_json_row(row)
 
     def _proposal_status(self, decision: str) -> str:
         return {
@@ -6095,18 +6023,18 @@ class GraphRepository:
         }[decision]
 
     def _proposal_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["proposed_value"] = load_json(data.pop("proposed_value_json"), {})
         data["provenance"] = load_json(data.pop("provenance_json"), [])
         return data
 
     def _decision_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["edited_value"] = load_json(data.pop("edited_value_json"), None)
         return data
 
     def _embedding_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["vector"] = load_json(data.pop("vector_json"), [])
         return data
 
@@ -6117,19 +6045,19 @@ class GraphRepository:
         return values
 
     def _source_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json", None), {})
         return data
 
     def _node_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["topic_ids"] = load_json(data.pop("topic_ids_json"), [])
         data["metadata"] = load_json(data.pop("metadata_json", None), {})
         data["provenance"] = load_json(data.pop("provenance_json"), [])
         return data
 
     def _edge_from_row(self, row) -> dict:
-        data = dict(row)
+        data = normalize_json_row(row)
         data["metadata"] = load_json(data.pop("metadata_json", None), {})
         data["provenance"] = load_json(data.pop("provenance_json"), [])
         return data

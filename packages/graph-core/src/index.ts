@@ -124,6 +124,13 @@ export interface GraphRendererAdapter {
   unmount(): void;
   setData(data: RenderableGraph): void;
   focusNode(nodeId: string): void;
+  applyDelta?(delta: { addedNodes?: ContentNode[]; updatedNodes?: ContentNode[]; removedNodeIds?: string[]; addedEdges?: SemanticEdge[]; updatedEdges?: SemanticEdge[]; removedEdgeIds?: string[] }): void;
+  setVisualStates?(states: GraphVisualState[]): void;
+  getCameraState?(): { x: number; y: number; ratio: number; angle?: number };
+  setCameraState?(state: { x: number; y: number; ratio: number; angle?: number }): void;
+  exportImage?(): Promise<Blob>;
+  recoverContext?(): void;
+  metrics?(): { visibleNodes: number; visibleEdges: number; framesPerSecond?: number };
 }
 
 export type GraphMotionTier = "full_motion" | "reduced_motion" | "static_state" | "sampled_graph";

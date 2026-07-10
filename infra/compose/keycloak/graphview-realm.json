@@ -1,0 +1,83 @@
+{
+  "realm": "graphview",
+  "enabled": true,
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "groups": [
+    { "name": "graphview-readers" },
+    { "name": "graphview-reviewers" },
+    { "name": "graphview-admins" },
+    { "name": "graphview-services" }
+  ],
+  "clients": [
+    {
+      "clientId": "graphview-web",
+      "name": "Graphview Web",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["http://localhost:8080/api/v1/auth/callback", "http://host.docker.internal:8080/api/v1/auth/callback", "https://graphview.example.invalid/api/v1/auth/callback"],
+      "webOrigins": ["http://localhost:8080", "http://host.docker.internal:8080", "https://graphview.example.invalid"],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "graphview-service",
+      "name": "Graphview service clients",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${GRAPHVIEW_SERVICE_CLIENT_SECRET}",
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "claim.name": "groups"
+          }
+        },
+        {
+          "name": "graphview-web-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "graphview-web",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "service-account-graphview-service",
+      "enabled": true,
+      "serviceAccountClientId": "graphview-service",
+      "groups": ["/graphview-services"]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-from graphview_worker.pipeline import build_stage_plan
+from graphview_worker.pipeline import WorkerSettingsForArq, build_stage_plan
 
 
 def test_stage_plan_is_idempotent_and_ordered() -> None:
@@ -27,3 +27,10 @@ def test_stage_plan_is_idempotent_and_ordered() -> None:
         "agent_context.retention",
     ]
     assert all(stage.idempotency_key for stage in stages)
+    assert {function.__name__ for function in WorkerSettingsForArq.functions} >= {
+        "execute_durable_job",
+        "dispatch_outbox",
+        "enqueue_scheduled_connector_syncs",
+        "run_context_retention",
+    }
+    assert WorkerSettingsForArq.cron_jobs

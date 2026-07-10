@@ -148,8 +148,8 @@ test("activate reports active editor open, save events, and workspace metadata",
     async (url, init) => {
       const body = JSON.parse(init.body);
       requests.push({ url, body, headers: init.headers, method: init.method });
-      if (url.endsWith("/agent-context/sessions")) return { ok: true, json: async () => ({ id: "ctxsession_cursor" }) };
-      if (url.endsWith("/agent-context/events/batch")) {
+      if (url.endsWith("/api/v1/agent-context/sessions")) return { ok: true, json: async () => ({ id: "ctxsession_cursor" }) };
+      if (url.endsWith("/api/v1/agent-context/events/batch")) {
         return { ok: true, json: async () => ({ accepted_count: body.events.length }) };
       }
       return { ok: false, status: 404, text: async () => "not found" };
@@ -159,7 +159,7 @@ test("activate reports active editor open, save events, and workspace metadata",
         const context = mockContext();
         await activate(context);
 
-        const sessionRequest = requests.find((request) => request.url.endsWith("/agent-context/sessions"));
+        const sessionRequest = requests.find((request) => request.url.endsWith("/api/v1/agent-context/sessions"));
         assert.equal(sessionRequest.method, "POST");
         assert.equal(sessionRequest.headers.authorization, "Bearer gvctx_test");
         assert.equal(sessionRequest.body.runtime_kind, "cursor");
@@ -176,7 +176,7 @@ test("activate reports active editor open, save events, and workspace metadata",
         });
         assert.equal(context.store.get(SESSION_KEY), "ctxsession_cursor");
 
-        const initialBatch = requests.filter((request) => request.url.endsWith("/agent-context/events/batch"))[0];
+        const initialBatch = requests.filter((request) => request.url.endsWith("/api/v1/agent-context/events/batch"))[0];
         assert.equal(initialBatch.body.session_id, "ctxsession_cursor");
         const activeEditorEvent = initialBatch.body.events[0];
         assert.equal(activeEditorEvent.event_kind, "file_opened");
@@ -192,7 +192,7 @@ test("activate reports active editor open, save events, and workspace metadata",
           isDirty: false
         });
 
-        const savedBatch = requests.filter((request) => request.url.endsWith("/agent-context/events/batch"))[1];
+        const savedBatch = requests.filter((request) => request.url.endsWith("/api/v1/agent-context/events/batch"))[1];
         const savedEvent = savedBatch.body.events[0];
         assert.equal(savedBatch.body.session_id, "ctxsession_cursor");
         assert.equal(savedEvent.event_kind, "file_opened");

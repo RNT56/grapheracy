@@ -519,3 +519,11 @@ def _edge_lenses(relation: str) -> list[str]:
 def _vector(value: str) -> list[float]:
     digest = hashlib.sha256(value.encode("utf-8")).digest()
     return [round(byte / 255, 6) for byte in digest[:16]]
+
+
+def seed_development_demo(repository) -> None:
+    from graphview_api import db
+    from graphview_api.repository import dump_json
+
+    with repository.engine.begin() as connection:
+        seed_demo_graph(connection, db, dump_json)

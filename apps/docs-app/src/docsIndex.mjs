@@ -11,7 +11,9 @@ export const docsAppNavItems = [
   { label: "Data Schema", href: "../../docs/09-data-schema.md" },
   { label: "User Journeys", href: "../../docs/10-user-journeys-and-value-map.md" },
   { label: "Living Graph UI", href: "../../docs/11-living-graph-ui-vision-and-upgrade-plan.md" },
-  { label: "Digital Nervous System", href: "../../docs/12-digital-nervous-system-phase25-plan.md" }
+  { label: "Digital Nervous System", href: "../../docs/12-digital-nervous-system-phase25-plan.md" },
+  { label: "Active Agent Context", href: "../../docs/13-active-agent-context-connectors.md" },
+  { label: "Graphview 1.0 Ledger", href: "../../docs/14-graphview-1.0-upgrade-ledger.md" }
 ];
 
 export function docsAppRoutes() {

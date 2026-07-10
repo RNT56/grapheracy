@@ -10,7 +10,7 @@ Claude Code, and other agent runtimes that can call shell tools.
 
 - `GRAPHVIEW_API_BASE_URL`: Graphview API URL, default `http://127.0.0.1:8000`.
 - `GRAPHVIEW_AGENT_CONTEXT_TOKEN`: one-time capture-only `gvctx_...` adapter token from
-  `POST /agent-context/clients`.
+  `POST /api/v1/agent-context/clients`.
 - `GRAPHVIEW_AGENT_CONTEXT_SESSION_ID`: active session ID for event capture commands.
 - `GRAPHVIEW_AGENT_CONTEXT_OUTBOX`: JSONL retry outbox, default `.graphview/agent-context-outbox.jsonl`.
 
@@ -33,7 +33,7 @@ graphview-agent-gateway flush-outbox
 
 The `graphview-codex` and `graphview-claude` binaries point at the same gateway entrypoint so runtime-specific wrapper
 config can use stable command names without duplicating implementation. `end-session` updates
-`/agent-context/sessions/{session_id}` with `PATCH`.
+`/api/v1/agent-context/sessions/{session_id}` with `PATCH`.
 
 ## Failure Modes
 

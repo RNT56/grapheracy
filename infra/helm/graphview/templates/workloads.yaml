@@ -1,0 +1,58 @@
+{{- range $name := list "web" "api" "worker" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $.Release.Name }}-{{ $name }}
+  labels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/part-of: graphview }
+spec:
+  replicas: {{ index $.Values.replicas $name }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: graphview-{{ $name }} }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: graphview-{{ $name }}, app.kubernetes.io/part-of: graphview }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: {{ $name }}
+          image: {{ index $.Values.image $name | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          envFrom:
+            - configMapRef: { name: {{ $.Release.Name }}-config }
+            - secretRef: { name: {{ $.Values.runtimeSecretName }} }
+          resources: {{ toYaml (index $.Values.resources $name) | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+          {{- if eq $name "web" }}
+          ports: [{ name: http, containerPort: 8080 }]
+          readinessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 5, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: http }, initialDelaySeconds: 15, periodSeconds: 20 }
+          {{- else if eq $name "api" }}
+          ports: [{ name: http, containerPort: 8000 }]
+          readinessProbe: { httpGet: { path: /ready, port: http }, initialDelaySeconds: 10, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 20, periodSeconds: 20 }
+          {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: { sizeLimit: 1Gi }
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-web }
+spec:
+  selector: { app.kubernetes.io/name: graphview-web }
+  ports: [{ name: http, port: 8080, targetPort: http }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: {{ .Release.Name }}-api }
+spec:
+  selector: { app.kubernetes.io/name: graphview-api }
+  ports: [{ name: http, port: 8000, targetPort: http }]

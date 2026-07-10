@@ -5,14 +5,32 @@ description = "Future FastAPI service for Graphview."
 requires-python = ">=3.14"
 dependencies = [
   "alembic",
+  "boto3",
   "cryptography>=49.0.0",
   "fastapi",
   "httpx",
+  "pyjwt[crypto]>=2.10.1",
   "pydantic-settings",
+  "psycopg[binary]",
   "pypdf",
+  "pgvector",
+  "python-docx",
+  "python-multipart",
+  "python-pptx",
+  "openpyxl",
+  "opentelemetry-exporter-otlp-proto-grpc",
+  "opentelemetry-instrumentation-fastapi",
+  "opentelemetry-instrumentation-httpx",
+  "opentelemetry-instrumentation-sqlalchemy",
+  "opentelemetry-sdk",
+  "redis>=5.2.1,<6.0.0",
   "sqlalchemy",
   "uvicorn",
 ]
+
+[build-system]
+requires = ["hatchling>=1.28.0,<2.0.0"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [

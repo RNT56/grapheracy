@@ -1,0 +1,96 @@
+image:
+  web: ghcr.io/example/graphview-web:1.0.0
+  api: ghcr.io/example/graphview-api:1.0.0
+  worker: ghcr.io/example/graphview-worker:1.0.0
+  pullPolicy: IfNotPresent
+
+replicas:
+  web: 2
+  api: 2
+  worker: 2
+
+runtimeSecretName: graphview-runtime
+publicUrl: https://graphview.example.invalid
+oidcIssuerUrl: https://graphview.example.invalid/identity/realms/graphview
+otelEndpoint: http://graphview-otel-collector:4317
+outboundAllowedHosts:
+  - api.github.com
+  - oauth2.googleapis.com
+  - www.googleapis.com
+  - api.notion.com
+
+resources:
+  web:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  api:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  worker:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "4", memory: 4Gi }
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations: {}
+  host: graphview.example.invalid
+  tlsSecretName: graphview-tls
+
+autoscaling:
+  enabled: true
+  api: { minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70 }
+  worker: { minReplicas: 2, maxReplicas: 20, targetCPUUtilizationPercentage: 70 }
+
+backup:
+  enabled: true
+  schedule: "17 2 * * *"
+  image: ghcr.io/example/graphview-ops:1.0.0
+  retentionDays: 30
+
+postgresql:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg18
+  auth:
+    username: graphview
+    database: graphview
+    existingSecret: graphview-runtime
+    secretKeys: { userPasswordKey: POSTGRES_PASSWORD }
+  primary:
+    persistence: { enabled: true, size: 100Gi }
+
+redis:
+  enabled: true
+  architecture: replication
+  auth: { enabled: false }
+  master: { persistence: { enabled: true, size: 20Gi } }
+
+minio:
+  enabled: true
+  auth:
+    existingSecret: graphview-runtime
+    rootUserSecretKey: MINIO_ROOT_USER
+    rootPasswordSecretKey: MINIO_ROOT_PASSWORD
+  defaultBuckets: graphview
+  persistence: { enabled: true, size: 250Gi }
+
+keycloak:
+  enabled: true
+  auth:
+    existingSecret: graphview-runtime
+    adminUser: admin
+    passwordSecretKey: KEYCLOAK_ADMIN_PASSWORD
+  production: true
+  proxyHeaders: xforwarded
+  extraEnvVars:
+    - { name: KC_HTTP_RELATIVE_PATH, value: /identity }
+
+vault:
+  enabled: true
+  server:
+    dev:
+      enabled: true
+      devRootToken: graphview-reference-only
+    dataStorage: { enabled: true, size: 10Gi }
