@@ -93,3 +93,70 @@ jobs:
         run: docker run --rm -v "$PWD:/work" ghcr.io/yannh/kubeconform:v0.8.0 -strict -summary -kubernetes-version 1.35.0 /work/graphview-rendered.yaml
       - name: Manifest security scan
         run: docker run --rm -v "$PWD:/work" aquasec/trivy:0.71.0 config --skip-version-check --severity HIGH,CRITICAL --exit-code 1 /work/graphview-rendered.yaml
+
+  live-stack:
+    name: Production stack browser acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with: { version: "0.11.18" }
+      - uses: pnpm/action-setup@v5
+        with: { version: 10.27.0 }
+      - uses: actions/setup-node@v6
+        with: { node-version: "24", cache: pnpm }
+      - run: pnpm install --frozen-lockfile && uv python install 3.14.5 && pnpm exec playwright install --with-deps chromium
+      - name: Prepare acceptance secrets
+        run: |
+          {
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 18)"
+            echo "REDIS_PASSWORD=$(openssl rand -hex 18)"
+            echo "MINIO_ROOT_USER=graphviewci"
+            echo "MINIO_ROOT_PASSWORD=$(openssl rand -hex 24)"
+            echo "KEYCLOAK_ADMIN=admin"
+            echo "KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 18)"
+            echo "VAULT_DEV_ROOT_TOKEN=$(openssl rand -hex 18)"
+            echo "GRAPHVIEW_SECRET_KEY=$(openssl rand -hex 32)"
+            echo "GRAPHVIEW_SERVICE_CLIENT_SECRET=$(openssl rand -hex 24)"
+            echo "GRAPHVIEW_LIVE_USERNAME=graphview-ci-admin"
+            echo "GRAPHVIEW_LIVE_PASSWORD=$(openssl rand -hex 18)"
+            echo "GRAPHVIEW_PUBLIC_URL=http://127.0.0.1:8080"
+            echo "GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS=api.github.com,oauth2.googleapis.com,www.googleapis.com,api.notion.com,example.com"
+            echo "GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS=example.com"
+            echo "GRAPHVIEW_WEB_IMAGE=graphview-web:live-ci"
+            echo "GRAPHVIEW_API_IMAGE=graphview-api:live-ci"
+            echo "GRAPHVIEW_WORKER_IMAGE=graphview-worker:live-ci"
+            echo "GRAPHVIEW_OPS_IMAGE=graphview-ops:live-ci"
+            echo "GRAPHVIEW_KEYCLOAK_IMAGE=graphview-keycloak:live-ci"
+            echo "GRAPHVIEW_CLAMAV_IMAGE=graphview-clamav:live-ci"
+            echo "GRAPHVIEW_MINIO_IMAGE=graphview-minio:live-ci"
+            echo "GRAPHVIEW_CLAMAV_PLATFORM=linux/amd64"
+          } >> "$GITHUB_ENV"
+      - name: Build immutable reference images
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t "$GRAPHVIEW_API_IMAGE" .
+          docker build -f infra/docker/worker.Dockerfile -t "$GRAPHVIEW_WORKER_IMAGE" .
+          docker build -f infra/docker/web.Dockerfile -t "$GRAPHVIEW_WEB_IMAGE" .
+          docker build -f infra/docker/ops.Dockerfile -t "$GRAPHVIEW_OPS_IMAGE" .
+          docker build -f infra/docker/keycloak.Dockerfile -t "$GRAPHVIEW_KEYCLOAK_IMAGE" .
+          docker build -f infra/docker/clamav.Dockerfile -t "$GRAPHVIEW_CLAMAV_IMAGE" .
+          docker build -f infra/docker/minio.Dockerfile -t "$GRAPHVIEW_MINIO_IMAGE" .
+      - name: Start production reference stack
+        run: docker compose -p graphview-live-ci -f infra/compose/docker-compose.production.yml up -d --wait --wait-timeout 300
+      - name: Create OIDC acceptance administrator
+        run: |
+          master_token="$(curl -fsS -X POST http://127.0.0.1:8080/identity/realms/master/protocol/openid-connect/token -H 'content-type: application/x-www-form-urlencoded' --data-urlencode grant_type=password --data-urlencode client_id=admin-cli --data-urlencode username="$KEYCLOAK_ADMIN" --data-urlencode password="$KEYCLOAK_ADMIN_PASSWORD" | jq -er .access_token)"
+          curl -fsS -X POST http://127.0.0.1:8080/identity/admin/realms/graphview/users -H "authorization: Bearer $master_token" -H 'content-type: application/json' --data "$(jq -nc --arg username "$GRAPHVIEW_LIVE_USERNAME" --arg password "$GRAPHVIEW_LIVE_PASSWORD" --arg email "$GRAPHVIEW_LIVE_USERNAME@example.test" '{username:$username,email:$email,firstName:"Graphview",lastName:"CI",enabled:true,emailVerified:true,groups:["/graphview-admins"],credentials:[{type:"password",value:$password,temporary:false}]}')"
+      - name: Run unmocked browser workflow
+        run: pnpm run test:e2e:live
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
+          PLAYWRIGHT_WORKERS: "1"
+          GRAPHVIEW_LIVE_STACK: "1"
+      - name: Capture stack logs
+        if: failure()
+        run: docker compose -p graphview-live-ci -f infra/compose/docker-compose.production.yml logs --no-color --tail=400
+      - name: Stop production reference stack
+        if: always()
+        run: docker compose -p graphview-live-ci -f infra/compose/docker-compose.production.yml down --volumes --remove-orphans

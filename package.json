@@ -32,6 +32,7 @@
     "test:integration": "pnpm --filter @graphview/api-contract test && pnpm --filter @graphview/worker-contract test && pnpm --filter @graphview/agent-gateway test && pnpm --filter @graphview/vscode-extension test",
     "test:migrations:postgres": "bash scripts/test-postgres-migrations.sh",
     "test:e2e": "pnpm --filter @graphview/web test:browser",
+    "test:e2e:live": "pnpm --filter @graphview/web exec playwright test tests/browser/live-stack.spec.ts --project=chromium-desktop --config playwright.config.ts",
     "test:performance": "node --experimental-strip-types scripts/check-performance-contract.mjs",
     "test:performance:live": "uv run --package graphview-api python scripts/benchmark-viewport.py",
     "test:deployment": "bash scripts/check-helm.sh",
