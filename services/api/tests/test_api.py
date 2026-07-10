@@ -2,6 +2,7 @@ import importlib.util
 import asyncio
 import hashlib
 import hmac
+import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -535,6 +536,78 @@ def test_google_drive_webhook_verifies_channel_and_deduplicates_message_number()
     assert replay.status_code == 202
     assert replay.json()["id"] == first.json()["id"]
     assert first.json()["payload"]["resource_state"] == "change"
+    assert invalid.status_code == 401
+
+
+def test_notion_webhook_arms_verification_validates_hmac_and_deduplicates_event() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "notion",
+            "display_name": "Notion workspace",
+            "token_json": {
+                "access_token": "notion-token",
+                "workspace_id": "workspace-1",
+                "integration_id": "integration-1",
+            },
+        },
+    ).json()
+    target = client.post(
+        "/connector-targets",
+        headers=ADMIN_HEADERS,
+        json={
+            "account_id": account["id"],
+            "target_type": "database",
+            "remote_id": "database-1",
+            "title": "Notion database",
+            "sync_settings": {},
+        },
+    ).json()
+    disarmed = client.post(
+        f"/api/v1/connectors/notion/{target['id']}/webhook",
+        json={"verification_token": "notion-verification-secret"},
+    )
+    assert disarmed.status_code == 409
+    armed = client.patch(
+        f"/connector-targets/{target['id']}",
+        headers=ADMIN_HEADERS,
+        json={"sync_settings": {"webhook_verification_pending": True}},
+    )
+    assert armed.status_code == 200
+    verification = client.post(
+        f"/api/v1/connectors/notion/{target['id']}/webhook",
+        json={"verification_token": "notion-verification-secret"},
+    )
+    assert verification.status_code == 200
+    assert verification.json() == {"status": "verification_token_stored"}
+
+    event = {
+        "id": "event-1",
+        "timestamp": "2026-07-10T13:00:00Z",
+        "workspace_id": "workspace-1",
+        "integration_id": "integration-1",
+        "type": "page.content_updated",
+        "attempt_number": 1,
+        "entity": {"id": "page-1", "type": "page"},
+    }
+    payload = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+    signature = "sha256=" + hmac.new(b"notion-verification-secret", payload, hashlib.sha256).hexdigest()
+    headers = {"X-Notion-Signature": signature, "Content-Type": "application/json"}
+
+    first = client.post(f"/api/v1/connectors/notion/{target['id']}/webhook", headers=headers, content=payload)
+    replay = client.post(f"/api/v1/connectors/notion/{target['id']}/webhook", headers=headers, content=payload)
+    invalid = client.post(
+        f"/api/v1/connectors/notion/{target['id']}/webhook",
+        headers={**headers, "X-Notion-Signature": "sha256=invalid"},
+        content=payload,
+    )
+
+    assert first.status_code == 202
+    assert replay.status_code == 202
+    assert replay.json()["id"] == first.json()["id"]
+    assert first.json()["payload"]["webhook_event"]["entity_id"] == "page-1"
     assert invalid.status_code == 401
 
 

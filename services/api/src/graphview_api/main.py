@@ -15,12 +15,11 @@ from graphview_api.auth import (
     REVIEW_PERMISSION,
     WRITE_PERMISSION,
     CurrentUser,
-    get_current_user,
     require_permission,
 )
-from graphview_api.connectors import build_connector_proposals, connector_descriptors, fetch_connector_documents
+from graphview_api.connectors import connector_descriptors
 from graphview_api.db import create_app_engine
-from graphview_api.ingestion import EMBEDDING_MODEL, NormalizedDocument, build_document, embed_text, generate_proposals
+from graphview_api.ingestion import EMBEDDING_MODEL, build_document, embed_text, generate_proposals
 from graphview_api.identity import IdentityService
 from graphview_api.identity.router import create_identity_router
 from graphview_api.http_middleware import install_http_middleware
@@ -107,7 +106,6 @@ from graphview_api.schemas import (
     ProposalCreate,
     ProviderCredentialUpdate,
     ProviderDescriptorOut,
-    ResearchTaskOut,
     ProposalOut,
     RoutingPolicyCreate,
     RoutingPolicyOut,

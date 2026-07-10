@@ -8,6 +8,11 @@ dependencies = []
 [tool.uv.workspace]
 members = ["services/api", "services/worker"]
 
+[dependency-groups]
+dev = [
+  "ruff>=0.15.21,<0.16.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py314"

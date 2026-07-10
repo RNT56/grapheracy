@@ -12,7 +12,7 @@ from uuid import uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from graphview_api.api_v1.repository import GraphProjectionRepository
 from graphview_api.api_v1.schemas import (
@@ -532,6 +532,85 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
                 },
             ),
             project_id=project_id,
+        )
+
+    @router.post("/connectors/notion/{target_id}/webhook", status_code=status.HTTP_202_ACCEPTED)
+    async def notion_connector_webhook(
+        target_id: str,
+        request: Request,
+        x_notion_signature: str | None = Header(default=None, alias="X-Notion-Signature"),
+        repository: GraphRepository = Depends(repo_provider),
+    ):
+        body = await request.body()
+        if not body or len(body) > 1_048_576:
+            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Invalid Notion webhook payload size")
+        try:
+            event = json.loads(body)
+        except json.JSONDecodeError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid Notion webhook JSON") from error
+        if not isinstance(event, dict):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid Notion webhook event")
+        bundle = repository.connector_target_bundle(target_id)
+        if bundle is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found")
+        account, target, credentials = bundle
+        if account["kind"] != "notion":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connector target is not a Notion target")
+        credentials = credentials or {}
+        configured_token = str(credentials.get("notion_webhook_verification_token") or "")
+        verification_token = str(event.get("verification_token") or "")
+        if verification_token:
+            if configured_token and not hmac.compare_digest(configured_token, verification_token):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unexpected Notion verification token")
+            if not configured_token:
+                if target.get("sync_settings", {}).get("webhook_verification_pending") is not True:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Notion webhook verification is not armed for this target",
+                    )
+                credentials["notion_webhook_verification_token"] = verification_token
+                repository.update_connector_account_tokens(
+                    account["id"],
+                    credentials,
+                    project_id=target["project_id"],
+                )
+            return JSONResponse(status_code=status.HTTP_200_OK, content={"status": "verification_token_stored"})
+        if not configured_token:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Notion webhook verification token is not configured")
+        expected = "sha256=" + hmac.new(configured_token.encode(), body, hashlib.sha256).hexdigest()
+        if not x_notion_signature or not hmac.compare_digest(expected, x_notion_signature):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Notion webhook signature")
+        event_id = str(event.get("id") or "").strip()
+        event_type = str(event.get("type") or "").strip()
+        if not event_id or len(event_id) > 200 or not event_type or len(event_type) > 160:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid Notion webhook identity")
+        workspace_id = str(event.get("workspace_id") or "")
+        integration_id = str(event.get("integration_id") or "")
+        if credentials.get("workspace_id") and not hmac.compare_digest(str(credentials["workspace_id"]), workspace_id):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unexpected Notion workspace")
+        if credentials.get("integration_id") and not hmac.compare_digest(str(credentials["integration_id"]), integration_id):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unexpected Notion integration")
+        entity = event.get("entity") if isinstance(event.get("entity"), dict) else {}
+        return JobRepository(repository.engine).enqueue(
+            JobCreate(
+                kind="connector.sync",
+                queue="connectors",
+                idempotency_key=f"notion-webhook:{target_id}:{event_id}",
+                payload={
+                    "project_id": target["project_id"],
+                    "target_id": target_id,
+                    "actor_id": "notion-webhook",
+                    "webhook_event": {
+                        "id": event_id,
+                        "type": event_type,
+                        "timestamp": event.get("timestamp"),
+                        "attempt_number": event.get("attempt_number"),
+                        "entity_id": entity.get("id"),
+                        "entity_type": entity.get("type"),
+                    },
+                },
+            ),
+            project_id=target["project_id"],
         )
 
     @router.post("/action-proposals/{action_proposal_id}/run", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)

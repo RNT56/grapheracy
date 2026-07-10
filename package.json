@@ -12,7 +12,8 @@
   "scripts": {
     "setup": "pnpm install --frozen-lockfile",
     "clean:artifacts": "rm -rf apps/web/test-results apps/web/playwright-report",
-    "lint": "node scripts/run-local-checks.mjs lint:docs lint:metadata",
+    "lint": "node scripts/run-local-checks.mjs lint",
+    "lint:python": "uv run ruff check services",
     "lint:docs": "node scripts/run-local-checks.mjs doc-links doc-freshness",
     "lint:metadata": "node scripts/check-workspace-metadata.mjs",
     "typecheck": "node scripts/run-workspace-scripts.mjs typecheck",

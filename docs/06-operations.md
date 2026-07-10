@@ -140,6 +140,31 @@ Agent runs record provider, model, trace ID, status, summaries, citations, and a
 provider use can be configured through environment-backed settings or operator-entered project credentials; local
 provider use remains the default fallback.
 
+## Continuous Connector Operations
+
+Connector mutations enqueue durable jobs; operators inspect `GET /api/v1/connectors/{target_id}/health` for the
+cursor, lease, retry attempt, imported/deleted counts, last success, next schedule, and actionable failure. Scheduled
+syncs cover every project and use target-local `interval_minutes` and `schedule_enabled` settings. GitHub, Google Drive,
+and Notion webhook deliveries use provider IDs as durable idempotency keys, so a replay returns the original queued job.
+
+Notion defaults to API version `2026-03-11`. A database target discovers and queries each child data source, pages
+through active rows, stores a last-edited watermark, fetches only changed rows after the first snapshot, and records
+trashed rows as tombstones. OAuth accounts may store `refresh_token`, `client_id`, `client_secret`, and `expires_at` in
+their external secret reference; refresh rotates both the access and refresh tokens before the connector request.
+Set `notion_version` explicitly only for a staged legacy migration. See the official
+[data-source upgrade guide](https://developers.notion.com/guides/get-started/upgrade-guide-2025-09-03) and
+[OAuth refresh contract](https://developers.notion.com/reference/refresh-a-token).
+
+To register a Notion webhook without exposing its verification token:
+
+1. Patch the target's `sync_settings.webhook_verification_pending` to `true` as an operator.
+2. Register `https://<graphview>/api/v1/connectors/notion/<target_id>/webhook` in the Notion connection settings.
+3. The one-time verification request is accepted only while armed and its token is written through the connector
+   account's external secret reference; Graphview returns only a stored-status acknowledgement.
+4. Complete verification in Notion, then patch `webhook_verification_pending` to `false`.
+5. Subsequent events must carry Notion's HMAC-SHA256 signature over the exact body. Graphview also checks configured
+   workspace/integration IDs and retains only a redacted event summary in the durable job.
+
 ## Active Agent Context Connectors
 
 Phase 27 adds active context capture for external agents and editor adapters:
@@ -187,13 +212,18 @@ after a fresh backup has been captured.
 
 ## Compose
 
-The development Compose file is `../infra/compose/docker-compose.dev.yml`.
+The development Compose file is `../infra/compose/docker-compose.dev.yml`. The production reference stack is
+`../infra/compose/docker-compose.production.yml` and contains the static web proxy, API, worker, migration job,
+PostgreSQL/pgvector, authenticated Redis, MinIO, ClamAV, PostgreSQL-backed Keycloak, Vault development reference, and
+OpenTelemetry Collector.
 
 ```sh
 docker compose -f infra/compose/docker-compose.dev.yml up web api worker postgres redis minio
 ```
 
-The app services run from the local workspace for development. Production image hardening remains a later phase.
+Production images are multi-stage, non-root, and read-only at runtime. Start the exact reference images with generated
+secrets and `docker compose -p graphview -f infra/compose/docker-compose.production.yml up -d --wait`; do not reuse the
+Vault development token, Keycloak bootstrap account, or MinIO root credentials outside an isolated reference stack.
 
 ## Environment Matrix
 
@@ -207,7 +237,7 @@ The app services run from the local workspace for development. Production image 
 | `OIDC_*` | api | `.env.example` | Secret yes | Internal SSO adapter. |
 | `ARQ_REDIS_URL` | worker | `redis://localhost:6379/0` | No locally | Worker queue. |
 | `GRAPHVIEW_DATABASE_URL` | api | `sqlite:///./.graphview/graphview.sqlite` | No locally | API persistence URL. |
-| `GRAPHVIEW_SECRET_KEY` | api | `local-dev-graphview-secret` | Yes outside local | Local reversible protection for connector token JSON. Production should replace this with KMS-backed secret handling. |
+| `GRAPHVIEW_SECRET_KEY` | api | `local-dev-graphview-secret` | Yes outside local | Authenticated local AEAD key for development-only secret storage. Production connector/action credentials use external Vault references. |
 | `GRAPHVIEW_LLM_*` | api | disabled OpenAI-compatible defaults | API key yes | Provider-agnostic LLM extraction defaults. Project and connector settings can override these defaults. |
 | `GRAPHVIEW_AUTO_COMMIT_THRESHOLD` | api | `0.92` | No | Default confidence threshold for system auto-commit decisions. |
 | `GRAPHVIEW_SAFE_ACTION_TYPES` | api | Phase 25 safe action list | No | Comma-separated allowlist for approved action proposal execution. |
@@ -219,11 +249,10 @@ The app services run from the local workspace for development. Production image 
 ## Release Process
 
 1. Capture and verify a `GET /backup` bundle from the target environment.
-2. Run `pnpm run phase27:check`. Use `pnpm run phase26:check` only when validating the previous release-hardening gate,
-   and `pnpm run phase22:check` only when comparing against the historical AI V1 baseline.
-   The Phase 27 gate includes `pnpm run phase27:smoke`; run that command directly when isolating active-context
-   gateway/API smoke failures.
-3. Run `pnpm run release:check`.
+2. Run `pnpm run release:verify`; isolate failures with `quality:fast`, `quality:full`, `test:integration`, `test:e2e`,
+   `test:performance`, `security:full`, or `test:deployment`.
+3. Run the unmocked production-stack browser job with `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live` against the
+   exact candidate images.
 4. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
 5. Run full CI gates, including moderate audit, signature, OSV, and secret scans.
 6. Generate SBOMs for release images.

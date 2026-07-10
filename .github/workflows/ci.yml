@@ -25,11 +25,11 @@ jobs:
           node-version: "24"
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: uv python install 3.14.5
       - run: pnpm run lint
       - run: pnpm run changelog:check
       - run: pnpm run security:local
       - run: pnpm run security:licenses
-      - run: uv python install 3.14.5
       - run: pnpm run architecture:check
       - run: pnpm run api:check
       - run: pnpm run typecheck

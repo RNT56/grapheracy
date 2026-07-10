@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
-from graphview_api.schemas import ContentNodeOut, GraphActivityEventOut, SemanticEdgeOut
+from graphview_api.schemas import ContentNodeOut, SemanticEdgeOut
 
 
 class PageInfo(BaseModel):

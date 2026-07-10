@@ -39,6 +39,40 @@ def test_google_refresh_updates_tokens_for_secret_persistence(monkeypatch) -> No
     assert tokens["scope"] == "drive.readonly"
 
 
+def test_notion_refresh_rotates_oauth_tokens_for_secret_persistence(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url == httpx.URL("https://api.notion.com/v1/oauth/token")
+        assert request.headers["authorization"] == "Basic " + base64.b64encode(b"client:secret").decode()
+        assert request.headers["notion-version"] == "2026-03-11"
+        assert json.loads(request.content) == {"grant_type": "refresh_token", "refresh_token": "refresh-old"}
+        return httpx.Response(
+            200,
+            json={
+                "access_token": "access-new",
+                "refresh_token": "refresh-new",
+                "expires_in": 3600,
+                "token_type": "bearer",
+                "workspace_id": "workspace-1",
+            },
+        )
+
+    _mock_async_client(monkeypatch, handler)
+    tokens = {
+        "access_token": "access-old",
+        "refresh_token": "refresh-old",
+        "client_id": "client",
+        "client_secret": "secret",
+        "expires_at": 1,
+    }
+
+    access_token = asyncio.run(connectors._notion_access_token(tokens, notion_version="2026-03-11"))
+
+    assert access_token == "access-new"
+    assert tokens["refresh_token"] == "refresh-new"
+    assert tokens["expires_at"] > time.time() + 3500
+    assert tokens["workspace_id"] == "workspace-1"
+
+
 def test_google_change_cursor_handles_pagination_updates_and_tombstones(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -286,8 +320,12 @@ def test_github_delta_at_api_limit_falls_back_to_safe_full_snapshot(monkeypatch)
 
 def test_notion_database_and_recursive_blocks_paginate(monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "POST" and request.url.path.endswith("/databases/database-1/query"):
+        assert request.headers["notion-version"] == "2026-03-11"
+        if request.method == "GET" and request.url.path.endswith("/databases/database-1"):
+            return httpx.Response(200, json={"id": "database-1", "data_sources": [{"id": "data-source-1", "name": "Tasks"}]})
+        if request.method == "POST" and request.url.path.endswith("/data_sources/data-source-1/query"):
             body = json.loads(request.content or b"{}")
+            assert body["in_trash"] is False
             if "start_cursor" not in body:
                 return httpx.Response(200, json={"results": [_page("page-1", "One")], "has_more": True, "next_cursor": "next"})
             return httpx.Response(200, json={"results": [_page("page-2", "Two")], "has_more": False})
@@ -311,6 +349,52 @@ def test_notion_database_and_recursive_blocks_paginate(monkeypatch) -> None:
     assert [document.remote_id for document in result.documents] == ["page-1", "page-2"]
     assert "Parent" in result.documents[0].text and "Child" in result.documents[0].text
     assert result.full_snapshot is True
+    assert result.cursor.startswith("notion:")
+
+
+def test_notion_incremental_cursor_returns_edits_and_tombstones(monkeypatch) -> None:
+    query_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.endswith("/databases/database-1"):
+            return httpx.Response(200, json={"data_sources": [{"id": "data-source-1", "name": "Tasks"}]})
+        if request.method == "POST" and request.url.path.endswith("/data_sources/data-source-1/query"):
+            body = json.loads(request.content)
+            query_bodies.append(body)
+            assert body["filter"] == {
+                "timestamp": "last_edited_time",
+                "last_edited_time": {"on_or_after": "2026-07-10T08:00:00.000Z"},
+            }
+            if body["in_trash"]:
+                return httpx.Response(200, json={"results": [{**_page("page-deleted", "Deleted"), "in_trash": True}], "has_more": False})
+            return httpx.Response(200, json={"results": [_page("page-changed", "Changed")], "has_more": False})
+        if request.url.path.endswith("/blocks/page-changed/children"):
+            return httpx.Response(200, json={"results": [_paragraph("block-changed", "Updated content")], "has_more": False})
+        raise AssertionError(f"Unexpected request {request.method} {request.url}")
+
+    _mock_async_client(monkeypatch, handler)
+    result = asyncio.run(
+        connectors.fetch_connector_documents(
+            account={"kind": "notion", "settings": {}},
+            target={
+                "target_type": "database",
+                "remote_id": "database-1",
+                "title": "Database",
+                "sync_settings": {
+                    "connector_cursor": "notion:2026-07-10T08:00:00Z",
+                    "existing_remote_ids": ["page-changed", "page-deleted"],
+                },
+            },
+            token_json={"access_token": "notion-token"},
+        )
+    )
+
+    assert [document.remote_id for document in result.documents] == ["page-changed"]
+    assert result.documents[0].text == "Updated content"
+    assert result.tombstone_remote_ids == ("page-deleted",)
+    assert result.full_snapshot is False
+    assert result.cursor.startswith("notion:")
+    assert [body["in_trash"] for body in query_bodies] == [False, True]
 
 
 def _page(page_id: str, title: str) -> dict:

@@ -120,7 +120,7 @@ async def fetch_connector_documents(
     if kind == "google-workspace":
         return await _google_documents(target, settings, token_json or {})
     if kind == "notion":
-        return _snapshot_result(await _notion_documents(target, settings, token_json or {}))
+        return await _notion_documents(target, settings, token_json or {})
     raise ValueError(f"Unsupported connector kind: {kind}")
 
 
@@ -899,38 +899,79 @@ async def _notion_documents(
     target: dict[str, Any],
     settings: dict[str, Any],
     token_json: dict[str, Any],
-) -> list[NormalizedSourceDocument]:
+) -> ConnectorFetchResult:
     pages = settings.get("pages")
     if isinstance(pages, list):
-        return [_document_from_mapping("notion", item, target, index) for index, item in enumerate(pages)]
+        return _snapshot_result([_document_from_mapping("notion", item, target, index) for index, item in enumerate(pages)])
 
-    access_token = token_json.get("access_token")
+    notion_version = str(token_json.get("notion_version") or settings.get("notion_version") or "2026-03-11")
+    access_token = await _notion_access_token(token_json, notion_version=notion_version)
     if not access_token:
-        return []
+        return _snapshot_result([])
 
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Notion-Version": str(token_json.get("notion_version") or "2022-06-28"),
+        "Notion-Version": notion_version,
     }
+    sync_started_at = datetime.now(tz=UTC)
+    connector_cursor = str(settings.get("connector_cursor") or "")
+    edited_since = _parse_notion_cursor(connector_cursor)
+    incremental = edited_since is not None
+    existing_remote_ids = {str(value) for value in settings.get("existing_remote_ids", [])}
     async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers=headers) as client:
         if target["target_type"] == "database":
-            pages = []
-            cursor = None
-            while True:
-                response = await client.post(
-                    f"https://api.notion.com/v1/databases/{target['remote_id']}/query",
-                    json={**({"start_cursor": cursor} if cursor else {}), "page_size": 100},
-                )
-                response.raise_for_status()
-                body = response.json()
-                pages.extend(body.get("results", []))
-                cursor = body.get("next_cursor")
-                if not body.get("has_more") or not cursor:
-                    break
+            if notion_version >= "2025-09-03":
+                data_source_ids = await _notion_data_source_ids(client, target, settings)
+                pages = []
+                tombstones: set[str] = set()
+                for data_source_id in data_source_ids:
+                    pages.extend(
+                        await _notion_query_data_source(
+                            client,
+                            data_source_id,
+                            edited_since=edited_since,
+                            in_trash=False,
+                        )
+                    )
+                    if incremental:
+                        deleted_pages = await _notion_query_data_source(
+                            client,
+                            data_source_id,
+                            edited_since=edited_since,
+                            in_trash=True,
+                        )
+                        tombstones.update(
+                            str(page["id"])
+                            for page in deleted_pages
+                            if page.get("id") and (not existing_remote_ids or str(page["id"]) in existing_remote_ids)
+                        )
+            else:
+                pages = await _notion_query_legacy_database(client, target["remote_id"], edited_since=edited_since)
+                tombstones = {
+                    str(page["id"])
+                    for page in pages
+                    if page.get("id") and bool(page.get("archived") or page.get("in_trash"))
+                }
+                pages = [page for page in pages if not bool(page.get("archived") or page.get("in_trash"))]
         else:
             response = await client.get(f"https://api.notion.com/v1/pages/{target['remote_id']}")
+            if response.status_code in {404, 410}:
+                return ConnectorFetchResult(
+                    documents=[],
+                    cursor=_notion_cursor(sync_started_at),
+                    tombstone_remote_ids=(target["remote_id"],) if target["remote_id"] in existing_remote_ids else (),
+                    full_snapshot=not incremental,
+                )
             response.raise_for_status()
             pages = [response.json()]
+            tombstones = set()
+            if bool(pages[0].get("archived") or pages[0].get("in_trash")):
+                tombstones.add(str(pages[0].get("id") or target["remote_id"]))
+                pages = []
+            elif edited_since:
+                last_edited_at = _parse_datetime(pages[0].get("last_edited_time"))
+                if last_edited_at and last_edited_at < edited_since:
+                    pages = []
 
         docs = []
         for page in pages:
@@ -952,7 +993,143 @@ async def _notion_documents(
                     metadata={"targetType": target["target_type"], "properties": page.get("properties", {})},
                 )
             )
-        return docs
+        return ConnectorFetchResult(
+            documents=docs,
+            cursor=_notion_cursor(sync_started_at),
+            tombstone_remote_ids=tuple(sorted(tombstones)),
+            full_snapshot=not incremental,
+        )
+
+
+async def _notion_access_token(token_json: dict[str, Any], *, notion_version: str) -> str | None:
+    access_token = token_json.get("access_token")
+    expires_at = float(token_json.get("expires_at") or 0)
+    if access_token and (not expires_at or expires_at > time.time() + 120):
+        return str(access_token)
+    if not all(token_json.get(key) for key in ("refresh_token", "client_id", "client_secret")):
+        return str(access_token) if access_token else None
+    async with httpx.AsyncClient(
+        timeout=20,
+        auth=httpx.BasicAuth(str(token_json["client_id"]), str(token_json["client_secret"])),
+    ) as client:
+        response = await client.post(
+            "https://api.notion.com/v1/oauth/token",
+            headers={"Notion-Version": notion_version, "Content-Type": "application/json"},
+            json={"grant_type": "refresh_token", "refresh_token": token_json["refresh_token"]},
+        )
+        response.raise_for_status()
+        refreshed = response.json()
+    token_json["access_token"] = str(refreshed["access_token"])
+    if refreshed.get("refresh_token"):
+        token_json["refresh_token"] = str(refreshed["refresh_token"])
+    if refreshed.get("expires_in"):
+        token_json["expires_at"] = time.time() + int(refreshed["expires_in"])
+    for key in ("token_type", "bot_id", "workspace_id", "workspace_name"):
+        if refreshed.get(key) is not None:
+            token_json[key] = refreshed[key]
+    return str(token_json["access_token"])
+
+
+async def _notion_data_source_ids(
+    client: httpx.AsyncClient,
+    target: dict[str, Any],
+    settings: dict[str, Any],
+) -> list[str]:
+    configured = settings.get("data_source_ids") or settings.get("data_source_id")
+    if isinstance(configured, str) and configured.strip():
+        return [configured.strip()]
+    if isinstance(configured, list):
+        values = [str(value).strip() for value in configured if str(value).strip()]
+        if values:
+            return list(dict.fromkeys(values))
+    response = await client.get(f"https://api.notion.com/v1/databases/{target['remote_id']}")
+    response.raise_for_status()
+    values = [str(item.get("id") or "").strip() for item in response.json().get("data_sources", [])]
+    result = [value for value in values if value]
+    if not result:
+        raise ValueError("Notion database does not expose any readable data sources")
+    return list(dict.fromkeys(result))
+
+
+async def _notion_query_data_source(
+    client: httpx.AsyncClient,
+    data_source_id: str,
+    *,
+    edited_since: datetime | None,
+    in_trash: bool,
+) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    cursor = None
+    while True:
+        payload: dict[str, Any] = {
+            "page_size": 100,
+            "in_trash": in_trash,
+            "sorts": [{"timestamp": "last_edited_time", "direction": "ascending"}],
+        }
+        if cursor:
+            payload["start_cursor"] = cursor
+        if edited_since:
+            payload["filter"] = {
+                "timestamp": "last_edited_time",
+                "last_edited_time": {"on_or_after": _notion_timestamp(edited_since)},
+            }
+        response = await client.post(
+            f"https://api.notion.com/v1/data_sources/{data_source_id}/query",
+            json=payload,
+        )
+        response.raise_for_status()
+        body = response.json()
+        pages.extend(body.get("results", []))
+        cursor = body.get("next_cursor")
+        if not body.get("has_more") or not cursor:
+            return pages
+
+
+async def _notion_query_legacy_database(
+    client: httpx.AsyncClient,
+    database_id: str,
+    *,
+    edited_since: datetime | None,
+) -> list[dict[str, Any]]:
+    pages: list[dict[str, Any]] = []
+    cursor = None
+    while True:
+        payload: dict[str, Any] = {"page_size": 100}
+        if cursor:
+            payload["start_cursor"] = cursor
+        if edited_since:
+            payload["filter"] = {
+                "timestamp": "last_edited_time",
+                "last_edited_time": {"on_or_after": _notion_timestamp(edited_since)},
+            }
+        response = await client.post(
+            f"https://api.notion.com/v1/databases/{database_id}/query",
+            json=payload,
+        )
+        response.raise_for_status()
+        body = response.json()
+        pages.extend(body.get("results", []))
+        cursor = body.get("next_cursor")
+        if not body.get("has_more") or not cursor:
+            return pages
+
+
+def _parse_notion_cursor(cursor: str) -> datetime | None:
+    if not cursor.startswith("notion:"):
+        return None
+    try:
+        parsed = datetime.fromisoformat(cursor.removeprefix("notion:").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
+
+
+def _notion_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _notion_cursor(value: datetime) -> str:
+    return f"notion:{_notion_timestamp(value)}"
 
 
 async def _notion_blocks(client: httpx.AsyncClient, block_id: str, depth: int = 0) -> list[dict[str, Any]]:

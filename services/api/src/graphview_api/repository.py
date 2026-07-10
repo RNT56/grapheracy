@@ -36,9 +36,6 @@ from graphview_api.schemas import (
     DecisionRecordCreate,
     FeedbackEventCreate,
     AgentRunCreate,
-    ConnectorAccountCreate,
-    ConnectorTargetCreate,
-    ConnectorTargetUpdate,
     ExportBundle,
     GraphBuildSpecCreate,
     GraphQueryCreate,
@@ -223,7 +220,8 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
             self._ensure_sqlite_column(conn, "sources", column_name, column_type)
         self._ensure_sqlite_column(conn, "content_nodes", "metadata_json", "TEXT")
         self._ensure_sqlite_column(conn, "semantic_edges", "metadata_json", "TEXT")
-        self._ensure_sqlite_column(conn, "agent_context_blobs", "object_key", "TEXT"); db.ensure_sqlite_json_shadow_columns(conn)
+        self._ensure_sqlite_column(conn, "agent_context_blobs", "object_key", "TEXT")
+        db.ensure_sqlite_json_shadow_columns(conn)
 
     def _ensure_sqlite_column(self, conn, table_name: str, column_name: str, column_type: str) -> None:
         existing_columns = {
@@ -4166,7 +4164,7 @@ class GraphRepository(ActionRepositoryMixin, ConnectorRepositoryMixin, SecretRep
             self._routing_policy_from_row(row)
             for row in conn.execute(
                 select(db.routing_policies)
-                .where(and_(db.routing_policies.c.project_id == signal["project_id"], db.routing_policies.c.enabled == True))
+                .where(and_(db.routing_policies.c.project_id == signal["project_id"], db.routing_policies.c.enabled.is_(True)))
                 .order_by(db.routing_policies.c.updated_at.desc(), db.routing_policies.c.id.desc())
             ).mappings()
         ]

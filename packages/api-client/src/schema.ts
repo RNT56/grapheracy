@@ -1779,6 +1779,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connectors/notion/{target_id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notion Connector Webhook */
+        post: operations["notion_connector_webhook_api_v1_connectors_notion__target_id__webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/action-proposals/{action_proposal_id}/run": {
         parameters: {
             query?: never;
@@ -11259,6 +11276,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notion_connector_webhook_api_v1_connectors_notion__target_id__webhook_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Notion-Signature"?: string | null;
+            };
+            path: {
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

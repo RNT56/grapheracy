@@ -10255,6 +10255,62 @@
         }
       }
     },
+    "/api/v1/connectors/notion/{target_id}/webhook": {
+      "post": {
+        "tags": [
+          "Graphview V1"
+        ],
+        "summary": "Notion Connector Webhook",
+        "operationId": "notion_connector_webhook_api_v1_connectors_notion__target_id__webhook_post",
+        "parameters": [
+          {
+            "name": "target_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Target Id"
+            }
+          },
+          {
+            "name": "X-Notion-Signature",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Notion-Signature"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/action-proposals/{action_proposal_id}/run": {
       "post": {
         "tags": [

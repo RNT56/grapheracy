@@ -26,7 +26,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Sigma/Graphology 2D and Three.js parity | active | pending | pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, and no-op Helm upgrade proven | Persistence |
 | Arq queues, scheduling, retries, and outbox | implemented | 6 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
-| Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus connector pagination, incremental cursor, deletion, webhook, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
+| Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
 | Cited AI planning, query, and research | active | Durable query/research tests and retrieval audit coverage | Live PostgreSQL/S3/worker query and research proven; external-provider failure/cancellation canary pending | AI |
 | Attention, actions, outcomes, and feedback | active | pending | pending | Actions |
 | Active agent context capture and retention | implemented | implemented | pending | Context |
