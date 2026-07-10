@@ -169,7 +169,8 @@ To register a Notion webhook without exposing its verification token:
 
 Phase 27 adds active context capture for external agents and editor adapters:
 
-- Acceptance command: `pnpm run phase27:check`.
+- Local acceptance command: `pnpm run quality:full`; production-stack acceptance command:
+  `pnpm run test:agent-context:live`.
 - `POST /agent-context/clients` creates a scoped adapter client and returns a one-time `gvctx_...` token to maintainers.
 - `POST /agent-context/sessions`, `PATCH /agent-context/sessions/{session_id}`, and
   `POST /agent-context/events/batch` accept capture-only `gvctx_...` adapter bearer tokens and reject normal UI
@@ -180,7 +181,8 @@ Phase 27 adds active context capture for external agents and editor adapters:
   projection.
 - `GET /agent-context/artifacts/{artifact_id}/content` requires maintainer access and decrypts a redacted blob when it
   still exists.
-- `GET /agent-context/sessions/{session_id}/stream` provides SSE-compatible replay for the active context workspace.
+- `GET /agent-context/sessions/{session_id}/stream` emits stable event IDs. Reconnecting clients send
+  `Last-Event-ID`; Graphview resumes after that event or returns `409` when the retained cursor is unavailable.
 - `POST /agent-context/retention/run` purges expired encrypted blobs while preserving audit metadata.
 - `GET /backup` exports active-context metadata by default. Add `include_agent_context_content=true` only when an
   operator explicitly needs encrypted redacted context blobs in the backup bundle.

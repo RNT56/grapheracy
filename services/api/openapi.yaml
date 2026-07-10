@@ -4589,6 +4589,9 @@
     },
     "/agent-context/clients": {
       "post": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Create Agent Context Client",
         "operationId": "create_agent_context_client_agent_context_clients_post",
         "parameters": [
@@ -4661,6 +4664,9 @@
     },
     "/agent-context/sessions": {
       "post": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Create Agent Context Session",
         "operationId": "create_agent_context_session_agent_context_sessions_post",
         "requestBody": {
@@ -4697,6 +4703,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Sessions",
         "operationId": "agent_context_sessions_agent_context_sessions_get",
         "parameters": [
@@ -4778,6 +4787,9 @@
     },
     "/agent-context/sessions/{session_id}": {
       "patch": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Update Agent Context Session",
         "operationId": "update_agent_context_session_agent_context_sessions__session_id__patch",
         "parameters": [
@@ -4825,6 +4837,9 @@
         }
       },
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Session",
         "operationId": "agent_context_session_agent_context_sessions__session_id__get",
         "parameters": [
@@ -4896,6 +4911,9 @@
     },
     "/agent-context/events/batch": {
       "post": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Create Agent Context Event Batch",
         "operationId": "create_agent_context_event_batch_agent_context_events_batch_post",
         "requestBody": {
@@ -4934,6 +4952,9 @@
     },
     "/agent-context/sessions/{session_id}/events": {
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Events",
         "operationId": "agent_context_events_agent_context_sessions__session_id__events_get",
         "parameters": [
@@ -5041,6 +5062,9 @@
     },
     "/agent-context/sessions/{session_id}/graph": {
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Graph",
         "operationId": "agent_context_graph_agent_context_sessions__session_id__graph_get",
         "parameters": [
@@ -5112,6 +5136,9 @@
     },
     "/agent-context/artifacts/{artifact_id}/content": {
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Artifact Content",
         "operationId": "agent_context_artifact_content_agent_context_artifacts__artifact_id__content_get",
         "parameters": [
@@ -5183,6 +5210,9 @@
     },
     "/agent-context/sessions/{session_id}/stream": {
       "get": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Agent Context Stream",
         "operationId": "agent_context_stream_agent_context_sessions__session_id__stream_get",
         "parameters": [
@@ -5222,6 +5252,22 @@
                 }
               ],
               "title": "Since Sequence"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
             }
           },
           {
@@ -5281,6 +5327,9 @@
     },
     "/agent-context/retention/run": {
       "post": {
+        "tags": [
+          "Agent context"
+        ],
         "summary": "Run Agent Context Retention",
         "operationId": "run_agent_context_retention_agent_context_retention_run_post",
         "parameters": [
@@ -16001,6 +16050,22 @@
                 }
               ],
               "title": "Since Sequence"
+            }
+          },
+          {
+            "name": "Last-Event-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
             }
           },
           {

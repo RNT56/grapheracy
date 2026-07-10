@@ -9199,6 +9199,7 @@ export interface operations {
                 since_sequence?: number | null;
             };
             header?: {
+                "Last-Event-ID"?: string | null;
                 authorization?: string | null;
                 "x-graphview-user"?: string | null;
             };
@@ -13790,6 +13791,7 @@ export interface operations {
                 since_sequence?: number | null;
             };
             header?: {
+                "Last-Event-ID"?: string | null;
                 authorization?: string | null;
                 "x-graphview-user"?: string | null;
             };

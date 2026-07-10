@@ -205,6 +205,9 @@ Phase 27 adds active agent context connectors. External agents and editor adapte
 sessions, report file/search/shell/prompt/model/edit/test/commit events, and attach redacted encrypted text blobs. The
 API projects those records into a session-local context graph and graph activity events. Captured context remains
 observed evidence, not reviewed graph memory, until an existing proposal/review workflow accepts a derived graph change.
+Its HTTP and adapter-authentication boundary lives in the bounded `graphview_api.agent_context` module rather than API
+assembly; architecture checks prevent those routes from returning to `main.py`. Context SSE uses persisted event IDs
+and `Last-Event-ID` replay while retention deletes encrypted object payloads without deleting their audit metadata.
 
 ## Observability Boundary
 

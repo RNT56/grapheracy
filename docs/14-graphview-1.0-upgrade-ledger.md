@@ -29,7 +29,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
 | Cited AI planning, query, and research | active | Durable query/research tests and retrieval audit coverage | Live PostgreSQL/S3/worker query and research proven; external-provider failure/cancellation canary pending | AI |
 | Attention, actions, outcomes, and feedback | active | Internal nervous-system loop plus GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, and redaction tests | Secret-backed GitHub/SMTP/webhook action and callback canaries pending | Actions |
-| Active agent context capture and retention | implemented | implemented | pending | Context |
+| Active agent context capture and retention | implemented | API lifecycle/replay/retention tests plus gateway and extension offline-outbox tests | OIDC service auth, ordered offline replay, MinIO-encrypted capture, resumable SSE, redaction, purge, and metadata preservation production-proven | Context |
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
 | Vault-backed secrets and encrypted object storage | active | Local atomic AES-GCM reference-store and Vault KV v2 opaque-reference tests; S3 retained-blob coverage | Vault/MinIO services live-proven; production credential rotation and purge canary pending | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
@@ -53,6 +53,10 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
   API/upload and durable-worker trace, route-bounded API metrics, worker queue/job metrics, and SSE metrics. The proof
   also parsed every emitted URL attribute and rejected queries/fragments or any injected database, Redis, object-store,
   Keycloak, Vault, session-signing, service-client, or browser-test secret.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:agent-context:live`: a Keycloak service client created
+  a capture-only adapter, replayed two ordered gateway events queued while the API endpoint was unavailable, persisted
+  redacted encrypted content in MinIO, resumed SSE after a stable event ID, purged the expired object, retained the
+  metadata audit record, and completed the session.
 - `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the ops image verified database and
   object manifests, survived destructive record/object deletion, restored the complete PostgreSQL/S3 canary set,
   removed usable connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis,

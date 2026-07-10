@@ -208,8 +208,8 @@ presence, and the product-first web shell.
 
 ## Phase 27 Checks
 
-- Expected command: `pnpm run phase27:check`.
-- Focused smoke command: `pnpm run phase27:smoke`. It starts a temporary local API and verifies capture-only token
+- Stable local gate: `pnpm run quality:full`.
+- Focused smoke command: `pnpm run test:smoke`. It starts a temporary local API and verifies capture-only token
   normalization, gateway event capture, event checksums, redaction, content permissions, graph projection, and
   `end-session` PATCH behavior.
 - API tests cover adapter token creation with capture-only scope normalization, session lifecycle, idempotent event
@@ -223,6 +223,10 @@ presence, and the product-first web shell.
 - Web source tests cover the Active Context workspace, `/agent-context` routes, authority badges, shared context types,
   and existing 2D/3D browser graph QA mocks.
 - Worker tests cover the context normalization, enrichment, and retention stage plan.
+- `pnpm run test:agent-context:live` runs against the exact production Compose images. It proves OIDC service
+  authorization, capture-only token issuance, ordered gateway replay after a deliberately unavailable API, encrypted
+  MinIO content, stable `Last-Event-ID` SSE resume, secret redaction, object deletion at retention expiry, preserved
+  metadata, and terminal session state.
 
 ## Production Backup And Restore Checks
 

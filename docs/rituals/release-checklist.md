@@ -33,8 +33,10 @@
 24. Verify event batch responses and session event reads include API-generated checksums for accepted events.
 25. Verify `GET /agent-context/artifacts/{artifact_id}/content` requires maintainer permission and never returns raw
     adapter tokens, provider keys, private keys, or unredacted command environments.
-26. Verify `GET /agent-context/sessions/{session_id}/stream` replays context events as SSE frames.
-27. Verify `POST /agent-context/retention/run` purges expired encrypted blobs while preserving metadata audit records.
+26. Run `pnpm run test:agent-context:live` and verify ordered offline replay, stable `Last-Event-ID` SSE resume,
+    encrypted object capture, redaction, and terminal session state against the exact candidate images.
+27. In the same live proof, verify `POST /agent-context/retention/run` deletes the expired object while preserving its
+    metadata audit record.
 28. Verify `GET /backup` omits active-context encrypted content by default and
     `GET /backup?include_agent_context_content=true` includes encrypted blob envelopes only when explicitly requested.
 29. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider

@@ -1733,6 +1733,21 @@ def test_agent_context_capture_lifecycle_encryption_graph_stream_retention_and_b
         stream_payload = "".join(response.iter_text())
     assert stream_payload.startswith(": heartbeat\n\n")
     assert "event: agent-context.event\n" in stream_payload
+    assert f"id: {batch_body['events'][0]['id']}\n" in stream_payload
+
+    replay = client.get(
+        f"/agent-context/sessions/{session['id']}/stream",
+        headers={**READER_HEADERS, "Last-Event-ID": batch_body["events"][0]["id"]},
+    )
+    assert replay.status_code == 200
+    assert f"id: {batch_body['events'][0]['id']}\n" not in replay.text
+    assert f"id: {batch_body['events'][1]['id']}\n" in replay.text
+
+    missing_replay = client.get(
+        f"/agent-context/sessions/{session['id']}/stream",
+        headers={**READER_HEADERS, "Last-Event-ID": "ctxevent_missing"},
+    )
+    assert missing_replay.status_code == 409
 
     retention = client.post("/agent-context/retention/run", headers=ADMIN_HEADERS)
     assert retention.status_code == 200

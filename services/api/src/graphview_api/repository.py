@@ -3102,6 +3102,18 @@ class GraphRepository(
         with self.engine.begin() as conn:
             return [self._agent_context_event_from_row(row) for row in conn.execute(stmt).mappings()]
 
+    def agent_context_event_sequence(self, session_id: str, event_id: str) -> int | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.agent_context_events.c.sequence).where(
+                    and_(
+                        db.agent_context_events.c.session_id == session_id,
+                        db.agent_context_events.c.id == event_id,
+                    )
+                )
+            ).first()
+            return int(row.sequence) if row is not None else None
+
     def agent_context_graph(self, session_id: str) -> dict:
         with self.engine.begin() as conn:
             session_row = conn.execute(

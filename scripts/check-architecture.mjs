@@ -22,7 +22,7 @@ async function sourceFiles(relativeDir, suffixes) {
 const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
-  "services/api/src/graphview_api/main.py": 1650,
+  "services/api/src/graphview_api/main.py": 1500,
   "services/api/src/graphview_api/repository.py": 6200
 };
 
@@ -54,6 +54,7 @@ const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
+  "services/api/src/graphview_api/agent_context/router.py",
   "docs/14-graphview-1.0-upgrade-ledger.md"
 ];
 for (const relativePath of requiredBoundaries) {
@@ -62,6 +63,11 @@ for (const relativePath of requiredBoundaries) {
   } catch {
     failures.push(`required architecture boundary is missing: ${relativePath}`);
   }
+}
+
+const apiAssembly = await read("services/api/src/graphview_api/main.py");
+if (apiAssembly.includes('"/agent-context/')) {
+  failures.push("agent-context routes must remain inside the bounded agent_context module");
 }
 
 if (failures.length) {
