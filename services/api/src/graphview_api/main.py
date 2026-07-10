@@ -8,6 +8,8 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from graphview_api.agent_context import create_agent_context_router
+from graphview_api.actions import create_actions_router
+from graphview_api.attention import create_attention_router
 from graphview_api.api_v1 import create_v1_router
 from graphview_api.auth import (
     OPERATE_PERMISSION,
@@ -33,15 +35,6 @@ from graphview_api.review import create_review_router
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
     AgentActionProposalOut,
-    ActionProposalCreate,
-    ActionProposalDecision,
-    ActionProposalOut,
-    ActionRunCreate,
-    ActionRunOut,
-    AlertAssign,
-    AlertOut,
-    AttentionOut,
-    AttentionTransition,
     AgentToolCallCreate,
     AgentToolCallOut,
     AgentRunCreate,
@@ -62,31 +55,15 @@ from graphview_api.schemas import (
     GraphPathOut,
     GraphViewOut,
     ImportBundle,
-    DecisionRecordCreate,
-    DecisionRecordOut,
     ExtractionLensOut,
-    FeedbackEventCreate,
-    FeedbackEventOut,
     GraphResearchCreate,
     GraphResearchOut,
-    ObservationCreate,
-    ObservationOut,
-    OutcomeCreate,
-    OutcomeOut,
-    OwnerCreate,
-    OwnerOut,
-    OwnerUpdate,
     PlanningMessageCreate,
     PlanningSessionCreate,
     PlanningSessionOut,
     ProposalCreate,
     ProviderCredentialUpdate,
     ProviderDescriptorOut,
-    RoutingPolicyCreate,
-    RoutingPolicyOut,
-    RoutingPolicyUpdate,
-    SignalCreate,
-    SignalOut,
     SourceCreate,
 )
 from graphview_api.settings import Settings, get_settings
@@ -302,277 +279,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
 
-    @app.get("/signals")
-    async def signals(
-        kind: str | None = Query(default=None),
-        status: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[SignalOut]]:
-        return {"signals": repository.list_signals(kind=kind, status=status, limit=limit)}
+    app.include_router(create_attention_router(repo))
 
-    @app.get("/signals/{signal_id}", response_model=SignalOut)
-    async def signal(
-        signal_id: str,
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        item = repository.get_signal(signal_id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signal not found")
-        return item
-
-    @app.post("/signals", response_model=SignalOut, status_code=status.HTTP_201_CREATED)
-    async def create_signal(
-        payload: SignalCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_signal(payload, user.id)
-
-    @app.get("/observations")
-    async def observations(
-        signal_id: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ObservationOut]]:
-        return {"observations": repository.list_observations(signal_id=signal_id, limit=limit)}
-
-    @app.post("/observations", response_model=ObservationOut, status_code=status.HTTP_201_CREATED)
-    async def create_observation(
-        payload: ObservationCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_observation(payload, user.id)
-
-    @app.get("/alerts")
-    async def alerts(
-        status_filter: str | None = Query(default=None, alias="status"),
-        severity: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[AlertOut]]:
-        return {"alerts": repository.list_alerts(status=status_filter, severity=severity, limit=limit)}
-
-    @app.post("/alerts/{alert_id}/assign", response_model=AlertOut)
-    async def assign_alert(
-        alert_id: str,
-        payload: AlertAssign,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        item = repository.assign_alert(alert_id, payload, user.id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
-        return item
-
-    @app.get("/attention", response_model=AttentionOut)
-    async def attention(
-        status_filter: str | None = Query(default=None, alias="status"),
-        severity: str | None = Query(default=None),
-        owner_id: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.list_attention(status=status_filter, severity=severity, owner_id=owner_id, limit=limit)
-
-    @app.post("/attention/{attention_item_id}/transition", response_model=AttentionOut)
-    async def transition_attention(
-        attention_item_id: str,
-        payload: AttentionTransition,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        item = repository.transition_attention(attention_item_id, payload, user.id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attention item not found")
-        return {"generated_at": datetime.now(timezone.utc), "returned_count": 1, "items": [item]}
-
-    @app.get("/owners")
-    async def owners(
-        scope_kind: str | None = Query(default=None),
-        limit: int = Query(default=100, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[OwnerOut]]:
-        return {"owners": repository.list_owners(scope_kind=scope_kind, limit=limit)}
-
-    @app.post("/owners", response_model=OwnerOut, status_code=status.HTTP_201_CREATED)
-    async def create_owner(
-        payload: OwnerCreate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_owner(payload)
-
-    @app.patch("/owners/{owner_id}", response_model=OwnerOut)
-    async def update_owner(
-        owner_id: str,
-        payload: OwnerUpdate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        owner = repository.update_owner(owner_id, payload)
-        if owner is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found")
-        return owner
-
-    @app.get("/routing-policies")
-    async def routing_policies(
-        enabled: bool | None = Query(default=None),
-        limit: int = Query(default=100, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[RoutingPolicyOut]]:
-        return {"routing_policies": repository.list_routing_policies(enabled=enabled, limit=limit)}
-
-    @app.post("/routing-policies", response_model=RoutingPolicyOut, status_code=status.HTTP_201_CREATED)
-    async def create_routing_policy(
-        payload: RoutingPolicyCreate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_routing_policy(payload)
-
-    @app.patch("/routing-policies/{policy_id}", response_model=RoutingPolicyOut)
-    async def update_routing_policy(
-        policy_id: str,
-        payload: RoutingPolicyUpdate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        policy = repository.update_routing_policy(policy_id, payload)
-        if policy is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routing policy not found")
-        return policy
-
-    @app.get("/decision-records")
-    async def decision_records(
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[DecisionRecordOut]]:
-        return {"decision_records": repository.list_decision_records(limit=limit)}
-
-    @app.post("/decision-records", response_model=DecisionRecordOut, status_code=status.HTTP_201_CREATED)
-    async def create_decision_record(
-        payload: DecisionRecordCreate,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_decision_record(payload, user.id)
-
-    @app.get("/action-proposals")
-    async def action_proposals(
-        status_filter: str | None = Query(default=None, alias="status"),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ActionProposalOut]]:
-        return {"action_proposals": repository.list_action_proposals(status=status_filter, limit=limit)}
-
-    @app.post("/action-proposals", response_model=ActionProposalOut, status_code=status.HTTP_201_CREATED)
-    async def create_action_proposal(
-        payload: ActionProposalCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_action_proposal(payload, user.id)
-
-    @app.post("/action-proposals/{action_proposal_id}/approve", response_model=ActionProposalOut)
-    async def approve_action_proposal(
-        action_proposal_id: str,
-        payload: ActionProposalDecision,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            item = repository.decide_action_proposal(action_proposal_id, "approved", payload, user.id)
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action proposal not found")
-        return item
-
-    @app.post("/action-proposals/{action_proposal_id}/reject", response_model=ActionProposalOut)
-    async def reject_action_proposal(
-        action_proposal_id: str,
-        payload: ActionProposalDecision,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            item = repository.decide_action_proposal(action_proposal_id, "rejected", payload, user.id)
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action proposal not found")
-        return item
-
-    @app.get("/action-runs")
-    async def action_runs(
-        status_filter: str | None = Query(default=None, alias="status"),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ActionRunOut]]:
-        return {"action_runs": repository.list_action_runs(status=status_filter, limit=limit)}
-
-    @app.post("/action-runs", response_model=ActionRunOut, status_code=status.HTTP_201_CREATED)
-    async def create_action_run(
-        payload: ActionRunCreate,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.create_action_run(payload, user.id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action proposal not found") from error
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-
-    @app.get("/outcomes")
-    async def outcomes(
-        status_filter: str | None = Query(default=None, alias="status"),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[OutcomeOut]]:
-        return {"outcomes": repository.list_outcomes(status=status_filter, limit=limit)}
-
-    @app.post("/action-runs/{action_run_id}/outcome", response_model=OutcomeOut, status_code=status.HTTP_201_CREATED)
-    async def create_action_run_outcome(
-        action_run_id: str,
-        payload: OutcomeCreate,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.create_outcome(payload, user.id, action_run_id=action_run_id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action run not found") from error
-
-    @app.post("/feedback-events", response_model=FeedbackEventOut, status_code=status.HTTP_201_CREATED)
-    async def create_feedback_event(
-        payload: FeedbackEventCreate,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_feedback_event(payload, user.id)
-
-    @app.get("/feedback-events")
-    async def feedback_events(
-        kind: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=100),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[FeedbackEventOut]]:
-        return {"feedback_events": repository.list_feedback_events(kind=kind, limit=limit)}
+    app.include_router(create_actions_router(repo))
 
     @app.get("/insights", response_model=GraphInsightsOut)
     async def insights(

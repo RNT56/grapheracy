@@ -22,7 +22,7 @@ async function sourceFiles(relativeDir, suffixes) {
 const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
-  "services/api/src/graphview_api/main.py": 1200,
+  "services/api/src/graphview_api/main.py": 900,
   "services/api/src/graphview_api/repository.py": 6100
 };
 
@@ -54,7 +54,9 @@ const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
+  "services/api/src/graphview_api/actions/router.py",
   "services/api/src/graphview_api/agent_context/router.py",
+  "services/api/src/graphview_api/attention/router.py",
   "services/api/src/graphview_api/connector_routes.py",
   "services/api/src/graphview_api/operations/readiness.py",
   "services/api/src/graphview_api/review/router.py",
@@ -75,6 +77,8 @@ if (apiAssembly.includes('"/agent-context/')) {
 }
 
 const boundedRoutePrefixes = [
+  ["actions", ['"/action-', '"/decision-records"', '"/outcomes"', '"/feedback-events"']],
+  ["attention", ['"/signals"', '"/observations"', '"/alerts"', '"/attention"', '"/owners"', '"/routing-policies"']],
   ["connector", ['"/connectors"', '"/connector-accounts"', '"/connector-targets"', '"/connector-sync-runs"']],
   ["review", ['"/proposals"', '"/review-']],
   ["sources", ['"/sources"', '"/source-chunks"', '"/lineage/', '"/ingestion-runs"']]
