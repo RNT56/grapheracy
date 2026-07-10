@@ -1,9 +1,8 @@
-import hashlib
 import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
@@ -18,7 +17,7 @@ from graphview_api.auth import (
     CurrentUser,
     require_permission,
 )
-from graphview_api.connectors import connector_descriptors
+from graphview_api.connector_routes import create_connector_router
 from graphview_api.db import create_app_engine
 from graphview_api.ingestion import EMBEDDING_MODEL, build_document, embed_text, generate_proposals
 from graphview_api.identity import IdentityService
@@ -26,14 +25,11 @@ from graphview_api.identity.router import create_identity_router
 from graphview_api.http_middleware import install_http_middleware
 from graphview_api.lenses import EXTRACTION_LENS_DESCRIPTORS, GRAPH_LENS_DESCRIPTORS, normalize_graph_lens
 from graphview_api.llm import build_llm_provider, build_provider_registry
-from graphview_api.jobs.repository import JobRepository
-from graphview_api.jobs.schemas import JobCreate, JobOut
-from graphview_api.jobs.executor import GraphJobExecutor
-from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.observability import RequestMetrics, configure_telemetry, observe_sse_stream
 from graphview_api.object_store import build_object_store
 from graphview_api.operations import create_health_router, create_operations_router
 from graphview_api.repository import GraphRepository
+from graphview_api.review import create_review_router
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
     AgentActionProposalOut,
@@ -51,14 +47,6 @@ from graphview_api.schemas import (
     AgentRunCreate,
     AgentRunOut,
     BackupBundle,
-    ConnectorAccountCreate,
-    ConnectorAccountOut,
-    ConnectorCredentialUpdate,
-    ConnectorSyncCreate,
-    ConnectorSyncRunOut,
-    ConnectorTargetCreate,
-    ConnectorTargetOut,
-    ConnectorTargetUpdate,
     ExportBundle,
     GraphActivityOut,
     GraphBuildSpecCreate,
@@ -74,10 +62,6 @@ from graphview_api.schemas import (
     GraphPathOut,
     GraphViewOut,
     ImportBundle,
-    IngestionCreate,
-    IngestionResultOut,
-    IngestionRunOut,
-    LineageTraceOut,
     DecisionRecordCreate,
     DecisionRecordOut,
     ExtractionLensOut,
@@ -98,25 +82,16 @@ from graphview_api.schemas import (
     ProposalCreate,
     ProviderCredentialUpdate,
     ProviderDescriptorOut,
-    ProposalOut,
     RoutingPolicyCreate,
     RoutingPolicyOut,
     RoutingPolicyUpdate,
-    ReviewActivityOut,
-    ReviewDashboardOut,
-    ReviewQueueOut,
-    ReviewDecisionCreate,
-    ReviewDecisionOut,
     SignalCreate,
     SignalOut,
-    SourceReviewCoverageOut,
     SourceCreate,
-    SourceChunkOut,
-    SourceOut,
-    SourceUpdate,
 )
 from graphview_api.settings import Settings, get_settings
 from graphview_api.secret_store import build_secret_store
+from graphview_api.sources import create_sources_router
 from graphview_api.version import VERSION
 
 
@@ -1104,312 +1079,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "proposals": ingestion["proposals"],
         }
 
-    @app.get("/connectors")
-    async def connectors(
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-    ) -> dict[str, list[dict[str, object]]]:
-        return {"connectors": connector_descriptors()}
+    app.include_router(create_connector_router(repo, llm_provider_factory=build_llm_provider))
 
-    @app.get("/connector-accounts")
-    async def connector_accounts(
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ConnectorAccountOut]]:
-        return {"connector_accounts": repository.list_connector_accounts()}
+    app.include_router(create_sources_router(repo))
 
-    @app.post("/connector-accounts", response_model=ConnectorAccountOut, status_code=status.HTTP_201_CREATED)
-    async def create_connector_account(
-        payload: ConnectorAccountCreate,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_connector_account(payload, user.id)
-
-    @app.patch("/connector-accounts/{account_id}/credentials", response_model=ConnectorAccountOut)
-    async def update_connector_account_credentials(
-        account_id: str,
-        payload: ConnectorCredentialUpdate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.update_connector_account_tokens(
-                account_id,
-                payload.token_json,
-                project_id="project-default",
-            )
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector account not found") from error
-
-    @app.delete("/connector-accounts/{account_id}/credentials", response_model=ConnectorAccountOut)
-    async def delete_connector_account_credentials(
-        account_id: str,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.clear_connector_account_tokens(account_id, project_id="project-default")
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector account not found") from error
-
-    @app.get("/connector-targets")
-    async def connector_targets(
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ConnectorTargetOut]]:
-        return {"connector_targets": repository.list_connector_targets()}
-
-    @app.post("/connector-targets", response_model=ConnectorTargetOut, status_code=status.HTTP_201_CREATED)
-    async def create_connector_target(
-        payload: ConnectorTargetCreate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.create_connector_target(payload)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector account not found") from error
-
-    @app.patch("/connector-targets/{target_id}", response_model=ConnectorTargetOut)
-    async def update_connector_target(
-        target_id: str,
-        payload: ConnectorTargetUpdate,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        target = repository.update_connector_target(target_id, payload)
-        if target is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found")
-        return target
-
-    @app.get("/connector-sync-runs")
-    async def connector_sync_runs(
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ConnectorSyncRunOut]]:
-        return {"connector_sync_runs": repository.list_connector_sync_runs()}
-
-    @app.get("/connector-sync-runs/{sync_run_id}", response_model=ConnectorSyncRunOut)
-    async def connector_sync_run(
-        sync_run_id: str,
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        sync_run = repository.get_connector_sync_run(sync_run_id)
-        if sync_run is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector sync run not found")
-        return sync_run
-
-    @app.post("/connector-sync-runs", status_code=status.HTTP_201_CREATED)
-    async def create_connector_sync_run(
-        payload: ConnectorSyncCreate,
-        response: Response,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-        settings: Settings = Depends(get_settings),
-    ) -> dict:
-        if settings.environment in {"local", "test", "development"}:
-            try:
-                return await GraphJobExecutor(repository, settings, llm_provider_factory=build_llm_provider).connector_sync(
-                    payload.target_id,
-                    actor_id=user.id,
-                    worker_id="api-development-compatibility",
-                    retry_attempt=1,
-                )
-            except KeyError as error:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found") from error
-        bundle = repository.connector_target_bundle(payload.target_id)
-        if bundle is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found")
-        _, target, _ = bundle
-        response.status_code = status.HTTP_202_ACCEPTED
-        ConnectorStateRepository(repository.engine).mark_queued(payload.target_id)
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="connector.sync",
-                queue="connectors",
-                idempotency_key=f"connector-sync:{payload.target_id}:{target.get('updated_at')}",
-                payload={"project_id": target["project_id"], "target_id": payload.target_id, "actor_id": user.id},
-            ),
-            project_id=target["project_id"],
-        )
-
-    @app.get("/source-chunks")
-    async def source_chunks(
-        source_id: str | None = Query(default=None),
-        graph_id: str | None = Query(default=None),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[SourceChunkOut]]:
-        return {"source_chunks": repository.list_source_chunks(source_id, graph_id)}
-
-    @app.get("/lineage/{entity_kind}/{entity_id}", response_model=LineageTraceOut)
-    async def lineage(
-        entity_kind: str,
-        entity_id: str,
-        graph_id: str | None = Query(default=None),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        if entity_kind not in {"source", "proposal", "node", "edge"}:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lineage entity not found")
-        trace = repository.lineage(entity_kind, entity_id, graph_id)
-        if trace is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lineage entity not found")
-        return trace
-
-    @app.get("/sources")
-    async def sources(
-        q: str | None = Query(default=None),
-        graph_id: str | None = Query(default=None),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[SourceOut]]:
-        return {"sources": repository.list_sources(q, graph_id)}
-
-    @app.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
-    async def create_source(
-        payload: SourceCreate,
-        graph_id: str | None = Query(default=None),
-        _: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_source(payload, graph_id)
-
-    @app.patch("/sources/{source_id}", response_model=SourceOut)
-    async def update_source(
-        source_id: str,
-        payload: SourceUpdate,
-        _: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        source = repository.update_source(source_id, payload)
-        if source is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
-        return source
-
-    @app.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_source(
-        source_id: str,
-        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> None:
-        if not repository.delete_source(source_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
-
-    @app.get("/ingestion-runs")
-    async def ingestion_runs(
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[IngestionRunOut]]:
-        return {"ingestion_runs": repository.list_ingestion_runs()}
-
-    @app.post("/ingestion-runs", response_model=IngestionResultOut | JobOut, status_code=status.HTTP_201_CREATED)
-    async def create_ingestion_run(
-        payload: IngestionCreate,
-        response: Response,
-        graph_id: str | None = Query(default=None),
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-        settings: Settings = Depends(get_settings),
-    ) -> dict:
-        if settings.environment in {"local", "test", "development"}:
-            try:
-                return await GraphJobExecutor(repository, settings).ingestion(payload, actor_id=user.id, graph_id=graph_id)
-            except ValueError as error:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
-        project_id = (graph_id or "project-default").split(":", 1)[0]
-        response.status_code = status.HTTP_202_ACCEPTED
-        serialized = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ingestion.run",
-                queue="ingestion",
-                idempotency_key=f"ingestion:{project_id}:{hashlib.sha256(serialized.encode()).hexdigest()}",
-                payload={"project_id": project_id, "graph_id": graph_id, "actor_id": user.id, "ingestion": payload.model_dump(mode="json")},
-            ),
-            project_id=project_id,
-        )
-
-    @app.get("/proposals")
-    async def proposals(
-        graph_id: str | None = Query(default=None),
-        lens: str | None = Query(default="all"),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ProposalOut]]:
-        return {"proposals": repository.list_proposals(graph_id, lens=normalize_graph_lens(lens))}
-
-    @app.get("/review-queue", response_model=ReviewQueueOut)
-    async def review_queue(
-        limit: int = Query(default=25, ge=1, le=100),
-        graph_id: str | None = Query(default=None),
-        lens: str | None = Query(default="all"),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, object]:
-        return repository.review_queue(limit=limit, graph_id=graph_id, lens=normalize_graph_lens(lens))
-
-    @app.get("/review-dashboard", response_model=ReviewDashboardOut)
-    async def review_dashboard(
-        graph_id: str | None = Query(default=None),
-        lens: str | None = Query(default="all"),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, object]:
-        return repository.review_dashboard(graph_id, normalize_graph_lens(lens))
-
-    @app.get("/review-activity", response_model=ReviewActivityOut)
-    async def review_activity(
-        limit: int = Query(default=10, ge=1, le=100),
-        graph_id: str | None = Query(default=None),
-        lens: str | None = Query(default="all"),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, object]:
-        return repository.review_activity(limit=limit, graph_id=graph_id, lens=normalize_graph_lens(lens))
-
-    @app.get("/review-sources", response_model=SourceReviewCoverageOut)
-    async def review_sources(
-        limit: int = Query(default=25, ge=1, le=100),
-        graph_id: str | None = Query(default=None),
-        lens: str | None = Query(default="all"),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, object]:
-        return repository.source_review_coverage(limit=limit, graph_id=graph_id, lens=normalize_graph_lens(lens))
-
-    @app.post("/proposals", response_model=ProposalOut, status_code=status.HTTP_201_CREATED)
-    async def create_proposal(
-        payload: ProposalCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.create_proposal(payload, user.id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found") from error
-
-    @app.get("/review-decisions")
-    async def review_decisions(
-        graph_id: str | None = Query(default=None),
-        _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ReviewDecisionOut]]:
-        return {"review_decisions": repository.list_review_decisions(graph_id)}
-
-    @app.post("/review-decisions", response_model=ReviewDecisionOut, status_code=status.HTTP_201_CREATED)
-    async def create_review_decision(
-        payload: ReviewDecisionCreate,
-        user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.review(payload, user.id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found") from error
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    app.include_router(create_review_router(repo))
 
     @app.get("/search")
     async def search(

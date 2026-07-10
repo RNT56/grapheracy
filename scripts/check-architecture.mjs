@@ -22,7 +22,7 @@ async function sourceFiles(relativeDir, suffixes) {
 const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
-  "services/api/src/graphview_api/main.py": 1500,
+  "services/api/src/graphview_api/main.py": 1200,
   "services/api/src/graphview_api/repository.py": 6100
 };
 
@@ -55,6 +55,10 @@ const requiredBoundaries = [
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
   "services/api/src/graphview_api/agent_context/router.py",
+  "services/api/src/graphview_api/connector_routes.py",
+  "services/api/src/graphview_api/operations/readiness.py",
+  "services/api/src/graphview_api/review/router.py",
+  "services/api/src/graphview_api/sources/router.py",
   "docs/14-graphview-1.0-upgrade-ledger.md"
 ];
 for (const relativePath of requiredBoundaries) {
@@ -68,6 +72,17 @@ for (const relativePath of requiredBoundaries) {
 const apiAssembly = await read("services/api/src/graphview_api/main.py");
 if (apiAssembly.includes('"/agent-context/')) {
   failures.push("agent-context routes must remain inside the bounded agent_context module");
+}
+
+const boundedRoutePrefixes = [
+  ["connector", ['"/connectors"', '"/connector-accounts"', '"/connector-targets"', '"/connector-sync-runs"']],
+  ["review", ['"/proposals"', '"/review-']],
+  ["sources", ['"/sources"', '"/source-chunks"', '"/lineage/', '"/ingestion-runs"']]
+];
+for (const [moduleName, routePrefixes] of boundedRoutePrefixes) {
+  if (routePrefixes.some((routePrefix) => apiAssembly.includes(routePrefix))) {
+    failures.push(`${moduleName} routes must remain inside their bounded router module`);
+  }
 }
 
 if (failures.length) {
