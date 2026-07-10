@@ -64,8 +64,8 @@ class GraphProjectionRepository:
 
     def graph_rows(self, project_id: str) -> tuple[list[dict], list[dict]]:
         with self.engine.begin() as conn:
-            nodes = [self.legacy._node_from_row(row) for row in conn.execute(select(db.content_nodes).where(db.content_nodes.c.project_id == project_id)).mappings()]
-            edges = [self.legacy._edge_from_row(row) for row in conn.execute(select(db.semantic_edges).where(db.semantic_edges.c.project_id == project_id)).mappings()]
+            nodes = [self.legacy._node_from_row(normalize_json_row(row)) for row in conn.execute(select(db.content_nodes).where(db.content_nodes.c.project_id == project_id)).mappings()]
+            edges = [self.legacy._edge_from_row(normalize_json_row(row)) for row in conn.execute(select(db.semantic_edges).where(db.semantic_edges.c.project_id == project_id)).mappings()]
         return nodes, edges
 
     def list_layouts(self, project_id: str, *, include_positions: bool = False) -> list[dict]:
@@ -231,13 +231,152 @@ class GraphProjectionRepository:
             ).mappings()
             edges = []
             for row in edge_rows:
-                edge = self.legacy._edge_from_row(row)
+                edge = self.legacy._edge_from_row(normalize_json_row(row))
                 edges.append({"id": edge["id"], "source_id": edge["source_node_id"], "target_id": edge["target_node_id"], "relation": edge["relation"], "weight": edge.get("weight"), "count": 1, "edge": edge})
             return {
-                "nodes": [{"node": self.legacy._node_from_row(row), "x": row["projection_x"], "y": row["projection_y"], "z": row["projection_z"]} for row in node_rows],
+                "nodes": [{"node": self.legacy._node_from_row(normalize_json_row(row)), "x": row["projection_x"], "y": row["projection_y"], "z": row["projection_z"]} for row in node_rows],
                 "clusters": [],
                 "edges": edges,
                 "total_nodes": total_nodes,
+            }
+
+    def projected_subgraph(
+        self,
+        project_id: str,
+        *,
+        focus_node_id: str | None,
+        depth: int,
+        max_nodes: int,
+    ) -> dict | None:
+        """Return a bounded PostgreSQL neighborhood without materializing the project graph."""
+        if self.engine.dialect.name != "postgresql":
+            return None
+        normalized_depth = min(2, max(1, depth))
+        normalized_limit = min(2_000, max(1, max_nodes))
+        edge_limit = normalized_limit * 2
+        with self.engine.begin() as conn:
+            if focus_node_id is None:
+                ordered_node_ids = list(
+                    conn.execute(
+                        select(db.content_nodes.c.id)
+                        .where(db.content_nodes.c.project_id == project_id)
+                        .order_by(db.content_nodes.c.id)
+                        .limit(normalized_limit)
+                    ).scalars()
+                )
+                total_nodes = int(
+                    conn.execute(
+                        select(func.count()).select_from(db.content_nodes).where(db.content_nodes.c.project_id == project_id)
+                    ).scalar_one()
+                )
+                omitted_nodes = max(0, total_nodes - len(ordered_node_ids))
+            else:
+                focus_exists = conn.execute(
+                    select(db.content_nodes.c.id).where(
+                        and_(
+                            db.content_nodes.c.project_id == project_id,
+                            db.content_nodes.c.id == focus_node_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if focus_exists is None:
+                    return {"found": False}
+
+                distance_by_node_id = {focus_node_id: 0}
+                degree_by_node_id: dict[str, int] = {focus_node_id: 0}
+                frontier = {focus_node_id}
+                traversal_truncated = False
+                scan_limit = min(20_000, max(1_000, normalized_limit * 4))
+                candidate_limit = max(normalized_limit, min(8_000, normalized_limit * 4))
+                for distance in range(1, normalized_depth + 1):
+                    if not frontier:
+                        break
+                    traversed_edges: dict[str, dict] = {}
+                    for adjacency_column in (db.semantic_edges.c.source_node_id, db.semantic_edges.c.target_node_id):
+                        rows = list(
+                            conn.execute(
+                                select(db.semantic_edges)
+                                .where(
+                                    and_(
+                                        db.semantic_edges.c.project_id == project_id,
+                                        adjacency_column.in_(sorted(frontier)),
+                                    )
+                                )
+                                .order_by(adjacency_column, db.semantic_edges.c.id)
+                                .limit(scan_limit + 1)
+                            ).mappings()
+                        )
+                        if len(rows) > scan_limit:
+                            traversal_truncated = True
+                            rows = rows[:scan_limit]
+                        traversed_edges.update((row["id"], dict(row)) for row in rows)
+
+                    next_frontier: set[str] = set()
+                    for edge in traversed_edges.values():
+                        source_id = edge["source_node_id"]
+                        target_id = edge["target_node_id"]
+                        degree_by_node_id[source_id] = degree_by_node_id.get(source_id, 0) + 1
+                        degree_by_node_id[target_id] = degree_by_node_id.get(target_id, 0) + 1
+                        for candidate_id in (source_id, target_id):
+                            if candidate_id not in distance_by_node_id:
+                                next_frontier.add(candidate_id)
+                    remaining = max(0, candidate_limit - len(distance_by_node_id))
+                    if len(next_frontier) > remaining:
+                        traversal_truncated = True
+                        next_frontier = set(sorted(next_frontier)[:remaining])
+                    for candidate_id in next_frontier:
+                        distance_by_node_id[candidate_id] = distance
+                    frontier = next_frontier
+
+                ranked_node_ids = sorted(
+                    distance_by_node_id,
+                    key=lambda node_id: (
+                        distance_by_node_id[node_id],
+                        -degree_by_node_id.get(node_id, 0),
+                        node_id,
+                    ),
+                )
+                ordered_node_ids = ranked_node_ids[:normalized_limit]
+                omitted_nodes = max(0, len(ranked_node_ids) - len(ordered_node_ids))
+                if traversal_truncated and omitted_nodes == 0:
+                    omitted_nodes = 1
+
+            if not ordered_node_ids:
+                return {
+                    "found": True,
+                    "nodes": [],
+                    "edges": [],
+                    "omitted_node_count": omitted_nodes,
+                    "omitted_edge_count": 0,
+                }
+
+            node_rows = conn.execute(
+                select(db.content_nodes).where(
+                    and_(
+                        db.content_nodes.c.project_id == project_id,
+                        db.content_nodes.c.id.in_(ordered_node_ids),
+                    )
+                )
+            ).mappings()
+            nodes_by_id = {row["id"]: self.legacy._node_from_row(normalize_json_row(row)) for row in node_rows}
+            selected_ids = set(nodes_by_id)
+            edge_filter = and_(
+                db.semantic_edges.c.project_id == project_id,
+                db.semantic_edges.c.source_node_id.in_(selected_ids),
+                db.semantic_edges.c.target_node_id.in_(selected_ids),
+            )
+            total_edges = int(
+                conn.execute(select(func.count()).select_from(db.semantic_edges).where(edge_filter)).scalar_one()
+            )
+            edge_rows = conn.execute(
+                select(db.semantic_edges).where(edge_filter).order_by(db.semantic_edges.c.id).limit(edge_limit)
+            ).mappings()
+            return {
+                "found": True,
+                "nodes": [nodes_by_id[node_id] for node_id in ordered_node_ids if node_id in nodes_by_id],
+                "edges": [self.legacy._edge_from_row(normalize_json_row(row)) for row in edge_rows],
+                "omitted_node_count": omitted_nodes,
+                "omitted_edge_count": max(0, total_edges - edge_limit),
             }
 
     def hybrid_search(self, graph_id: str, query: str, *, limit: int, actor_id: str) -> list[dict] | None:
@@ -246,27 +385,60 @@ class GraphProjectionRepository:
         project_id = self.legacy._graph_view_spec(graph_id).project_id
         embedding = "[" + ",".join(str(value) for value in embed_text(query)) + "]"
         statement = text("""
-            WITH node_matches AS (
+            WITH lexical_nodes AS MATERIALIZED (
               SELECT n.id, 'node' AS kind, n.label, n.summary,
                 ts_rank_cd(to_tsvector('english', coalesce(n.label, '') || ' ' || coalesce(n.summary, '')), plainto_tsquery('english', :query)) * 0.65
                 + coalesce((1 - (e.vector_native <=> CAST(:embedding AS vector))) * 0.35, 0) AS score
               FROM content_nodes n
               LEFT JOIN content_embeddings e ON e.content_node_id = n.id AND e.vector_native IS NOT NULL
               WHERE n.project_id = :project_id
-            ), source_matches AS (
+                AND to_tsvector('english', coalesce(n.label, '') || ' ' || coalesce(n.summary, ''))
+                  @@ plainto_tsquery('english', :query)
+              ORDER BY ts_rank_cd(
+                to_tsvector('english', coalesce(n.label, '') || ' ' || coalesce(n.summary, '')),
+                plainto_tsquery('english', :query)
+              ) DESC
+              LIMIT :candidate_limit
+            ), vector_nodes AS MATERIALIZED (
+              SELECT n.id, 'node' AS kind, n.label, n.summary,
+                ts_rank_cd(to_tsvector('english', coalesce(n.label, '') || ' ' || coalesce(n.summary, '')), plainto_tsquery('english', :query)) * 0.65
+                + (1 - (e.vector_native <=> CAST(:embedding AS vector))) * 0.35 AS score
+              FROM content_embeddings e
+              JOIN content_nodes n ON n.id = e.content_node_id
+              WHERE n.project_id = :project_id AND e.vector_native IS NOT NULL
+              ORDER BY e.vector_native <=> CAST(:embedding AS vector)
+              LIMIT :candidate_limit
+            ), source_matches AS MATERIALIZED (
               SELECT s.id, 'source' AS kind, s.title AS label, NULL AS summary,
                 ts_rank_cd(to_tsvector('english', coalesce(s.title, '') || ' ' || coalesce(s.uri, '')), plainto_tsquery('english', :query)) * 0.65 AS score
-              FROM sources s WHERE s.project_id = :project_id
+              FROM sources s
+              WHERE s.project_id = :project_id
+                AND to_tsvector('english', coalesce(s.title, '') || ' ' || coalesce(s.uri, ''))
+                  @@ plainto_tsquery('english', :query)
+              ORDER BY score DESC
+              LIMIT :candidate_limit
             )
-            SELECT id, kind, label, summary, score FROM (
-              SELECT * FROM node_matches UNION ALL SELECT * FROM source_matches
-            ) ranked WHERE score > 0 ORDER BY score DESC, label ASC LIMIT :limit
+            SELECT id, kind, max(label) AS label, max(summary) AS summary, max(score) AS score FROM (
+              SELECT * FROM lexical_nodes
+              UNION ALL SELECT * FROM vector_nodes
+              UNION ALL SELECT * FROM source_matches
+            ) candidates
+            GROUP BY id, kind
+            HAVING max(score) > 0
+            ORDER BY score DESC, label ASC
+            LIMIT :limit
         """)
         timestamp = datetime.now(tz=UTC)
         with self.engine.begin() as conn:
             rows = [dict(row) for row in conn.execute(
                 statement,
-                {"query": query, "embedding": embedding, "project_id": project_id, "limit": limit},
+                {
+                    "query": query,
+                    "embedding": embedding,
+                    "project_id": project_id,
+                    "candidate_limit": max(100, limit * 4),
+                    "limit": limit,
+                },
             ).mappings()]
             conn.execute(
                 insert(db.audit_events).values(

@@ -110,7 +110,20 @@ class GraphProjectionService:
     def subgraph(self, graph_id: str, *, focus_node_id: str | None, depth: int, max_nodes: int) -> dict:
         project_id = self.project_id(graph_id)
         version = self.projection.graph_version(project_id)
-        if focus_node_id:
+        projected = self.projection.projected_subgraph(
+            project_id,
+            focus_node_id=focus_node_id,
+            depth=depth,
+            max_nodes=max_nodes,
+        )
+        if projected is not None:
+            if not projected["found"]:
+                return None
+            nodes = projected["nodes"]
+            edges = projected["edges"]
+            omitted_nodes = projected["omitted_node_count"]
+            omitted_edges = projected["omitted_edge_count"]
+        elif focus_node_id:
             result = self.legacy.neighborhood(focus_node_id, depth=depth, limit=max_nodes, graph_id=graph_id)
             if result is None:
                 return None

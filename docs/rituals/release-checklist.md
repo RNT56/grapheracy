@@ -45,10 +45,11 @@
     credentials, adapter sessions, Redis sessions, jobs, outbox events, and actions are inert.
 31. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
-32. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
-33. Run full CI security gates.
-34. Run `pnpm run release:artifacts:verify`, then confirm tag CI generates SBOMs for all release images and packaged
+32. Run `pnpm run test:performance:live` on the 100k-node/500k-edge seed and retain the four-route p95 JSON receipt.
+33. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
+34. Run full CI security gates.
+35. Run `pnpm run release:artifacts:verify`, then confirm tag CI generates SBOMs for all release images and packaged
     gateway/extension artifacts, records all image digests, verifies the annotated tag, and signs the checksum manifest.
-35. Confirm no release-blocking security criteria in `../../SECURITY.md`.
-36. Confirm runtime image users are non-root.
-37. Tag release after coordinator approval.
+36. Confirm no release-blocking security criteria in `../../SECURITY.md`.
+37. Confirm runtime image users are non-root.
+38. Tag release after coordinator approval.

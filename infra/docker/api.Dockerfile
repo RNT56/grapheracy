@@ -5,7 +5,7 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock /app/
 COPY services/api /app/services/api
 COPY services/worker /app/services/worker
-RUN uv sync --project services/api --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --project services/api --frozen --no-dev
 
 FROM python:3.14.5-slim-bookworm AS runtime
 RUN groupadd --system --gid 10001 graphview && useradd --system --uid 10001 --gid graphview --home-dir /nonexistent --shell /usr/sbin/nologin graphview

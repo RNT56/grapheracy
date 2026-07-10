@@ -29,8 +29,12 @@ def _dump_json(value: object) -> str:
     return json.dumps(value, sort_keys=True)
 
 
-def _load_json(value: str | None, fallback: object):
-    return fallback if value is None else json.loads(value)
+def _load_json(value: object | None, fallback: object):
+    if value is None:
+        return fallback
+    if isinstance(value, (str, bytes, bytearray)):
+        return json.loads(value)
+    return value
 
 
 class SecretRepositoryMixin:

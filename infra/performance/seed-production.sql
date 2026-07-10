@@ -24,10 +24,13 @@ INSERT INTO semantic_edges (id, project_id, source_node_id, target_node_id, rela
 SELECT 'perf-edge-' || lpad(i::text, 7, '0'), 'project-performance',
   'perf-node-' || lpad((((i - 1) % 100000) + 1)::text, 6, '0'),
   'perf-node-' || lpad((((((i - 1) % 100000) + 1) + (((i - 1) / 100000) + 1) * 7919 - 1) % 100000 + 1)::text, 6, '0'),
-  CASE ((i - 1) / 100000) WHEN 0 THEN 'supports' WHEN 1 THEN 'depends_on' WHEN 2 THEN 'references' WHEN 3 THEN 'relates_to' ELSE 'derived_from' END,
+  CASE ((i - 1) / 100000) WHEN 0 THEN 'supports' WHEN 1 THEN 'depends_on' WHEN 2 THEN 'references' WHEN 3 THEN 'relates_to' ELSE 'part_of' END,
   0.75, '{}', '[]', now(), now()
 FROM generate_series(1, 500000) AS i
 ON CONFLICT (id) DO NOTHING;
+UPDATE semantic_edges
+SET relation = 'part_of', updated_at = now()
+WHERE project_id = 'project-performance' AND relation = 'derived_from';
 INSERT INTO graph_versions (project_id, version, node_count, edge_count, updated_at)
 VALUES ('project-performance', 1, 100000, 500000, now())
 ON CONFLICT (project_id) DO UPDATE SET node_count=excluded.node_count, edge_count=excluded.edge_count, updated_at=excluded.updated_at;

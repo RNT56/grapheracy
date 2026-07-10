@@ -126,10 +126,12 @@ def _jsonable(value: object):
     return value
 
 
-def load_json(value: str | None, fallback: object):
+def load_json(value: object | None, fallback: object):
     if value is None:
         return fallback
-    return json.loads(value)
+    if isinstance(value, (str, bytes, bytearray)):
+        return json.loads(value)
+    return value
 
 
 class GraphRepository(

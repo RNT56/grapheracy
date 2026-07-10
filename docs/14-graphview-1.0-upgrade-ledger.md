@@ -21,8 +21,8 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| V1 API and compatibility aliases | implemented | 98 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
-| Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | Production-size PostgreSQL p95 and live progressive-expansion proof pending | Graph |
+| V1 API and compatibility aliases | implemented | 99 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
+| Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, and no-op Helm upgrade proven | Persistence |
 | Arq queues, scheduling, retries, and outbox | implemented | 7 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
@@ -35,14 +35,14 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | Exact-stack inert restore production-proven; final GitHub-verified signed tag and published Sigstore bundle pending | Release |
-| 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Seeded live PostgreSQL p95 and documented reference-machine rerun pending | Performance |
+| 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Apple M2 Pro reference run: 178.5 ms overview, 24.8 ms detail, 20.7 ms subgraph, and 6.6 ms search p95 | Performance |
 
 ## Recorded Evidence
 
 The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 98 tests and the worker suite reported 7.
+  structure, and production web-build gates passed; the API suite reported 99 tests and the worker suite reported 7.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
@@ -65,14 +65,19 @@ The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
   object manifests, survived destructive record/object deletion, restored the complete PostgreSQL/S3 canary set,
   removed usable connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis,
   restarted Keycloak/API/worker, and proved the worker did not replay the external action.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:performance:live`: the exact production Compose API
+  used Keycloak service authentication and a seeded PostgreSQL/pgvector project containing 100,000 nodes and 500,000
+  edges. Across 40 measured requests per route, p95 was 178.5 ms for clustered overview, 24.8 ms for concrete viewport
+  expansion, 20.7 ms for depth-two subgraph, and 6.6 ms for hybrid search. The run used an Apple M2 Pro MacBook Pro
+  with 12 CPU cores and 16 GB host memory; Docker had 12 CPUs and 8 GB memory.
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.
 - `pnpm run test:performance` retained complete 5k/20k and 20k/50k visible projections and bounded a 100k/500k
   project overview well under its 2.5-second budget on the development machine. Chromium browser acceptance separately proved clustered
   overview latency, nonblank WebGL output, the 5k/20k and 20k/50k frame gates, viewport bounds, context recovery,
-  mobile rendering, and a 250-row accessible projection window. These are integration results, not the remaining
-  live-dataset/reference-machine production sign-off.
+  mobile rendering, and a 250-row accessible projection window. The production dataset result above completes the
+  matching server-side projection sign-off.
 
 ## Acceptance Rule
 

@@ -41,7 +41,7 @@
     "test:secrets:live": "bash scripts/test-live-secret-lifecycle.sh",
     "test:backup-restore:live": "bash scripts/test-live-backup-restore.sh",
     "test:performance": "node --experimental-strip-types scripts/check-performance-contract.mjs",
-    "test:performance:live": "uv run --package graphview-api python scripts/benchmark-viewport.py",
+    "test:performance:live": "bash scripts/test-live-performance.sh",
     "test:deployment": "bash scripts/check-helm.sh",
     "security:full": "pnpm run security:local && pnpm run security:licenses && pnpm run security:audit && pnpm run security:osv && pnpm run security:secrets && pnpm run security:signatures",
     "quality:full": "pnpm run clean:artifacts && pnpm run quality:fast && pnpm run test:smoke && pnpm run test:integration && pnpm run test:e2e && pnpm run test:performance && pnpm run clean:artifacts",
