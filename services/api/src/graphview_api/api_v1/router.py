@@ -490,6 +490,50 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
             project_id=project_id,
         )
 
+    @router.post("/connectors/google/{target_id}/webhook", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
+    async def google_connector_webhook(
+        target_id: str,
+        x_goog_channel_id: str | None = Header(default=None, alias="X-Goog-Channel-ID"),
+        x_goog_channel_token: str | None = Header(default=None, alias="X-Goog-Channel-Token"),
+        x_goog_resource_id: str | None = Header(default=None, alias="X-Goog-Resource-ID"),
+        x_goog_resource_state: str | None = Header(default=None, alias="X-Goog-Resource-State"),
+        x_goog_message_number: str | None = Header(default=None, alias="X-Goog-Message-Number"),
+        repository: GraphRepository = Depends(repo_provider),
+    ):
+        bundle = repository.connector_target_bundle(target_id)
+        if bundle is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector target not found")
+        account, target, credentials = bundle
+        watch = credentials.get("drive_watch") if credentials and isinstance(credentials.get("drive_watch"), dict) else None
+        if account["kind"] != "google-workspace" or not watch:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Google Drive watch channel is not configured")
+        supplied = (x_goog_channel_id, x_goog_channel_token, x_goog_resource_id)
+        expected = (watch.get("channel_id"), watch.get("channel_token"), watch.get("resource_id"))
+        if any(value is None for value in supplied) or not all(
+            hmac.compare_digest(str(actual), str(required)) for actual, required in zip(supplied, expected, strict=True)
+        ):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google Drive watch channel")
+        if not x_goog_resource_state or len(x_goog_resource_state) > 80:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Google Drive resource state is required")
+        if not x_goog_message_number or not x_goog_message_number.isdigit():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Google Drive message number is required")
+        project_id = target["project_id"]
+        return JobRepository(repository.engine).enqueue(
+            JobCreate(
+                kind="connector.sync",
+                queue="connectors",
+                idempotency_key=f"google-webhook:{target_id}:{x_goog_channel_id}:{x_goog_message_number}",
+                payload={
+                    "project_id": project_id,
+                    "target_id": target_id,
+                    "actor_id": "google-drive-webhook",
+                    "message_number": x_goog_message_number,
+                    "resource_state": x_goog_resource_state,
+                },
+            ),
+            project_id=project_id,
+        )
+
     @router.post("/action-proposals/{action_proposal_id}/run", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
     async def enqueue_action_run(
         action_proposal_id: str,
@@ -579,7 +623,7 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
         ensure_project_access(user, current["project_id"])
         job = JobRepository(repository.engine).cancel(job_id, project_id=current["project_id"])
         if job is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued or retrying jobs can be cancelled")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued, retrying, or running jobs can be cancelled")
         return job
 
     @router.post("/jobs/{job_id}/retry", response_model=JobOut)

@@ -68,15 +68,15 @@ class ConnectorRepositoryMixin:
             if result.rowcount != 1:
                 raise KeyError(account_id)
 
-    def list_connector_targets(self, *, project_id: str = DEFAULT_PROJECT_ID) -> list[dict]:
+    def list_connector_targets(self, *, project_id: str | None = DEFAULT_PROJECT_ID) -> list[dict]:
+        statement = select(db.connector_targets)
+        if project_id is not None:
+            statement = statement.where(db.connector_targets.c.project_id == project_id)
+        statement = statement.order_by(db.connector_targets.c.created_at.desc(), db.connector_targets.c.id.desc())
         with self.engine.begin() as connection:
             return [
                 self._connector_target_from_row(row)
-                for row in connection.execute(
-                    select(db.connector_targets)
-                    .where(db.connector_targets.c.project_id == project_id)
-                    .order_by(db.connector_targets.c.created_at.desc(), db.connector_targets.c.id.desc())
-                ).mappings()
+                for row in connection.execute(statement).mappings()
             ]
 
     def create_connector_target(self, payload, *, project_id: str = DEFAULT_PROJECT_ID) -> dict:

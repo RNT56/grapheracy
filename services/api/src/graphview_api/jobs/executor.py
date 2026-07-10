@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import UTC, datetime, timedelta
 
 from graphview_api.connectors import build_connector_proposals, fetch_connector_documents
 from graphview_api.action_adapters import ActionExecutor
@@ -250,5 +251,10 @@ class GraphJobExecutor:
             imported_count=len(result["sources"]),
             deleted_count=result["deleted_count"],
             cursor=fetch_result.cursor,
+            next_scheduled_at=(
+                datetime.now(tz=UTC) + timedelta(minutes=int(target_settings.get("interval_minutes") or 0))
+                if int(target_settings.get("interval_minutes") or 0) > 0 and target_settings.get("schedule_enabled", True) is not False
+                else None
+            ),
         )
         return result

@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import base64
 import re
+import secrets
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from html import unescape
 from typing import Any, Literal
 from urllib.parse import urlparse
+from uuid import uuid4
 
 import httpx
 import jwt
@@ -114,7 +116,7 @@ async def fetch_connector_documents(
     if kind == "url":
         return _snapshot_result([await _url_document(target, settings)])
     if kind == "repository":
-        return _snapshot_result(await _repository_documents(target, settings, token_json or {}))
+        return await _repository_fetch_result(target, settings, token_json or {})
     if kind == "google-workspace":
         return await _google_documents(target, settings, token_json or {})
     if kind == "notion":
@@ -402,8 +404,6 @@ async def _repository_documents(
     files = settings.get("files")
     if isinstance(files, list):
         return [_document_from_mapping("repository", item, target, index) for index, item in enumerate(files)]
-    if settings.get("provider") == "github" or token_json.get("installation_id"):
-        return await _github_repository_documents(target, settings, token_json)
     return [
         _make_document(
             connector_kind="repository",
@@ -419,16 +419,28 @@ async def _repository_documents(
     ]
 
 
+async def _repository_fetch_result(
+    target: dict[str, Any],
+    settings: dict[str, Any],
+    token_json: dict[str, Any],
+) -> ConnectorFetchResult:
+    if settings.get("provider") == "github" or token_json.get("installation_id"):
+        return await _github_repository_documents(target, settings, token_json)
+    return _snapshot_result(await _repository_documents(target, settings, token_json))
+
+
 async def _github_repository_documents(
     target: dict[str, Any],
     settings: dict[str, Any],
     token_json: dict[str, Any],
-) -> list[NormalizedSourceDocument]:
+) -> ConnectorFetchResult:
     repository = str(settings.get("repository") or target["remote_id"])
     if repository.count("/") != 1:
         raise ValueError("GitHub repository target must be owner/name")
     api_url = str(settings.get("api_url") or "https://api.github.com").rstrip("/")
     access_token = token_json.get("access_token")
+    if access_token and float(token_json.get("expires_at") or 0) and float(token_json["expires_at"]) <= time.time() + 120:
+        access_token = None
     async with httpx.AsyncClient(timeout=30, follow_redirects=False) as client:
         if not access_token:
             app_id = str(token_json.get("app_id") or "")
@@ -443,7 +455,13 @@ async def _github_repository_documents(
                 headers={"Authorization": f"Bearer {app_jwt}", "Accept": "application/vnd.github+json"},
             )
             token_response.raise_for_status()
-            access_token = token_response.json()["token"]
+            issued_token = token_response.json()
+            access_token = issued_token["token"]
+            token_json["access_token"] = access_token
+            if issued_token.get("expires_at"):
+                parsed_expiry = _parse_datetime(str(issued_token["expires_at"]))
+                if parsed_expiry is not None:
+                    token_json["expires_at"] = parsed_expiry.timestamp()
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Accept": "application/vnd.github+json",
@@ -454,19 +472,66 @@ async def _github_repository_documents(
         commit_response.raise_for_status()
         commit = commit_response.json()
         commit_sha = str(commit["sha"])
-        tree_response = await client.get(
-            f"{api_url}/repos/{repository}/git/trees/{commit_sha}",
-            params={"recursive": "1"},
-            headers=headers,
-        )
-        tree_response.raise_for_status()
-        tree = tree_response.json()
+        cursor = str(settings.get("connector_cursor") or "")
+        previous_commit_sha, previous_sync_seconds = _parse_github_cursor(cursor)
+        incremental = previous_commit_sha is not None
+        tombstones: set[str] = set()
+        complete_snapshot = not incremental
+        if incremental and previous_commit_sha != commit_sha:
+            try:
+                tree_items, tombstones = await _github_compare_files(
+                    client,
+                    api_url=api_url,
+                    repository=repository,
+                    base_sha=previous_commit_sha,
+                    head_sha=commit_sha,
+                    headers=headers,
+                )
+            except ValueError as error:
+                if "300-file API limit" not in str(error):
+                    raise
+                tree_response = await client.get(
+                    f"{api_url}/repos/{repository}/git/trees/{commit_sha}",
+                    params={"recursive": "1"},
+                    headers=headers,
+                )
+                tree_response.raise_for_status()
+                tree = tree_response.json()
+                if tree.get("truncated"):
+                    raise ValueError("GitHub tree response was truncated; narrow the repository target before syncing") from error
+                tree_items = tree.get("tree", [])
+                tombstones = set()
+                incremental = False
+                complete_snapshot = True
+        elif incremental:
+            tree_items = []
+        else:
+            tree_response = await client.get(
+                f"{api_url}/repos/{repository}/git/trees/{commit_sha}",
+                params={"recursive": "1"},
+                headers=headers,
+            )
+            tree_response.raise_for_status()
+            tree = tree_response.json()
+            if tree.get("truncated"):
+                raise ValueError("GitHub tree response was truncated; narrow the repository target before syncing")
+            tree_items = tree.get("tree", [])
         documents: list[NormalizedSourceDocument] = []
         allowed_suffixes = tuple(settings.get("allowed_suffixes") or [".md", ".txt", ".py", ".ts", ".tsx", ".js", ".json", ".yml", ".yaml", ".go", ".rs", ".java"])
         max_files = min(2_000, max(1, int(settings.get("max_files", 500))))
-        for item in tree.get("tree", []):
-            path = str(item.get("path") or "")
+        existing_remote_ids = {str(value) for value in settings.get("existing_remote_ids", [])}
+        for item in tree_items:
+            path = str(item.get("path") or item.get("filename") or "")
+            remote_id = f"{repository}:{path}"
+            previous_path = str(item.get("previous_filename") or "")
+            if previous_path and previous_path != path:
+                tombstones.add(f"{repository}:{previous_path}")
+            if item.get("status") == "removed":
+                tombstones.add(remote_id)
+                continue
             if item.get("type") != "blob" or not path.endswith(allowed_suffixes) or int(item.get("size") or 0) > 1_000_000:
+                if incremental and remote_id in existing_remote_ids:
+                    tombstones.add(remote_id)
                 continue
             content_response = await client.get(f"{api_url}/repos/{repository}/contents/{path}", params={"ref": commit_sha}, headers=headers)
             content_response.raise_for_status()
@@ -479,7 +544,7 @@ async def _github_repository_documents(
                     title=path,
                     text=normalize_for_kind("repository", content),
                     uri=content_document.get("html_url"),
-                    remote_id=f"{repository}:{path}",
+                    remote_id=remote_id,
                     remote_parent_id=repository,
                     remote_modified_at=_parse_datetime(commit.get("commit", {}).get("committer", {}).get("date")),
                     remote_url=content_document.get("html_url"),
@@ -489,17 +554,30 @@ async def _github_repository_documents(
                         "repository": repository,
                         "commitSha": commit_sha,
                         "blobSha": item.get("sha"),
+                        "baseCommitSha": previous_commit_sha,
+                        "changeStatus": item.get("status") or "snapshot",
+                        "previousPath": previous_path or None,
                     },
                 )
             )
             if len(documents) >= max_files:
+                complete_snapshot = False
                 break
         if bool(settings.get("include_issues", True)):
             page = 1
             while page <= 10 and len(documents) < max_files:
+                issue_params: dict[str, Any] = {
+                    "state": "all",
+                    "per_page": 100,
+                    "page": page,
+                    "sort": "updated",
+                    "direction": "desc",
+                }
+                if incremental and previous_sync_seconds:
+                    issue_params["since"] = datetime.fromtimestamp(previous_sync_seconds, tz=UTC).isoformat()
                 issues_response = await client.get(
                     f"{api_url}/repos/{repository}/issues",
-                    params={"state": "all", "per_page": 100, "page": page, "sort": "updated", "direction": "desc"},
+                    params=issue_params,
                     headers=headers,
                 )
                 issues_response.raise_for_status()
@@ -528,11 +606,60 @@ async def _github_repository_documents(
                         )
                     )
                     if len(documents) >= max_files:
+                        complete_snapshot = False
                         break
                 if len(issues) < 100:
                     break
                 page += 1
-        return documents
+            if page > 10:
+                complete_snapshot = False
+        return ConnectorFetchResult(
+            documents=documents,
+            cursor=f"github:{commit_sha}:{int(time.time())}",
+            tombstone_remote_ids=tuple(sorted(tombstones)),
+            full_snapshot=complete_snapshot,
+        )
+
+
+def _parse_github_cursor(cursor: str) -> tuple[str | None, float | None]:
+    if not cursor.startswith("github:"):
+        return None, None
+    values = cursor.split(":", 2)
+    commit_sha = values[1] if len(values) > 1 and values[1] else None
+    try:
+        sync_seconds = float(values[2]) if len(values) > 2 else None
+    except ValueError:
+        sync_seconds = None
+    return commit_sha, sync_seconds
+
+
+async def _github_compare_files(
+    client: httpx.AsyncClient,
+    *,
+    api_url: str,
+    repository: str,
+    base_sha: str,
+    head_sha: str,
+    headers: dict[str, str],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    response = await client.get(
+        f"{api_url}/repos/{repository}/compare/{base_sha}...{head_sha}",
+        headers=headers,
+    )
+    response.raise_for_status()
+    page_files = response.json().get("files", [])
+    if len(page_files) >= 300:
+        raise ValueError("GitHub comparison reached the 300-file API limit; perform a narrowed full sync")
+    files: list[dict[str, Any]] = []
+    tombstones: set[str] = set()
+    for item in page_files:
+        normalized = {**item, "path": item.get("filename"), "type": "blob"}
+        files.append(normalized)
+        if item.get("status") == "removed":
+            tombstones.add(f"{repository}:{item.get('filename')}")
+        if item.get("status") == "renamed" and item.get("previous_filename"):
+            tombstones.add(f"{repository}:{item['previous_filename']}")
+    return files, tombstones
 
 
 async def _google_documents(
@@ -612,6 +739,14 @@ async def _google_documents(
                     metadata={"mimeType": item.get("mimeType"), "targetType": target["target_type"]},
                 )
             )
+        watch_cursor = next_cursor or connector_cursor.removeprefix("google:")
+        if watch_cursor:
+            await _ensure_google_drive_watch(
+                client,
+                settings=settings,
+                token_json=token_json,
+                page_token=watch_cursor,
+            )
         return ConnectorFetchResult(
             documents=docs,
             cursor=f"google:{next_cursor}" if next_cursor else connector_cursor or None,
@@ -646,6 +781,62 @@ async def _google_access_token(token_json: dict[str, Any]) -> str | None:
         if refreshed.get("token_type"):
             token_json["token_type"] = refreshed["token_type"]
         return str(token_json["access_token"])
+
+
+async def _ensure_google_drive_watch(
+    client: httpx.AsyncClient,
+    *,
+    settings: dict[str, Any],
+    token_json: dict[str, Any],
+    page_token: str,
+) -> None:
+    webhook_url = str(settings.get("watch_webhook_url") or "").strip()
+    if not webhook_url:
+        return
+    parsed = urlparse(webhook_url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError("Google Drive watch webhook URL must be an absolute HTTPS URL")
+    current = token_json.get("drive_watch") if isinstance(token_json.get("drive_watch"), dict) else {}
+    renewal_window_ms = min(86_400_000, max(300_000, int(settings.get("watch_renewal_window_ms") or 21_600_000)))
+    if (
+        current.get("webhook_url") == webhook_url
+        and int(current.get("expiration_ms") or 0) > int(time.time() * 1000) + renewal_window_ms
+        and current.get("page_token") == page_token
+    ):
+        return
+    if current.get("channel_id") and current.get("resource_id"):
+        stop = await client.post(
+            "https://www.googleapis.com/drive/v3/channels/stop",
+            json={"id": current["channel_id"], "resourceId": current["resource_id"]},
+        )
+        if stop.status_code not in {200, 204, 404, 410}:
+            stop.raise_for_status()
+    duration_seconds = min(604_800, max(3_600, int(settings.get("watch_duration_seconds") or 518_400)))
+    requested_expiration = int((time.time() + duration_seconds) * 1000)
+    channel_token = secrets.token_urlsafe(32)
+    channel_id = str(uuid4())
+    response = await client.post(
+        "https://www.googleapis.com/drive/v3/changes/watch",
+        params={"pageToken": page_token},
+        json={
+            "id": channel_id,
+            "type": "web_hook",
+            "address": webhook_url,
+            "token": channel_token,
+            "expiration": requested_expiration,
+        },
+    )
+    response.raise_for_status()
+    watch = response.json()
+    token_json["drive_watch"] = {
+        "channel_id": str(watch.get("id") or channel_id),
+        "resource_id": str(watch["resourceId"]),
+        "resource_uri": watch.get("resourceUri"),
+        "expiration_ms": int(watch.get("expiration") or requested_expiration),
+        "channel_token": channel_token,
+        "page_token": page_token,
+        "webhook_url": webhook_url,
+    }
 
 
 async def _google_changes(

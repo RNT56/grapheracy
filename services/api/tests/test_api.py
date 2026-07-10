@@ -317,6 +317,32 @@ def test_v1_failed_job_is_a_visible_dead_letter_and_can_be_requeued() -> None:
     assert len(jobs.pending_outbox()) == 2
 
 
+def test_v1_running_job_cancellation_is_visible_and_cannot_be_overwritten_by_completion() -> None:
+    client = make_client()
+    created = client.post(
+        "/api/v1/jobs",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "agent_context.retention",
+            "queue": "maintenance",
+            "idempotency_key": "running-cancellation-test",
+            "payload": {"project_id": "project-default"},
+        },
+    ).json()
+    jobs = JobRepository(client.app.state.repository.engine)
+    assert jobs.claim(created["id"], worker_id="slow-worker")["status"] == "running"
+
+    cancelling = client.post(f"/api/v1/jobs/{created['id']}/cancel", headers=ADMIN_HEADERS)
+
+    assert cancelling.status_code == 200
+    assert cancelling.json()["status"] == "cancelling"
+    assert jobs.cancellation_requested(created["id"])
+    terminal = jobs.complete(created["id"], {"must_not": "win_the_race"})
+    assert terminal["status"] == "cancelled"
+    assert terminal["result"] == {}
+    assert terminal["error_code"] == "CancelledByUser"
+
+
 def test_v1_approved_action_can_be_enqueued_once() -> None:
     client = make_client()
     proposal = client.post(
@@ -460,6 +486,58 @@ def test_github_connector_webhook_verifies_signature_and_deduplicates_delivery()
     assert invalid.status_code == 401
 
 
+def test_google_drive_webhook_verifies_channel_and_deduplicates_message_number() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={
+            "kind": "google-workspace",
+            "display_name": "Google Drive",
+            "token_json": {
+                "access_token": "google-token",
+                "drive_watch": {
+                    "channel_id": "channel-1",
+                    "channel_token": "channel-secret",
+                    "resource_id": "resource-1",
+                    "expiration_ms": 9999999999999,
+                },
+            },
+        },
+    ).json()
+    target = client.post(
+        "/connector-targets",
+        headers=ADMIN_HEADERS,
+        json={
+            "account_id": account["id"],
+            "target_type": "folder",
+            "remote_id": "folder-1",
+            "title": "Drive folder",
+            "sync_settings": {},
+        },
+    ).json()
+    headers = {
+        "X-Goog-Channel-ID": "channel-1",
+        "X-Goog-Channel-Token": "channel-secret",
+        "X-Goog-Resource-ID": "resource-1",
+        "X-Goog-Resource-State": "change",
+        "X-Goog-Message-Number": "42",
+    }
+
+    first = client.post(f"/api/v1/connectors/google/{target['id']}/webhook", headers=headers)
+    replay = client.post(f"/api/v1/connectors/google/{target['id']}/webhook", headers=headers)
+    invalid = client.post(
+        f"/api/v1/connectors/google/{target['id']}/webhook",
+        headers={**headers, "X-Goog-Channel-Token": "wrong", "X-Goog-Message-Number": "43"},
+    )
+
+    assert first.status_code == 202
+    assert replay.status_code == 202
+    assert replay.json()["id"] == first.json()["id"]
+    assert first.json()["payload"]["resource_state"] == "change"
+    assert invalid.status_code == 401
+
+
 def test_v1_connector_health_tracks_queue_lease_and_actionable_failure() -> None:
     client = make_client()
     account = client.post(
@@ -495,6 +573,45 @@ def test_v1_connector_health_tracks_queue_lease_and_actionable_failure() -> None
     assert failed["status"] == "rate_limited"
     assert failed["retry_attempt"] == 2
     assert "429" in failed["actionable_failure"]
+
+
+def test_connector_success_persists_next_schedule() -> None:
+    client = make_client()
+    account = client.post(
+        "/connector-accounts",
+        headers=ADMIN_HEADERS,
+        json={"kind": "upload", "display_name": "Scheduled uploads"},
+    ).json()
+    target = client.post(
+        "/connector-targets",
+        headers=ADMIN_HEADERS,
+        json={
+            "account_id": account["id"],
+            "target_type": "upload",
+            "remote_id": "scheduled-target",
+            "title": "Scheduled target",
+            "sync_settings": {
+                "content": "# Scheduled source\nDurable scheduled connector content.",
+                "interval_minutes": 15,
+                "schedule_enabled": True,
+            },
+        },
+    ).json()
+    executor = GraphJobExecutor(client.app.state.repository, Settings(database_url="sqlite://"))
+
+    asyncio.run(
+        executor.connector_sync(
+            target["id"],
+            actor_id="scheduler-test",
+            worker_id="worker-scheduler-test",
+            retry_attempt=1,
+        )
+    )
+    health = client.get(f"/api/v1/connectors/{target['id']}/health", headers=READER_HEADERS).json()
+
+    assert health["status"] == "healthy"
+    assert health["last_success_at"] is not None
+    assert health["next_scheduled_at"] is not None
 
 
 def test_v1_subgraph_is_bounded_and_project_scoped() -> None:

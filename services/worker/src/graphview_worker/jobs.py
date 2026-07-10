@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 import socket
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +18,25 @@ from graphview_api.secret_store import build_secret_store
 from graphview_api.object_store import build_object_store
 from graphview_api.observability import configure_worker_telemetry
 from graphview_api.action_adapters import ActionExecutor
+from graphview_api.connector_state import ConnectorStateRepository
+
+
+class DurableJobCancelled(Exception):
+    pass
+
+
+async def _execute_with_cancellation(ctx: dict, claimed: dict) -> dict:
+    jobs: JobRepository = ctx["jobs"]
+    task = asyncio.create_task(ctx["executor"].execute(claimed))
+    while True:
+        done, _ = await asyncio.wait({task}, timeout=0.25)
+        if task in done:
+            return task.result()
+        if jobs.cancellation_requested(claimed["id"]):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            raise DurableJobCancelled
 
 
 async def startup(ctx: dict) -> None:
@@ -81,7 +102,11 @@ async def execute_durable_job(ctx: dict, job_id: str) -> dict:
     ctx["queue_latency"].record(max(0.0, (datetime.now(tz=UTC) - created_at).total_seconds()), attributes)
     with ctx["tracer"].start_as_current_span("graphview.job.execute", attributes=attributes) as span:
         try:
-            result = await ctx["executor"].execute(claimed)
+            result = await _execute_with_cancellation(ctx, claimed)
+        except DurableJobCancelled:
+            cancelled = jobs.finish_cancellation(job_id)
+            ctx["job_counter"].add(1, {**attributes, "graphview.job.status": "cancelled"})
+            return cancelled
         except Exception as error:
             span.record_exception(error)
             retry_delay = 30
@@ -96,7 +121,7 @@ async def execute_durable_job(ctx: dict, job_id: str) -> dict:
                 raise Retry(defer=retry_delay) from error
             return failed
         completed = jobs.complete(job_id, result)
-        ctx["job_counter"].add(1, {**attributes, "graphview.job.status": "succeeded"})
+        ctx["job_counter"].add(1, {**attributes, "graphview.job.status": completed["status"]})
         return completed
 
 
@@ -109,7 +134,7 @@ async def enqueue_scheduled_connector_syncs(ctx: dict) -> int:
     jobs: JobRepository = ctx["jobs"]
     timestamp = datetime.now(tz=UTC)
     enqueued = 0
-    for target in repository.list_connector_targets():
+    for target in repository.list_connector_targets(project_id=None):
         settings = target.get("sync_settings", {})
         interval_minutes = int(settings.get("interval_minutes") or 0)
         if interval_minutes <= 0 or settings.get("schedule_enabled", True) is False:
@@ -130,6 +155,10 @@ async def enqueue_scheduled_connector_syncs(ctx: dict) -> int:
                 payload={"project_id": target["project_id"], "target_id": target["id"], "actor_id": "system-scheduler"},
             ),
             project_id=target["project_id"],
+        )
+        ConnectorStateRepository(repository.engine).mark_queued(
+            target["id"],
+            next_scheduled_at=timestamp + timedelta(minutes=interval_minutes),
         )
         enqueued += 1
     return enqueued

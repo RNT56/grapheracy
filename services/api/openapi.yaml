@@ -10133,6 +10133,128 @@
         }
       }
     },
+    "/api/v1/connectors/google/{target_id}/webhook": {
+      "post": {
+        "tags": [
+          "Graphview V1"
+        ],
+        "summary": "Google Connector Webhook",
+        "operationId": "google_connector_webhook_api_v1_connectors_google__target_id__webhook_post",
+        "parameters": [
+          {
+            "name": "target_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Target Id"
+            }
+          },
+          {
+            "name": "X-Goog-Channel-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Goog-Channel-Id"
+            }
+          },
+          {
+            "name": "X-Goog-Channel-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Goog-Channel-Token"
+            }
+          },
+          {
+            "name": "X-Goog-Resource-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Goog-Resource-Id"
+            }
+          },
+          {
+            "name": "X-Goog-Resource-State",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Goog-Resource-State"
+            }
+          },
+          {
+            "name": "X-Goog-Message-Number",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Goog-Message-Number"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/action-proposals/{action_proposal_id}/run": {
       "post": {
         "tags": [
@@ -25521,6 +25643,7 @@
               "queued",
               "leased",
               "running",
+              "cancelling",
               "retry",
               "succeeded",
               "failed",

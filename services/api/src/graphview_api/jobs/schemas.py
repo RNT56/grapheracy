@@ -4,7 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-JobStatus = Literal["queued", "leased", "running", "retry", "succeeded", "failed", "cancelled"]
+JobStatus = Literal["queued", "leased", "running", "cancelling", "retry", "succeeded", "failed", "cancelled"]
 
 
 class JobCreate(BaseModel):

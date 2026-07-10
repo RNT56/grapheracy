@@ -131,18 +131,55 @@ class JobRepository:
     def complete(self, job_id: str, result: dict) -> dict:
         timestamp = utc_now()
         with self.engine.begin() as conn:
-            conn.execute(
-                update(db.durable_jobs)
-                .where(db.durable_jobs.c.id == job_id)
-                .values(status="succeeded", result_json=dump_json(result), leased_until=None, updated_at=timestamp, finished_at=timestamp)
-            )
+            current = conn.execute(
+                select(db.durable_jobs).where(db.durable_jobs.c.id == job_id).with_for_update()
+            ).mappings().one()
+            if current["status"] == "cancelling":
+                values = {
+                    "status": "cancelled",
+                    "error_code": "CancelledByUser",
+                    "error": "Cancelled while the worker was running",
+                    "leased_until": None,
+                    "worker_id": None,
+                    "updated_at": timestamp,
+                    "finished_at": timestamp,
+                }
+            elif current["status"] == "running":
+                values = {
+                    "status": "succeeded",
+                    "result_json": dump_json(result),
+                    "leased_until": None,
+                    "updated_at": timestamp,
+                    "finished_at": timestamp,
+                }
+            else:
+                return self._job(current)
+            conn.execute(update(db.durable_jobs).where(db.durable_jobs.c.id == job_id).values(**values))
             row = conn.execute(select(db.durable_jobs).where(db.durable_jobs.c.id == job_id)).mappings().one()
         return self._job(row)
 
     def fail(self, job_id: str, *, error_code: str, error: str, retry_delay_seconds: int = 30) -> dict:
         timestamp = utc_now()
         with self.engine.begin() as conn:
-            current = conn.execute(select(db.durable_jobs).where(db.durable_jobs.c.id == job_id)).mappings().one()
+            current = conn.execute(
+                select(db.durable_jobs).where(db.durable_jobs.c.id == job_id).with_for_update()
+            ).mappings().one()
+            if current["status"] == "cancelling":
+                conn.execute(
+                    update(db.durable_jobs)
+                    .where(db.durable_jobs.c.id == job_id)
+                    .values(
+                        status="cancelled",
+                        error_code="CancelledByUser",
+                        error="Cancelled while the worker was running",
+                        leased_until=None,
+                        worker_id=None,
+                        updated_at=timestamp,
+                        finished_at=timestamp,
+                    )
+                )
+                row = conn.execute(select(db.durable_jobs).where(db.durable_jobs.c.id == job_id)).mappings().one()
+                return self._job(row)
             retry = current["attempt"] < current["max_attempts"]
             conn.execute(
                 update(db.durable_jobs)
@@ -162,17 +199,68 @@ class JobRepository:
 
     def cancel(self, job_id: str, *, project_id: str | None = None) -> dict | None:
         timestamp = utc_now()
-        conditions = [db.durable_jobs.c.id == job_id, db.durable_jobs.c.status.in_(["queued", "retry"])]
+        conditions = [db.durable_jobs.c.id == job_id]
         if project_id is not None:
             conditions.append(db.durable_jobs.c.project_id == project_id)
         with self.engine.begin() as conn:
-            result = conn.execute(
-                update(db.durable_jobs)
-                .where(and_(*conditions))
-                .values(status="cancelled", updated_at=timestamp, finished_at=timestamp)
-            )
-            if result.rowcount == 0:
+            current = conn.execute(
+                select(db.durable_jobs).where(and_(*conditions)).with_for_update()
+            ).mappings().first()
+            if current is None:
                 return None
+            if current["status"] in {"queued", "retry"}:
+                values = {
+                    "status": "cancelled",
+                    "error_code": "CancelledByUser",
+                    "error": "Cancelled before worker execution",
+                    "leased_until": None,
+                    "worker_id": None,
+                    "updated_at": timestamp,
+                    "finished_at": timestamp,
+                }
+            elif current["status"] == "running":
+                values = {
+                    "status": "cancelling",
+                    "error_code": "CancellationRequested",
+                    "error": "Cancellation requested while worker is running",
+                    "updated_at": timestamp,
+                }
+            elif current["status"] == "cancelling":
+                return self._job(current)
+            else:
+                return None
+            conn.execute(update(db.durable_jobs).where(and_(*conditions)).values(**values))
+            row = conn.execute(select(db.durable_jobs).where(db.durable_jobs.c.id == job_id)).mappings().one()
+        return self._job(row)
+
+    def cancellation_requested(self, job_id: str) -> bool:
+        with self.engine.begin() as conn:
+            status = conn.execute(
+                select(db.durable_jobs.c.status).where(db.durable_jobs.c.id == job_id)
+            ).scalar_one_or_none()
+        return status == "cancelling"
+
+    def finish_cancellation(self, job_id: str) -> dict:
+        timestamp = utc_now()
+        with self.engine.begin() as conn:
+            conn.execute(
+                update(db.durable_jobs)
+                .where(
+                    and_(
+                        db.durable_jobs.c.id == job_id,
+                        db.durable_jobs.c.status.in_(["running", "cancelling"]),
+                    )
+                )
+                .values(
+                    status="cancelled",
+                    error_code="CancelledByUser",
+                    error="Worker execution cancelled by user request",
+                    leased_until=None,
+                    worker_id=None,
+                    updated_at=timestamp,
+                    finished_at=timestamp,
+                )
+            )
             row = conn.execute(select(db.durable_jobs).where(db.durable_jobs.c.id == job_id)).mappings().one()
         return self._job(row)
 

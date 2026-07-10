@@ -1762,6 +1762,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/connectors/google/{target_id}/webhook": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Google Connector Webhook */
+        post: operations["google_connector_webhook_api_v1_connectors_google__target_id__webhook_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/action-proposals/{action_proposal_id}/run": {
         parameters: {
             query?: never;
@@ -5502,7 +5519,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "queued" | "leased" | "running" | "retry" | "succeeded" | "failed" | "cancelled";
+            status: "queued" | "leased" | "running" | "cancelling" | "retry" | "succeeded" | "failed" | "cancelled";
             /** Idempotency Key */
             idempotency_key: string;
             /** Payload */
@@ -11190,6 +11207,43 @@ export interface operations {
                 "X-Hub-Signature-256"?: string | null;
                 "X-GitHub-Delivery"?: string | null;
                 "X-GitHub-Event"?: string | null;
+            };
+            path: {
+                target_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    google_connector_webhook_api_v1_connectors_google__target_id__webhook_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Goog-Channel-ID"?: string | null;
+                "X-Goog-Channel-Token"?: string | null;
+                "X-Goog-Resource-ID"?: string | null;
+                "X-Goog-Resource-State"?: string | null;
+                "X-Goog-Message-Number"?: string | null;
             };
             path: {
                 target_id: string;
