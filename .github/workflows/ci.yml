@@ -127,6 +127,7 @@ jobs:
             echo "GRAPHVIEW_WEB_IMAGE=graphview-web:live-ci"
             echo "GRAPHVIEW_API_IMAGE=graphview-api:live-ci"
             echo "GRAPHVIEW_WORKER_IMAGE=graphview-worker:live-ci"
+            echo "GRAPHVIEW_OTEL_IMAGE=graphview-otel:live-ci"
             echo "GRAPHVIEW_OPS_IMAGE=graphview-ops:live-ci"
             echo "GRAPHVIEW_KEYCLOAK_IMAGE=graphview-keycloak:live-ci"
             echo "GRAPHVIEW_CLAMAV_IMAGE=graphview-clamav:live-ci"
@@ -137,6 +138,7 @@ jobs:
         run: |
           docker build -f infra/docker/api.Dockerfile -t "$GRAPHVIEW_API_IMAGE" .
           docker build -f infra/docker/worker.Dockerfile -t "$GRAPHVIEW_WORKER_IMAGE" .
+          docker build -f infra/docker/otel-collector.Dockerfile -t "$GRAPHVIEW_OTEL_IMAGE" .
           docker build -f infra/docker/web.Dockerfile -t "$GRAPHVIEW_WEB_IMAGE" .
           docker build -f infra/docker/ops.Dockerfile -t "$GRAPHVIEW_OPS_IMAGE" .
           docker build -f infra/docker/keycloak.Dockerfile -t "$GRAPHVIEW_KEYCLOAK_IMAGE" .
@@ -154,6 +156,10 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_WORKERS: "1"
           GRAPHVIEW_LIVE_STACK: "1"
+      - name: Prove production telemetry and redaction
+        run: pnpm run test:observability:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
       - name: Capture stack logs
         if: failure()
         run: docker compose -p graphview-live-ci -f infra/compose/docker-compose.production.yml logs --no-color --tail=400

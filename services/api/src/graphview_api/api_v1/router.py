@@ -33,6 +33,7 @@ from graphview_api.jobs.repository import JobRepository
 from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.jobs.schemas import JobCreate, JobOut, JobPage
 from graphview_api.malware import scan_with_clamd
+from graphview_api.observability import observe_sse_stream
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import AgentRunCreate, GraphQueryCreate, GraphResearchCreate, IngestionCreate, OutcomeCreate, PlanningMessageCreate
 from graphview_api.resumable_uploads import create_resumable_upload_router
@@ -292,7 +293,7 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
                 await asyncio.sleep(10)
 
         return StreamingResponse(
-            stream(),
+            observe_sse_stream(stream(), request.app.state.telemetry, stream_kind="graph.activity"),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
@@ -754,7 +755,11 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
                     break
                 await asyncio.sleep(1)
 
-        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        return StreamingResponse(
+            observe_sse_stream(stream(), request.app.state.telemetry, stream_kind="job.status"),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @router.post("/jobs/{job_id}/cancel", response_model=JobOut)
     async def cancel_job(

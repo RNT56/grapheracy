@@ -41,6 +41,7 @@ test.describe("production reference stack", () => {
       },
     });
     expect(accepted.status()).toBe(202);
+    expect(accepted.headers()["x-graphview-trace-id"]).toMatch(/^[0-9a-f]{32}$/);
     const jobId = String((await accepted.json()).job_id);
 
     await expect
@@ -66,5 +67,9 @@ test.describe("production reference stack", () => {
     const reviewQueue = await review.json();
     expect(reviewQueue.pending_count).toBeGreaterThan(0);
     expect(reviewQueue.items.some((item: { source?: { title?: string } }) => item.source?.title === sourceTitle)).toBeTruthy();
+
+    const jobStream = await page.request.get(`/api/v1/jobs/${encodeURIComponent(jobId)}/stream`);
+    expect(jobStream.ok()).toBeTruthy();
+    expect(await jobStream.text()).toContain("event: job.succeeded");
   });
 });

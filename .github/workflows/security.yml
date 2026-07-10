@@ -55,6 +55,7 @@ jobs:
           - { service: api, dockerfile: infra/docker/api.Dockerfile }
           - { service: web, dockerfile: infra/docker/web.Dockerfile }
           - { service: worker, dockerfile: infra/docker/worker.Dockerfile }
+          - { service: otel, dockerfile: infra/docker/otel-collector.Dockerfile }
           - { service: ops, dockerfile: infra/docker/ops.Dockerfile }
           - { service: keycloak, dockerfile: infra/docker/keycloak.Dockerfile }
           - { service: clamav, dockerfile: infra/docker/clamav.Dockerfile }

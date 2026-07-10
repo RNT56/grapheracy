@@ -29,7 +29,7 @@ from graphview_api.jobs.repository import JobRepository
 from graphview_api.jobs.schemas import JobCreate, JobOut
 from graphview_api.jobs.executor import GraphJobExecutor
 from graphview_api.connector_state import ConnectorStateRepository
-from graphview_api.observability import RequestMetrics, configure_telemetry
+from graphview_api.observability import RequestMetrics, configure_telemetry, observe_sse_stream
 from graphview_api.object_store import build_object_store
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
@@ -174,7 +174,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.metrics = RequestMetrics()
     app.state.identity = IdentityService(settings)
     app.state.object_store = object_store
-    configure_telemetry(app, repository.engine, settings)
 
     @app.exception_handler(HTTPException)
     async def problem_details_handler(request: Request, error: HTTPException):
@@ -216,6 +215,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     install_http_middleware(app, settings)
+    app.state.telemetry = configure_telemetry(app, repository.engine, settings)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -352,7 +352,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield f"data: {json.dumps(event, sort_keys=True, default=str)}\n\n"
 
         return StreamingResponse(
-            event_stream(),
+            observe_sse_stream(event_stream(), app.state.telemetry, stream_kind="graph.activity.compatibility"),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
         )
@@ -987,7 +987,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 yield f"data: {json.dumps(event, default=str)}\n\n"
 
         return StreamingResponse(
-            event_stream(),
+            observe_sse_stream(event_stream(), app.state.telemetry, stream_kind="agent-context.compatibility"),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

@@ -71,6 +71,9 @@ spec:
           {{- if ne $name "web" }}
           env:
 {{ include "graphview.runtimeEnv" $ | nindent 12 }}
+            {{- if eq $name "worker" }}
+            - { name: GRAPHVIEW_OTEL_SERVICE_NAME, value: graphview-worker }
+            {{- end }}
           {{- end }}
           resources: {{ toYaml (index $.Values.resources $name) | nindent 12 }}
           volumeMounts:

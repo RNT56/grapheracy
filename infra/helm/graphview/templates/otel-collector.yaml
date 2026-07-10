@@ -13,10 +13,16 @@ data:
       batch: {}
     exporters:
       debug: { verbosity: basic }
+      file/traces: { path: /var/lib/otel/traces.json, rotation: { max_megabytes: 20, max_days: 3, max_backups: 3 } }
+      file/metrics: { path: /var/lib/otel/metrics.json, rotation: { max_megabytes: 20, max_days: 3, max_backups: 3 } }
+      prometheus: { endpoint: 0.0.0.0:8889 }
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
     service:
+      extensions: [health_check]
       pipelines:
-        traces: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [debug] }
-        metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [debug] }
+        traces: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [file/traces, debug] }
+        metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [prometheus, file/metrics, debug] }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -28,20 +34,22 @@ spec:
     metadata: { labels: { app.kubernetes.io/name: graphview-otel-collector, app.kubernetes.io/part-of: graphview, app.kubernetes.io/instance: {{ .Release.Name }} } }
     spec:
       automountServiceAccountToken: false
-      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      securityContext: { runAsNonRoot: true, runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001, fsGroupChangePolicy: OnRootMismatch, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: collector
-          image: otel/opentelemetry-collector-contrib:0.153.0
+          image: {{ .Values.image.otel | quote }}
           args: [--config=/etc/otel/config.yaml]
-          ports: [{ name: otlp-grpc, containerPort: 4317 }, { name: otlp-http, containerPort: 4318 }]
+          ports: [{ name: otlp-grpc, containerPort: 4317 }, { name: otlp-http, containerPort: 4318 }, { name: prometheus, containerPort: 8889 }, { name: health, containerPort: 13133 }]
+          readinessProbe: { httpGet: { path: /, port: health }, initialDelaySeconds: 5, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /, port: health }, initialDelaySeconds: 15, periodSeconds: 20 }
           resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: "1", memory: 512Mi } }
           securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
-          volumeMounts: [{ name: config, mountPath: /etc/otel, readOnly: true }]
-      volumes: [{ name: config, configMap: { name: {{ .Release.Name }}-otel-collector } }]
+          volumeMounts: [{ name: config, mountPath: /etc/otel, readOnly: true }, { name: data, mountPath: /var/lib/otel }]
+      volumes: [{ name: config, configMap: { name: {{ .Release.Name }}-otel-collector } }, { name: data, emptyDir: { sizeLimit: 1Gi } }]
 ---
 apiVersion: v1
 kind: Service
 metadata: { name: {{ .Release.Name }}-otel-collector }
 spec:
   selector: { app.kubernetes.io/name: graphview-otel-collector, app.kubernetes.io/instance: {{ .Release.Name }} }
-  ports: [{ name: otlp-grpc, port: 4317 }, { name: otlp-http, port: 4318 }]
+  ports: [{ name: otlp-grpc, port: 4317 }, { name: otlp-http, port: 4318 }, { name: prometheus, port: 8889 }]

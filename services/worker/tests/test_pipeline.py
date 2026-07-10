@@ -140,6 +140,12 @@ def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() ->
         def record_exception(self, _error):
             return None
 
+        def set_attribute(self, *_args, **_kwargs):
+            return None
+
+        def set_status(self, *_args, **_kwargs):
+            return None
+
     class NullTracer:
         def start_as_current_span(self, *_args, **_kwargs):
             return NullSpan()
@@ -160,6 +166,8 @@ def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() ->
         "tracer": NullTracer(),
         "queue_latency": NullMetric(),
         "job_counter": NullMetric(),
+        "execution_duration": NullMetric(),
+        "active_jobs": NullMetric(),
     }
 
     with pytest.raises(Retry):

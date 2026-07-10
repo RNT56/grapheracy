@@ -16,6 +16,7 @@ data:
   GRAPHVIEW_S3_BUCKET: graphview
   GRAPHVIEW_MALWARE_SCAN_CLAMD_HOST: {{ printf "%s-clamav" .Release.Name | quote }}
   GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otelEndpoint | quote }}
+  GRAPHVIEW_OTEL_METRIC_EXPORT_INTERVAL_MS: {{ .Values.otelMetricExportIntervalMs | quote }}
   GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS: {{ join "," .Values.outboundAllowedHosts | quote }}
   GRAPHVIEW_SAFE_ACTION_TYPES: {{ join "," .Values.actions.safeTypes | quote }}
   GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS: {{ join "," .Values.actions.webhookAllowedHosts | quote }}

@@ -33,3 +33,15 @@ spec:
   ingress:
     - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.ingress.controllerNamespace | quote }} } } }]
       ports: [{ protocol: TCP, port: 8080 }]
+{{- if .Values.observability.prometheusNamespace }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: {{ .Release.Name }}-otel-prometheus-ingress }
+spec:
+  podSelector: { matchLabels: { app.kubernetes.io/name: graphview-otel-collector } }
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{ namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: {{ .Values.observability.prometheusNamespace | quote }} } } }]
+      ports: [{ protocol: TCP, port: 8889 }]
+{{- end }}

@@ -16,6 +16,8 @@ deployment architecture.
 - Search: hybrid PostgreSQL full-text and pgvector retrieval with scoped filters and retrieval audit records.
 - Auth: OIDC Authorization Code + PKCE browser sessions, discovered/JWKS-validated service JWTs, CSRF protection, and
   a seeded-header adapter restricted to explicit development mode.
+- Observability: vendor-neutral OTLP traces and metrics for API routes, SQL, outbound HTTP, SSE, outbox dispatch, queue
+  latency, and durable worker execution, with W3C context persisted across the transactional job boundary.
 - Runtime defaults: Node 24 Active LTS, Python 3.14, pnpm 10.27+, uv.
 
 ## Service Boundaries
@@ -203,6 +205,15 @@ Phase 27 adds active agent context connectors. External agents and editor adapte
 sessions, report file/search/shell/prompt/model/edit/test/commit events, and attach redacted encrypted text blobs. The
 API projects those records into a session-local context graph and graph activity events. Captured context remains
 observed evidence, not reviewed graph memory, until an existing proposal/review workflow accepts a derived graph change.
+
+## Observability Boundary
+
+FastAPI instrumentation is the outer request middleware so the API response trace header, route metrics, SQL spans,
+and durable job `traceparent` share one distributed context. The worker extracts that context only after an idempotent
+job claim and records bounded kind/queue/status metric dimensions; project and job identifiers remain span-only.
+SSE streams add explicit connection, event, duration, and replay-kind telemetry around both canonical and compatibility
+routes. Header capture is disabled, server queries are replaced with a redaction marker, outbound HTTP URLs omit query
+and fragment data, and stored exceptions pass through the shared sensitive-text redactor.
 
 ## Worker Lifecycle
 

@@ -11,6 +11,8 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 
+from graphview_api.observability import current_trace_id
+
 
 class RequestRateLimiter:
     def __init__(self, settings):
@@ -44,7 +46,7 @@ def install_http_middleware(app, settings) -> None:
 
     @app.middleware("http")
     async def enforce_and_observe(request: Request, call_next):
-        trace_id = request.headers.get("X-Graphview-Trace-Id") or f"trace_{uuid4().hex[:20]}"
+        trace_id = current_trace_id() or request.headers.get("X-Graphview-Trace-Id") or f"trace_{uuid4().hex[:20]}"
         request_id = request.headers.get("X-Request-Id") or f"request_{uuid4().hex[:20]}"
         started = perf_counter()
         status_code = 500
@@ -91,10 +93,19 @@ def install_http_middleware(app, settings) -> None:
             status_code = response.status_code
             return response
         finally:
+            duration_seconds = perf_counter() - started
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", None) or "unmatched"
             app.state.metrics.record(
-                path=request.url.path,
+                path=route_path,
                 status_code=status_code,
-                duration_ms=(perf_counter() - started) * 1000,
+                duration_ms=duration_seconds * 1000,
+            )
+            app.state.telemetry.record_request(
+                route=route_path,
+                method=request.method,
+                status_code=status_code,
+                duration_seconds=duration_seconds,
             )
             if response is not None:
                 response.headers["X-Graphview-Trace-Id"] = trace_id

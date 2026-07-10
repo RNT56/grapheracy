@@ -15,14 +15,27 @@ processors:
 exporters:
   debug:
     verbosity: basic
+  file/traces:
+    path: /var/lib/otel/traces.json
+    rotation: { max_megabytes: 20, max_days: 3, max_backups: 3 }
+  file/metrics:
+    path: /var/lib/otel/metrics.json
+    rotation: { max_megabytes: 20, max_days: 3, max_backups: 3 }
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
 
 service:
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      exporters: [file/traces, debug]
     metrics:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [debug]
+      exporters: [prometheus, file/metrics, debug]

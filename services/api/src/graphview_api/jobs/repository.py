@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from graphview_api import db
 from graphview_api.repository import DEFAULT_PROJECT_ID, dump_json, load_json
 from graphview_api.json_compat import json_value, normalize_json_row
+from graphview_api.observability import current_traceparent
 from graphview_api.redaction import redact_sensitive_text
 
 
@@ -22,7 +23,7 @@ class JobRepository:
 
     def enqueue(self, payload, *, project_id: str = DEFAULT_PROJECT_ID, trace_id: str | None = None, connection=None) -> dict:
         timestamp = utc_now()
-        trace_id = trace_id or f"trace_{uuid4().hex[:20]}"
+        trace_id = trace_id or current_traceparent() or f"trace_{uuid4().hex[:20]}"
         job_id = f"job_{uuid4().hex[:20]}"
         row = {
             "id": job_id,

@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     rate_limit_mutations: int = 120
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "graphview-api"
+    otel_metric_export_interval_ms: int = Field(default=60_000, ge=1_000, le=300_000)
     llm_enabled: bool = False
     llm_provider: str = "openai-compatible"
     llm_base_url: str = "https://api.openai.com/v1"

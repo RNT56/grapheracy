@@ -21,19 +21,19 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| V1 API and compatibility aliases | implemented | 87 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
+| V1 API and compatibility aliases | implemented | 98 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, and review routes proven through the live browser stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | Production-size PostgreSQL p95 and live progressive-expansion proof pending | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, and no-op Helm upgrade proven | Persistence |
-| Arq queues, scheduling, retries, and outbox | implemented | 6 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
+| Arq queues, scheduling, retries, and outbox | implemented | 7 worker tests plus API cancellation and terminal-race coverage | Upload attempt 1 proven through authenticated Redis and a real worker; failure-injection matrix pending | Worker |
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
 | Cited AI planning, query, and research | active | Durable query/research tests and retrieval audit coverage | Live PostgreSQL/S3/worker query and research proven; external-provider failure/cancellation canary pending | AI |
 | Attention, actions, outcomes, and feedback | active | Internal nervous-system loop plus GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, and redaction tests | Secret-backed GitHub/SMTP/webhook action and callback canaries pending | Actions |
 | Active agent context capture and retention | implemented | implemented | pending | Context |
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
 | Vault-backed secrets and encrypted object storage | active | Local atomic AES-GCM reference-store and Vault KV v2 opaque-reference tests; S3 retained-blob coverage | Vault/MinIO services live-proven; production credential rotation and purge canary pending | Security |
-| OpenTelemetry metrics and traces | active | pending | pending | Operations |
-| Compose and Kubernetes/Helm deployment | implemented | 38-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
+| OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
+| Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | pending | pending | Release |
 | 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Seeded live PostgreSQL p95 and documented reference-machine rerun pending | Performance |
 
@@ -42,12 +42,17 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 The following evidence was rerun on 2026-07-10 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 87 tests and the worker suite reported 6.
-- `pnpm run test:deployment`: Helm rendered 38 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
+  structure, and production web-build gates passed; the API suite reported 98 tests and the worker suite reported 7.
+- `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
   workspace, fetched its Redis-backed session and CSRF token, uploaded unique evidence, waited for an Arq job to
-  succeed on attempt 1, and found the resulting proposals in the live review queue without request interception.
+  succeed on attempt 1, read the terminal SSE job event, received the distributed trace ID, and found the resulting
+  proposals in the live review queue without request interception.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:observability:live`: the Collector received a shared
+  API/upload and durable-worker trace, route-bounded API metrics, worker queue/job metrics, and SSE metrics. The proof
+  also parsed every emitted URL attribute and rejected queries/fragments or any injected database, Redis, object-store,
+  Keycloak, Vault, session-signing, service-client, or browser-test secret.
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.

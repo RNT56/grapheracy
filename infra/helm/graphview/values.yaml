@@ -2,6 +2,7 @@ image:
   web: ghcr.io/example/graphview-web:1.0.0
   api: ghcr.io/example/graphview-api:1.0.0
   worker: ghcr.io/example/graphview-worker:1.0.0
+  otel: ghcr.io/example/graphview-otel:1.0.0
   pullPolicy: IfNotPresent
 
 replicas:
@@ -13,6 +14,9 @@ runtimeSecretName: graphview-runtime
 publicUrl: https://graphview.example.invalid
 oidcIssuerUrl: https://graphview.example.invalid/identity/realms/graphview
 otelEndpoint: http://graphview-otel-collector:4317
+otelMetricExportIntervalMs: 15000
+observability:
+  prometheusNamespace: monitoring
 outboundAllowedHosts:
   - api.github.com
   - oauth2.googleapis.com

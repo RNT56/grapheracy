@@ -20,6 +20,7 @@ x-graphview-environment: &graphview-environment
   GRAPHVIEW_OIDC_REDIRECT_URI: ${GRAPHVIEW_PUBLIC_URL:?required}/api/v1/auth/callback
   GRAPHVIEW_CORS_ORIGINS: '["${GRAPHVIEW_PUBLIC_URL:?required}"]'
   GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  GRAPHVIEW_OTEL_METRIC_EXPORT_INTERVAL_MS: 5000
   GRAPHVIEW_SAFE_ACTION_TYPES: ${GRAPHVIEW_SAFE_ACTION_TYPES:-mark_source_stale,mark_source_refreshed,create_notification,create_external_ticket,trigger_workflow,connector_sync,create_graph_proposal,request_owner_confirmation}
   GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS: ${GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS:-}
   GRAPHVIEW_SMTP_HOST: ${GRAPHVIEW_SMTP_HOST:-}
@@ -233,14 +234,21 @@ services:
       retries: 20
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.153.0
+    image: ${GRAPHVIEW_OTEL_IMAGE:?required}
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-data:/var/lib/otel
+    ports: ["127.0.0.1:8889:8889"]
     read_only: true
     tmpfs: [/tmp]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /otelcol-contrib, validate, --config=/etc/otelcol-contrib/config.yaml]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   ops:
     image: ${GRAPHVIEW_OPS_IMAGE:?required}
@@ -266,3 +274,4 @@ volumes:
   redis-data:
   minio-data:
   clamav-data:
+  otel-data:

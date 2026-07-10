@@ -238,6 +238,30 @@ Production images are multi-stage, non-root, and read-only at runtime. Start the
 secrets and `docker compose -p graphview -f infra/compose/docker-compose.production.yml up -d --wait`; do not reuse the
 Vault development token, Keycloak bootstrap account, or MinIO root credentials outside an isolated reference stack.
 
+## OpenTelemetry
+
+API server spans, SQLAlchemy calls, outbound HTTP calls, durable jobs, and outbox dispatches export over OTLP/gRPC.
+The API emits bounded route-template request metrics and SSE connection/event/duration metrics; the worker emits queue
+latency, active-job, terminal-status, execution-duration, and outbox-dispatch metrics. Enqueued jobs retain the W3C
+`traceparent`, so execution in another worker process remains a child of the originating API request. The response
+`X-Graphview-Trace-Id` is the same 32-hex distributed trace ID when telemetry is active.
+
+Graphview never captures request or response headers. Server query strings are replaced with `<redacted>`, outbound
+HTTP span URLs discard queries and fragments, provider exception text is redacted, and metric dimensions exclude
+project IDs and job IDs. The reference Collector exposes Prometheus metrics on loopback port `8889` and keeps bounded
+JSON trace and metric evidence in its non-root `/var/lib/otel` volume. Helm uses the same non-root image and an
+ephemeral bounded volume. Production operators should replace or extend the reference file/debug exporters with their
+chosen durable OTLP backend; the application contract remains vendor-neutral.
+
+After the unmocked live browser workflow, prove the emitted contract with:
+
+```sh
+GRAPHVIEW_COMPOSE_PROJECT=graphview-live-ci pnpm run test:observability:live
+```
+
+The command fails unless it finds linked API and worker spans, the complete API/worker/SSE metric set, query-free URL
+attributes, and no injected acceptance secret in Collector output.
+
 ## Environment Matrix
 
 | Variable | Owner | Local default | Secret | Purpose |
@@ -259,6 +283,9 @@ Vault development token, Keycloak bootstrap account, or MinIO root credentials o
 | `GRAPHVIEW_SMTP_HOST` / `GRAPHVIEW_SMTP_PORT` | worker | unset / `587` | No | SMTP delivery endpoint; Helm opens the configured external TCP port only when a host is set. |
 | `GRAPHVIEW_SMTP_STARTTLS` / `GRAPHVIEW_SMTP_FROM_ADDRESS` | worker | `true` / unset | Address no | TLS policy and sender identity for reviewed notification actions. |
 | `GRAPHVIEW_SMTP_SUPPRESSED_RECIPIENTS` | worker | empty | No | Comma-separated normalized recipients that must never receive Graphview mail. |
+| `GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT` | api/worker | unset | No | OTLP/gRPC Collector endpoint; unset keeps local tests on no-op providers. |
+| `GRAPHVIEW_OTEL_SERVICE_NAME` | api/worker | `graphview-api` | No | Stable telemetry resource name; the production worker overrides it to `graphview-worker`. |
+| `GRAPHVIEW_OTEL_METRIC_EXPORT_INTERVAL_MS` | api/worker | `60000` | No | Bounded periodic metric export interval; the Compose acceptance stack uses five seconds. |
 | `GRAPHVIEW_AI_DEFAULT_PROVIDER` | api | `graphview-local` | No | Default agent provider when a request does not name one. |
 | `GRAPHVIEW_OPENAI_*` | api | OpenAI Responses defaults | API key yes | OpenAI agent provider configuration; operator-entered project keys can override the API key. |
 | `GRAPHVIEW_ANTHROPIC_*` | api | Claude Messages defaults | API key yes | Anthropic agent provider configuration; operator-entered project keys can override the API key. |
@@ -271,12 +298,13 @@ Vault development token, Keycloak bootstrap account, or MinIO root credentials o
    `test:performance`, `security:full`, or `test:deployment`.
 3. Run the unmocked production-stack browser job with `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live` against the
    exact candidate images.
-4. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
-5. Run full CI gates, including moderate audit, signature, OSV, and secret scans.
-6. Generate SBOMs for release images.
-7. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
+4. Run `pnpm run test:observability:live` against the same Compose project and retain its trace/metric/redaction proof.
+5. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
+6. Run full CI gates, including moderate audit, signature, OSV, and secret scans.
+7. Generate SBOMs for release images, including the Graphview-owned non-root Collector image.
+8. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
    observability status, and restore plan.
-8. Tag a SemVer release after V1 release policy is defined.
+9. Tag a SemVer release after V1 release policy is defined.
 
 ## Failure Modes
 
