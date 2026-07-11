@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -12,41 +11,22 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi.responses import JSONResponse
 
 from graphview_api.api_v1.graph_dependencies import create_graph_projection_service_provider
 from graphview_api.api_v1.graph_router import create_v1_graph_router
+from graphview_api.api_v1.job_dependencies import create_job_service_provider
+from graphview_api.api_v1.job_router import create_v1_job_command_router, create_v1_job_lifecycle_router
 from graphview_api.api_v1.schemas import ConnectorHealthOut, UploadAccepted
-from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, WRITE_PERMISSION, CurrentUser, ensure_project_access, require_permission
+from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, CurrentUser, ensure_project_access, require_permission
 from graphview_api.jobs.repository import JobRepository
 from graphview_api.connector_state import ConnectorStateRepository
-from graphview_api.jobs.schemas import JobCreate, JobOut, JobPage
+from graphview_api.jobs.schemas import JobCreate, JobOut
 from graphview_api.malware import scan_with_clamd
-from graphview_api.observability import observe_sse_stream
 from graphview_api.repository import GraphRepository
-from graphview_api.schemas import (
-    AgentRunCreate,
-    GraphQueryCreate,
-    GraphResearchCreate,
-    IngestionCreate,
-    OutcomeCreate,
-    PlanningMessageCreate,
-)
+from graphview_api.schemas import OutcomeCreate
 from graphview_api.resumable_uploads import create_resumable_upload_router
-
-SUPPORTED_DURABLE_JOBS = {
-    "ingestion.run": "ingestion",
-    "upload.ingest": "ingestion",
-    "connector.sync": "connectors",
-    "action.run": "actions",
-    "outcome.record": "outcomes",
-    "agent_context.retention": "maintenance",
-    "ai.planning": "agents",
-    "ai.query": "agents",
-    "ai.research": "agents",
-    "ai.agent": "agents",
-}
 
 
 def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIRouter:
@@ -135,123 +115,8 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
 
     router.include_router(create_v1_graph_router(create_graph_projection_service_provider(repo_provider)))
 
-    @router.post("/jobs", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def create_job(
-        payload: JobCreate,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        expected_queue = SUPPORTED_DURABLE_JOBS.get(payload.kind)
-        if expected_queue is None or payload.queue != expected_queue:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Unsupported durable job kind or queue",
-            )
-        project_id = str(payload.payload.get("project_id") or "project-default")
-        ensure_project_access(user, project_id)
-        job = JobRepository(repository.engine).enqueue(payload, project_id=project_id)
-        return job
-
-    @router.post("/ingestions", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_ingestion(
-        payload: IngestionCreate,
-        graph_id: str | None = Query(default=None),
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        project_id = (graph_id or "project-default").split(":", 1)[0]
-        ensure_project_access(user, project_id)
-        canonical_payload = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        payload_digest = hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
-        idempotency_key = f"ingestion:{project_id}:{payload_digest}"
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ingestion.run",
-                queue="ingestion",
-                idempotency_key=idempotency_key,
-                payload={"project_id": project_id, "graph_id": graph_id, "actor_id": user.id, "ingestion": payload.model_dump(mode="json")},
-            ),
-            project_id=project_id,
-        )
-
-    @router.post("/ai/planning-sessions/{session_id}/messages", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_planning_message(
-        session_id: str,
-        payload: PlanningMessageCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        session = repository.get_planning_session(session_id)
-        if session is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planning session not found")
-        ensure_project_access(user, session["project_id"])
-        message_json = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ai.planning",
-                queue="agents",
-                idempotency_key=f"ai-planning:{session_id}:{hashlib.sha256(message_json.encode()).hexdigest()}",
-                payload={"project_id": session["project_id"], "actor_id": user.id, "session_id": session_id, "message": payload.model_dump(mode="json")},
-            ),
-            project_id=session["project_id"],
-        )
-
-    @router.post("/ai/query", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_ai_query(
-        payload: GraphQueryCreate,
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        project_id = (payload.graph_id or "project-default").split(":", 1)[0]
-        ensure_project_access(user, project_id)
-        canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ai.query",
-                queue="agents",
-                idempotency_key=f"ai-query:{project_id}:{hashlib.sha256(canonical.encode()).hexdigest()}",
-                payload={"project_id": project_id, "actor_id": user.id, "query": payload.model_dump(mode="json")},
-            ),
-            project_id=project_id,
-        )
-
-    @router.post("/ai/research", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_ai_research(
-        payload: GraphResearchCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        project_id = (payload.graph_id or "project-default").split(":", 1)[0]
-        ensure_project_access(user, project_id)
-        canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ai.research",
-                queue="agents",
-                idempotency_key=f"ai-research:{project_id}:{hashlib.sha256(canonical.encode()).hexdigest()}",
-                payload={"project_id": project_id, "actor_id": user.id, "research": payload.model_dump(mode="json")},
-            ),
-            project_id=project_id,
-        )
-
-    @router.post("/ai/agent-runs", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_ai_agent_run(
-        payload: AgentRunCreate,
-        user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        project_id = str(payload.input.get("project_id") or (payload.input.get("graph_id") or "project-default")).split(":", 1)[0]
-        ensure_project_access(user, project_id)
-        canonical = json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="ai.agent",
-                queue="agents",
-                idempotency_key=f"ai-agent:{project_id}:{hashlib.sha256(canonical.encode()).hexdigest()}",
-                payload={"project_id": project_id, "actor_id": user.id, "agent_run": payload.model_dump(mode="json")},
-            ),
-            project_id=project_id,
-        )
+    job_service_provider = create_job_service_provider(repo_provider)
+    router.include_router(create_v1_job_command_router(job_service_provider))
 
     @router.post("/connectors/{target_id}/sync", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
     async def enqueue_connector_sync(
@@ -539,93 +404,6 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
             project_id=action_run["project_id"],
         )
 
-    @router.get("/jobs", response_model=JobPage)
-    async def list_jobs(
-        project_id: str = Query(default="project-default"),
-        status_filter: str | None = Query(default=None, alias="status"),
-        cursor: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=200),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        ensure_project_access(user, project_id)
-        jobs = JobRepository(repository.engine).list(project_id=project_id, status=status_filter, cursor=cursor, limit=limit)
-        return {"jobs": jobs, "next_cursor": jobs[-1]["id"] if len(jobs) == limit else None}
-
-    @router.get("/jobs/{job_id}", response_model=JobOut)
-    async def get_job(
-        job_id: str,
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        job = JobRepository(repository.engine).get(job_id)
-        if job is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-        ensure_project_access(user, job["project_id"])
-        return job
-
-    @router.get("/jobs/{job_id}/stream", response_class=StreamingResponse)
-    async def stream_job(
-        job_id: str,
-        request: Request,
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        initial = JobRepository(repository.engine).get(job_id)
-        if initial is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-        ensure_project_access(user, initial["project_id"])
-
-        async def stream():
-            previous = None
-            while not await request.is_disconnected():
-                job = JobRepository(repository.engine).get(job_id, project_id=initial["project_id"])
-                if job is None:
-                    break
-                signature = (job["status"], job["attempt"], job.get("updated_at"))
-                if signature != previous:
-                    previous = signature
-                    yield f"id: {job['id']}:{job['attempt']}\nevent: job.{job['status']}\ndata: {json.dumps(job, default=str, sort_keys=True)}\n\n"
-                else:
-                    yield ": heartbeat\n\n"
-                if job["status"] in {"succeeded", "failed", "cancelled"}:
-                    break
-                await asyncio.sleep(1)
-
-        return StreamingResponse(
-            observe_sse_stream(stream(), request.app.state.telemetry, stream_kind="job.status"),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
-
-    @router.post("/jobs/{job_id}/cancel", response_model=JobOut)
-    async def cancel_job(
-        job_id: str,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        current = JobRepository(repository.engine).get(job_id)
-        if current is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-        ensure_project_access(user, current["project_id"])
-        job = JobRepository(repository.engine).cancel(job_id, project_id=current["project_id"])
-        if job is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only queued, retrying, or running jobs can be cancelled")
-        return job
-
-    @router.post("/jobs/{job_id}/retry", response_model=JobOut)
-    async def retry_job(
-        job_id: str,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        current = JobRepository(repository.engine).get(job_id)
-        if current is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-        ensure_project_access(user, current["project_id"])
-        job = JobRepository(repository.engine).retry(job_id, project_id=current["project_id"])
-        if job is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only failed or cancelled jobs can be retried")
-        return job
+    router.include_router(create_v1_job_lifecycle_router(job_service_provider))
 
     return router

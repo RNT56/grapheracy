@@ -32,4 +32,7 @@ owner: codex
 - Split canonical V1 viewport, subgraph, hybrid search, persisted layouts, activity pagination, and resumable SSE
   into a dedicated graph transport backed by GraphProjectionService, with exact OpenAPI/client parity and an
   architecture check preventing direct persistence access.
+- Split canonical V1 ingestion and AI enqueue commands plus job pagination, status, SSE, cancellation, and retry
+  into dedicated transports backed by JobService, preserving queue validation, idempotency, project scope, and the
+  committed wire contract.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

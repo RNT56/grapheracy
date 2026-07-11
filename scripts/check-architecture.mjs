@@ -56,6 +56,9 @@ const requiredBoundaries = [
   "services/api/openapi.yaml",
   "services/api/src/graphview_api/api_v1/graph_dependencies.py",
   "services/api/src/graphview_api/api_v1/graph_router.py",
+  "services/api/src/graphview_api/api_v1/job_dependencies.py",
+  "services/api/src/graphview_api/api_v1/job_router.py",
+  "services/api/src/graphview_api/api_v1/job_service.py",
   "services/api/src/graphview_api/actions/repository.py",
   "services/api/src/graphview_api/actions/router.py",
   "services/api/src/graphview_api/actions/service.py",
@@ -127,6 +130,11 @@ if (graphRouter.includes("GraphRepository") || graphRouter.includes("repository.
 const v1GraphRouter = await read("services/api/src/graphview_api/api_v1/graph_router.py");
 if (v1GraphRouter.includes("GraphRepository") || v1GraphRouter.includes("repository.")) {
   failures.push("V1 graph router must call GraphProjectionService rather than the persistence repository");
+}
+
+const v1JobRouter = await read("services/api/src/graphview_api/api_v1/job_router.py");
+if (v1JobRouter.includes("GraphRepository") || v1JobRouter.includes("JobRepository") || v1JobRouter.includes("repository.")) {
+  failures.push("V1 job routers must call JobService rather than persistence repositories");
 }
 
 const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");
