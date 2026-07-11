@@ -24,6 +24,7 @@ from graphview_api.object_store import build_object_store
 from graphview_api.operations import create_data_operations_router, create_health_router, create_operations_router
 from graphview_api.repository import GraphRepository
 from graphview_api.review import create_review_router
+from graphview_api.review.service import ReviewService
 from graphview_api.settings import Settings, get_settings
 from graphview_api.secret_store import build_secret_store
 from graphview_api.sources import create_sources_router
@@ -137,6 +138,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             llm_provider_factory=build_llm_provider,
         )
 
+    def review_service() -> ReviewService:
+        return ReviewService(repo())
+
     app.include_router(
         create_health_router(
             repo,
@@ -176,7 +180,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_sources_router(sources_service))
 
-    app.include_router(create_review_router(repo))
+    app.include_router(create_review_router(review_service))
 
     app.include_router(create_data_operations_router(repo))
 

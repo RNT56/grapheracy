@@ -13,4 +13,6 @@ owner: codex
   repository port; make API test object stores session-owned so repeated verification no longer leaks temp folders.
 - Route connector catalog, credential, target, and synchronous/durable sync selection through a typed
   ConnectorService and repository port while preserving the injectable LLM provider factory.
+- Route proposal projections, dashboards, provenance coverage, creation, and reviewer-authority transitions through
+  a typed ReviewService and repository port.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
