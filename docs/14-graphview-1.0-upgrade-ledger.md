@@ -54,7 +54,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   4,350 lines with provider credentials, automation, runtime, and capability surfaces isolated in
   `SettingsWorkspace.tsx`; planning sessions, build specs, tool traces, artifacts, and research actions live in
   `PlanningWorkspace.tsx`; active-context sessions, retained-content inspection, authority badges, and event timelines
-  live in `AgentContextWorkspace.tsx`. The shell is now 3,808 lines under a 3,850-line ceiling while production
+  live in `AgentContextWorkspace.tsx`. Source inspection and graph-native evidence fan-out now live in
+  `sourceContentModel.ts` and `contentExpansionModel.ts`, using the shared `GraphRenderEdge` visual contract rather
+  than importing renderer UI types. The shell is now 3,357 lines under a 3,400-line ceiling while production
   typecheck, contract tests, and the Vite build remain green.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.

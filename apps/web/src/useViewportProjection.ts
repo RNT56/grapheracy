@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { components } from "@graphview/api-client/schema";
-import { normalizeContentNodeKind, type ContentNode, type ContentNodeId, type GraphBounds, type GraphProjectId, type SemanticEdge } from "@graphview/shared-types";
-import type { GraphCanvasEdge } from "./GraphCanvas";
+import { normalizeContentNodeKind, type ContentNode, type ContentNodeId, type GraphBounds, type GraphProjectId, type GraphRenderEdge as GraphCanvasEdge, type SemanticEdge } from "@graphview/shared-types";
 
 type GraphViewport = components["schemas"]["GraphViewportOut"];
 type FetchJson = <T>(path: string, init?: RequestInit) => Promise<T>;

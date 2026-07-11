@@ -1222,6 +1222,10 @@ export interface SemanticEdge {
   updatedAt: string;
 }
 
+export interface GraphRenderEdge extends SemanticEdge {
+  reviewStatus?: "accepted" | "pending_review";
+}
+
 export interface GraphSettings {
   projectId: GraphProjectId;
   llmEnabled: boolean;

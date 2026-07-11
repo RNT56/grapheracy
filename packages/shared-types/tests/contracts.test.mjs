@@ -10,6 +10,7 @@ test("shared contracts expose required public interfaces", async () => {
     "Source",
     "ContentNode",
     "SemanticEdge",
+    "GraphRenderEdge",
     "IngestionRun",
     "ExtractionProposal",
     "ReviewDecision",

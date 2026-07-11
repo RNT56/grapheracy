@@ -70,4 +70,7 @@ owner: codex
   PlanningWorkspace; reduce App.tsx to 4,013 lines under a 4,050-line ceiling.
 - Move active-context session navigation, retained-content inspection, authority presentation, and event timelines into
   AgentContextWorkspace; reduce App.tsx to 3,808 lines under a 3,850-line ceiling.
+- Move source-content inspection and evidence/proposal/planning fan-out into pure sourceContentModel and
+  contentExpansionModel boundaries; promote GraphRenderEdge to the shared visual contracts; reduce App.tsx to 3,357
+  lines under a 3,400-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

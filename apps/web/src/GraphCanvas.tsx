@@ -12,6 +12,7 @@ import {
   type ContentNode,
   type GraphBounds,
   type GraphActivityEvent,
+  type GraphRenderEdge,
   type GraphVisualState,
   type GraphVisualStatus,
   type SemanticEdge
@@ -24,7 +25,7 @@ import type { GraphRendererEdge, GraphRendererNode, GraphRendererRuntimeMetrics 
 
 export type GraphLayoutMode = "force" | "radial" | "arc";
 export type GraphDimensionMode = "2d" | "3d";
-export type GraphCanvasEdge = SemanticEdge & { reviewStatus?: "accepted" | "pending_review" };
+export type GraphCanvasEdge = GraphRenderEdge;
 
 export interface GraphCanvasSource {
   id: string;
