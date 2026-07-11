@@ -51,8 +51,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   migration back into `main.py`, cap application assembly at 220 lines, and cap V1 assembly at 60 lines.
 - The web decomposition now keeps HTTP/view-model contracts and provider/settings metadata in `workspaceTypes.ts`;
   pure graph/activity and evidence normalization lives in `workspaceModel.ts`; `App.tsx` is reduced from 5,944 to
-  4,852 lines with a 4,900-line architecture ceiling while production typecheck, contract tests, and the Vite build
-  remain green.
+  4,350 lines with provider credentials, automation, runtime, and capability surfaces isolated in
+  `SettingsWorkspace.tsx` under a 4,400-line architecture ceiling while production typecheck, contract tests, and
+  the Vite build remain green.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
