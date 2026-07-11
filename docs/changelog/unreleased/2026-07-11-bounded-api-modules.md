@@ -55,4 +55,6 @@ owner: codex
   feedback into NervousSystemRepositoryMixin; ratchet the remaining compatibility façade below 3,600 lines.
 - Move active-context clients, sessions, ordered events, retained artifact/blob references, replay projections, and
   retention into AgentContextRepositoryMixin; ratchet the remaining compatibility façade below 3,100 lines.
+- Move proposal writes/projections, review queue/dashboard/activity, provenance coverage, review authority
+  transitions, review event shaping, and decision reads into ReviewRepositoryMixin; ratchet the façade below 2,350 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
