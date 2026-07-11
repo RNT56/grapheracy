@@ -1,62 +1,77 @@
 # Changelog
 
-All notable changes to Graphview are documented here.
-
-This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses SemVer once the first
-versioned release is cut. Before release consolidation, multi-worker changes land as fragments under
-`docs/changelog/unreleased/`.
+All notable changes to Graphview are documented here. Graphview follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and Semantic Versioning.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [1.0.0] - 2026-07-11
+
 ### Added
 
-- Phase 1 project foundation for a monorepo-based internal knowledge graph product.
-- Repo-markdown documentation system with ADRs, rituals, and changelog fragments.
-- Security and dependency governance policy before broad dependency adoption.
-- Contract skeletons for shared graph types, API endpoints, worker stages, and events.
-- CI skeletons for lint, typecheck, tests, audits, secret scanning, docs hygiene, and changelog validation.
-- Runnable Phase 2 scaffolds for the React/Vite web app, FastAPI API, async worker stage plan, local auth stub, and
-  baseline Alembic migration.
-- Phase 3 core graph workflow with persistent source CRUD, proposal review commits, provenance, search, import/export,
-  and a web shell wired to those endpoints.
-- Phase 4 ingestion workflow with text, markdown, backend URL fetch, PDF extraction, deterministic local embeddings,
-  provider-boundary proposal generation, and web shell ingestion controls.
-- Phase 5 hardening with bounded graph rendering, local role enforcement, observability endpoints, full backup/restore,
-  and executable release readiness checks.
-- Phase 6 mode extensions with mode discovery, engineering repository ingestion, and ops document map ingestion.
-- Phase 7 relationship proposal generation with reviewed endpoint guards and web queue visibility for pending edges.
-- Phase 8 lineage trace endpoints and web summaries for sources, proposals, reviewed nodes, and reviewed edges.
-- Phase 9 graph insight diagnostics for review progress, graph quality, top connected nodes, and provenance coverage.
-- Phase 10 focused graph neighborhoods for reviewed-node exploration in the API, graph-core, and web shell.
-- Phase 11 bounded shortest-path exploration between reviewed graph nodes in the API, graph-core, and web shell.
-- Phase 12 prioritized review worklists with ready/blocked proposal metadata and web queue summaries.
-- Phase 13 review dashboards with proposal volume, pending readiness, decision mix, reviewer activity, and
-  acceptance/commit-rate summaries.
-- Phase 14 review activity feeds with recent decisions, proposal context, source context, and web summaries.
-- Phase 15 source review coverage with per-source pending/reviewed proposal counts, decision mix, and web summaries.
-- Phase 16 full Knowledge Graph Builder workspace UI with outline, graph stage, inspector, ingest controls, review
-  operations, and layout dock.
-- Phase 17 connector setup, manual sync/resync, source chunks, topic hierarchy, inherited LLM extraction settings, and
-  confidence-threshold auto-commit with provenance.
-- Phases 18-22 AI-native planning, graph Q&A, scoped research, provider catalog support for OpenAI, Anthropic, Gemini,
-  citations, durable agent state, and review-gated AI action proposals.
-- Phase 25 digital nervous system loop with persisted signals, observations, alerts, Attention items, owners, routing
-  policies, decision records, gated action proposals/runs, outcomes, feedback events, activity replay, backup/restore,
-  and a graph-centered Attention mode in the web workspace.
-- Phase 26 release hardening with lazy-loaded 3D graph rendering, activity stream anti-buffering, action-policy
-  configuration, migration continuity checks, and browser QA artifact cleanup.
+- A graph-centered workspace with Sigma 3/Graphology 2D, lazy Three.js 3D, deterministic layouts, progressive
+  server-assisted clustering, saved views, graph search, path/neighborhood exploration, evidence fan-out, replay,
+  comparison, export, keyboard navigation, and a non-WebGL accessible equivalent.
+- PostgreSQL/pgvector graph persistence, hybrid retrieval, stable graph versions, layout snapshots, indexed adjacency,
+  cursor pagination, resumable SSE, RFC 7807 errors, ETags, idempotency, audit events, and canonical `/api/v1` routes
+  with one-release compatibility aliases.
+- Durable Arq queues and transactional outbox dispatch for ingestion, connectors, embeddings, agents, actions,
+  outcomes, retention, and maintenance, including retries, leases, dead-letter state, cancellation, and scheduling.
+- Streamed upload, SSRF-safe URL, GitHub/repository, Google Workspace, and Notion connectors with incremental cursors,
+  pagination, refresh, webhook validation, deletion/tombstones, retry, and connector-health surfaces.
+- Planning sessions, cited graph Q&A, scoped research, provider-neutral AI adapters, retrieval audits, budgets,
+  cancellation, and review-gated AI proposals.
+- The complete signals → observations → Attention → decisions → approved actions → outcomes → feedback loop, with
+  production GitHub Issue, SMTP, and HMAC-signed webhook adapters.
+- MCP gateway and VS Code/Cursor active-context capture with ordered offline outboxes, scoped authority, redaction,
+  encrypted S3 retention, SSE resume, purge metadata, and reviewed derivation.
+- Generic OIDC Authorization Code + PKCE, Redis sessions, service JWTs, project RBAC/BOLA, CSRF protection, Keycloak
+  reference roles, Vault-backed secret references, CSP/CORS, rate limits, outbound allowlists, and structured audit.
+- Vendor-neutral OpenTelemetry traces and metrics across API, workers, queues, connectors, agents, actions, SQL, HTTP,
+  and SSE with sensitive attribute sanitization.
+- Hardened Compose and Helm deployments for web, API, workers, PostgreSQL/pgvector, Redis, MinIO, ClamAV, Keycloak,
+  Vault, migrations, backup, ingress, network policy, autoscaling, disruption budgets, and the Collector.
+- Deterministic gateway TGZ and VS Code/Cursor VSIX packaging, SPDX SBOMs, image vulnerability scans, provenance,
+  Cosign signatures, signed checksum manifests, and verified release publication.
 
 ### Changed
 
-- Preserved the standalone prototype as reference material at `prototypes/knowledge-graph-explorer.html`.
-- Split the Three.js renderer out of the default web bundle so 2D graph sessions do not eagerly load the 3D renderer.
+- Replaced the prototype-era monolith with bounded identity, graph, source/ingestion, connector, review, AI, Attention,
+  actions, agent-context, operations, and V1 modules backed by application services, repository ports, and enforced
+  architecture ceilings.
+- Replaced phase-number release commands with `quality:fast`, `quality:full`, `test:integration`, `test:e2e`,
+  `test:performance`, `security:full`, and `release:verify`.
+- Made TanStack Query the owner of server state and limited Zustand to ephemeral graph interaction state; source,
+  review, settings, planning, Attention, connector, and active-context operations now live in bounded feature hooks.
+- Promoted FastAPI/Pydantic OpenAPI to the wire-contract source of truth and committed a drift-checked generated
+  TypeScript client.
+- Reworked the large-graph projection path to avoid full graph materialization and use bounded PostgreSQL clustering,
+  adjacency traversal, lexical/vector candidates, and visible-budget edge sampling.
+- Preserved the standalone prototype as non-production UX evidence and removed every production import of demo data.
+
+### Fixed
+
+- WebGL context recovery, reduced-motion Three.js framebuffer stability, zero-width mobile lifecycle, and renderer-pixel
+  acceptance so blank or decorative-only output cannot pass.
+- Physical and logical restore neutralization for connector, AI provider, action-adapter, and active-context
+  credentials, Redis sessions, queued jobs, outbox events, connector/AI runs, actions, leases, and linked Attention.
+- Shared-runner clustered-overview variance by replacing ordered-set kind calculation with bounded per-kind aggregation
+  and limiting edge sampling to the requested visible budget.
+- Retry, cancellation, lease-reclamation, duplicate webhook, provider timeout/429, object-store outage, Redis outage,
+  migration interruption, and SSE reconnect races.
+- Kind/Helm staging selection and readiness for labeled migration Jobs plus both RollingUpdate and OnDelete
+  StatefulSets, with branch-head candidate SHA binding rather than synthetic pull-request merge refs.
 
 ### Security
 
-- Added strict dependency approval requirements, lockfile review rules, delayed npm package adoption, and secret handling
-  expectations.
-- Added AI provider secret handling, private-source retrieval, trace/audit, credential redaction, and review-gated
-  mutation requirements.
-- Added Phase 25 safe-action gates, operate/review permission checks, redacted action payloads, and no side-effect replay
-  on restore for persisted nervous-system records.
-- Hardened safe action execution with a configurable allowlist and project-scoped source freshness mutations.
+- Removed seeded-header authentication, reversible secret obfuscation, inline external actions, mutable image inputs,
+  Vite preview serving, root containers, and production demo fixtures from normal production paths.
+- Added streamed upload validation and malware scanning, SSRF/redirect protections, safe paths, HMAC replay windows,
+  redacted provider errors, secret-reference validation, strict outbound policies, and no side-effect replay on restore.
+- Added frozen lockfile trust/integrity, OSV, Gitleaks, license, all-image SBOM/vulnerability, Kubernetes schema, and
+  manifest security gates.
+
+[Unreleased]: https://github.com/RNT56/grapheracy/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/RNT56/grapheracy/releases/tag/v1.0.0

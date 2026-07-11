@@ -83,7 +83,21 @@ wait_for_release() {
   local resource
   while IFS= read -r resource; do
     [[ -n "$resource" ]] && kubectl -n "$namespace" rollout status "$resource" --timeout=15m
-  done < <(kubectl -n "$namespace" get deployments,statefulsets -o name)
+  done < <(kubectl -n "$namespace" get deployments -o name)
+  while IFS= read -r resource; do
+    [[ -z "$resource" ]] && continue
+    desired="$(kubectl -n "$namespace" get "$resource" -o jsonpath='{.spec.replicas}')"
+    for _ in $(seq 1 180); do
+      ready="$(kubectl -n "$namespace" get "$resource" -o jsonpath='{.status.readyReplicas}')"
+      [[ "${ready:-0}" == "$desired" ]] && break
+      sleep 5
+    done
+    ready="$(kubectl -n "$namespace" get "$resource" -o jsonpath='{.status.readyReplicas}')"
+    if [[ "${ready:-0}" != "$desired" ]]; then
+      echo "$resource has ${ready:-0}/$desired ready replicas." >&2
+      return 1
+    fi
+  done < <(kubectl -n "$namespace" get statefulsets -o name)
 }
 
 start_port_forward() {

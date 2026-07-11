@@ -151,7 +151,7 @@ def test_version() -> None:
     response = client.get("/version")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "0.24.0"
+    assert response.json()["version"] == "1.0.0"
 
 
 def test_v1_compatibility_routes_match_legacy_and_deprecate_only_legacy() -> None:

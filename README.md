@@ -76,6 +76,7 @@ reference stack documented in [`docs/06-operations.md`](docs/06-operations.md).
 - [Data schema](docs/09-data-schema.md)
 - [User journeys and value map](docs/10-user-journeys-and-value-map.md)
 - [Graphview 1.0 proof ledger](docs/14-graphview-1.0-upgrade-ledger.md)
+- [Graphview 1.0.0 release notes](docs/releases/1.0.0.md)
 - [Changelog](CHANGELOG.md)
 - [Security policy](SECURITY.md)
 

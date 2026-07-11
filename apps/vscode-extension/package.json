@@ -1,6 +1,6 @@
 {
   "name": "@graphview/vscode-extension",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "displayName": "Graphview Active Context",
   "description": "Passive active-context telemetry for Graphview from VS Code and Cursor editors.",

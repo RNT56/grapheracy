@@ -21,7 +21,7 @@ const secretPatterns = [
 
 export const toolManifest = {
   name: "graphview-agent-context",
-  version: "0.0.0",
+  version: "1.0.0",
   tools: [
     "start_session",
     "read_file",

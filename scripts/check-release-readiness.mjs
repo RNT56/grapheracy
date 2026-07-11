@@ -5,6 +5,7 @@ const root = process.cwd();
 const failures = [];
 const read = async (file) => readFile(path.join(root, file), "utf8");
 const packageJson = JSON.parse(await read("package.json"));
+if (packageJson.version !== "1.0.0") failures.push("root package version is not Graphview 1.0.0");
 
 for (const command of [
   "quality:fast",
@@ -72,6 +73,16 @@ for (const file of versionFiles) {
 for (const file of ["pyproject.toml", "services/api/pyproject.toml", "services/worker/pyproject.toml"]) {
   const match = (await read(file)).match(/^version = "([^"]+)"/m);
   if (match?.[1] !== packageJson.version) failures.push(`${file} version differs from root package.json`);
+}
+const apiVersion = (await read("services/api/src/graphview_api/version.py")).match(/^VERSION = "([^"]+)"/m)?.[1];
+if (apiVersion !== packageJson.version) failures.push("API runtime version differs from root package.json");
+const gatewaySource = await read("services/agent-gateway/src/index.mjs");
+if (!gatewaySource.includes(`version: "${packageJson.version}"`)) {
+  failures.push("agent gateway runtime version differs from root package.json");
+}
+const helmChart = await read("infra/helm/graphview/Chart.yaml");
+if (!helmChart.includes(`version: ${packageJson.version}`) || !helmChart.includes(`appVersion: "${packageJson.version}"`)) {
+  failures.push("Helm chart version differs from root package.json");
 }
 
 const architecture = await read("docs/02-architecture.md");
