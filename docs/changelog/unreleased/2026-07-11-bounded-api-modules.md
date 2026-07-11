@@ -77,4 +77,6 @@ owner: codex
   projections into connectorWorkspaceModel; reduce App.tsx to 3,033 lines under a 3,075-line ceiling.
 - Remove preserved prototype fixtures from the production web import graph, replace them with generic empty/loading and
   lens defaults, enforce the demo-import rule for App.tsx, and ratchet the shell to 3,003 lines under a 3,040-line ceiling.
+- Move graph, review, Attention, connector, planning, provider, and active-context server queries into
+  useWorkspaceQueries; keep TanStack Query as the server-state owner; reduce App.tsx to 2,854 lines under a 2,900-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

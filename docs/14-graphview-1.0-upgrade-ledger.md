@@ -62,6 +62,8 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   imports, generic empty/loading defaults live in `workspaceDefaults.ts`, and architecture checks enforce the boundary
   for `App.tsx` too. The shell is now 3,003 lines under a 3,040-line ceiling; the production bundle fell from about
   639 kB to 616 kB, and 19 mocked-live desktop/mobile Playwright checks passed with 3 environment-gated checks skipped.
+  All primary server-state queries now live in `useWorkspaceQueries.ts`, preserving TanStack Query ownership while
+  reducing `App.tsx` further to 2,854 lines under a 2,900-line ceiling.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
