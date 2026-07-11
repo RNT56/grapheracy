@@ -53,4 +53,6 @@ owner: codex
   accounting into IngestionRepositoryMixin; ratchet the remaining compatibility façade below 4,200 lines.
 - Move owners, routing policies, signals, observations, Attention, decisions, action proposals/runs, outcomes, and
   feedback into NervousSystemRepositoryMixin; ratchet the remaining compatibility façade below 3,600 lines.
+- Move active-context clients, sessions, ordered events, retained artifact/blob references, replay projections, and
+  retention into AgentContextRepositoryMixin; ratchet the remaining compatibility façade below 3,100 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
