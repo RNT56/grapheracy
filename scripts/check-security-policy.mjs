@@ -46,7 +46,7 @@ const containers = Object.fromEntries(
 const productionCompose = await readFile(path.join(root, "infra/compose/docker-compose.production.yml"), "utf8");
 const acceptanceWorkflows = Object.fromEntries(
   await Promise.all(
-    ["ci.yml", "staging.yml", "external-canaries.yml"].map(async (file) => [
+    ["ci.yml", "staging.yml", "external-canaries.yml", "security.yml", "release.yml"].map(async (file) => [
       file,
       await readFile(path.join(root, ".github/workflows", file), "utf8")
     ])
@@ -126,6 +126,14 @@ for (const [file, body] of Object.entries(acceptanceWorkflows)) {
   }
   if (/echo\s+"[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN)=\$\(openssl rand/.test(body)) {
     failures.push(`${file} exports a generated credential without the masked export helper`);
+  }
+  for (const deprecatedAction of [
+    "azure/setup-helm@v4",
+    "docker/login-action@v3",
+    "docker/setup-buildx-action@v3",
+    "docker/build-push-action@v6"
+  ]) {
+    if (body.includes(deprecatedAction)) failures.push(`${file} retains deprecated action ${deprecatedAction}`);
   }
 }
 for (const forbidden of [

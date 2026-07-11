@@ -137,6 +137,24 @@ api_request() {
 
 helm upgrade "${helm_arguments[@]}"
 wait_for_release
+kubectl -n "$namespace" run graphview-ops-smoke \
+  --image="$GRAPHVIEW_STAGING_OPS_IMAGE" \
+  --image-pull-policy=IfNotPresent \
+  --restart=Never \
+  --command -- /usr/local/bin/mc --version >/dev/null
+for _ in $(seq 1 60); do
+  ops_phase="$(kubectl -n "$namespace" get pod graphview-ops-smoke -o jsonpath='{.status.phase}')"
+  case "$ops_phase" in
+    Succeeded) break ;;
+    Failed) kubectl -n "$namespace" logs graphview-ops-smoke >&2; exit 1 ;;
+  esac
+  sleep 2
+done
+ops_phase="$(kubectl -n "$namespace" get pod graphview-ops-smoke -o jsonpath='{.status.phase}')"
+[[ "$ops_phase" == "Succeeded" ]] || {
+  kubectl -n "$namespace" describe pod graphview-ops-smoke >&2
+  exit 1
+}
 actual_images="$(kubectl -n "$namespace" get pods -o json | jq -r '.items[].spec.containers[].image' | sort -u)"
 for expected_image in \
   "$GRAPHVIEW_STAGING_WEB_IMAGE" "$GRAPHVIEW_STAGING_API_IMAGE" \
