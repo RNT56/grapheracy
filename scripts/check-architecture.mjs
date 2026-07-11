@@ -23,6 +23,7 @@ const boundedLegacyFiles = {
   "apps/web/src/App.tsx": 6000,
   "apps/web/src/GraphCanvas.tsx": 1500,
   "services/api/src/graphview_api/main.py": 220,
+  "services/api/src/graphview_api/api_v1/router.py": 60,
   "services/api/src/graphview_api/repository.py": 6100
 };
 
@@ -57,6 +58,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/api_v1/action_dependencies.py",
   "services/api/src/graphview_api/api_v1/action_router.py",
   "services/api/src/graphview_api/api_v1/action_service.py",
+  "services/api/src/graphview_api/api_v1/connector_dependencies.py",
+  "services/api/src/graphview_api/api_v1/connector_router.py",
+  "services/api/src/graphview_api/api_v1/connector_service.py",
   "services/api/src/graphview_api/api_v1/graph_dependencies.py",
   "services/api/src/graphview_api/api_v1/graph_router.py",
   "services/api/src/graphview_api/api_v1/job_dependencies.py",
@@ -151,6 +155,16 @@ if (v1UploadRouter.includes("GraphRepository") || v1UploadRouter.includes("JobRe
 const v1ActionRouter = await read("services/api/src/graphview_api/api_v1/action_router.py");
 if (v1ActionRouter.includes("GraphRepository") || v1ActionRouter.includes("JobRepository") || v1ActionRouter.includes("repository.")) {
   failures.push("V1 action router must call V1ActionService rather than persistence repositories");
+}
+
+const v1ConnectorRouter = await read("services/api/src/graphview_api/api_v1/connector_router.py");
+if (v1ConnectorRouter.includes("GraphRepository") || v1ConnectorRouter.includes("JobRepository") || v1ConnectorRouter.includes("repository.")) {
+  failures.push("V1 connector router must call V1ConnectorService rather than persistence repositories");
+}
+
+const v1Assembly = await read("services/api/src/graphview_api/api_v1/router.py");
+if (v1Assembly.includes("@router.") || v1Assembly.includes("GraphRepository") || v1Assembly.includes("repository.")) {
+  failures.push("V1 API assembly must remain dependency wiring and router registration only");
 }
 
 const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");

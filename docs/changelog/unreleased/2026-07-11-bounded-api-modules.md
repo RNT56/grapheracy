@@ -39,4 +39,6 @@ owner: codex
   checksum-bound idempotency, object storage, HTTP/ClamAV screening, cleanup, and durable ingestion dispatch.
 - Split canonical approved-action dispatch and signed workflow outcome callbacks into V1ActionService, preserving
   callback secret references, replay-resistant event idempotency, timestamp windows, and durable outcome recording.
+- Split canonical connector sync, health, GitHub delivery verification, Google watch callbacks, and Notion
+  verification/events into V1ConnectorService; reduce the V1 composer to dependency wiring with a 60-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
