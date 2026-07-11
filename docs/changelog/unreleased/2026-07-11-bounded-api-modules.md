@@ -62,4 +62,6 @@ owner: codex
   and shared-helper layer with a 1,200-line ceiling.
 - Move workspace wire/view-model contracts, provider capability metadata, and settings-page descriptors out of the
   web shell into workspaceTypes; reduce App.tsx from 5,944 to 5,197 lines under a 5,250-line ceiling.
+- Move API graph/activity/source/proposal/review/agent/citation/lens normalization into workspaceModel; reduce
+  App.tsx further to 4,852 lines under a 4,900-line ceiling while contract tests follow the bounded model module.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

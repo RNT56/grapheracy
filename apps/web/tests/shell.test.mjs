@@ -7,7 +7,7 @@ function assertSourceIncludes(source, pattern, label) {
 }
 
 test("web shell is product-first and wired to API health", async () => {
-  const source = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}`;
+  const source = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceModel.ts", import.meta.url), "utf8")}`;
   assert.match(source, /fetchHealth/);
   assert.match(source, /createSource/);
   assert.match(source, /ingestText/);
