@@ -47,4 +47,6 @@ owner: codex
   domain rather than leaking back into the façade.
 - Move graph view/scoping, lens filtering, neighborhood and path traversal, and insight projections into
   GraphReadRepositoryMixin; ratchet the remaining compatibility façade below 5,250 lines.
+- Move planning sessions/messages, build specs, agent runs, graph-query context, research tasks, and reviewed agent
+  actions into AiPlanningRepositoryMixin; ratchet the remaining compatibility façade below 4,650 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
