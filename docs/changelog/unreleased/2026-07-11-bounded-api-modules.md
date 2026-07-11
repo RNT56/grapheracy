@@ -23,4 +23,6 @@ owner: codex
   repository port while preserving operator authority and agent-context content policy.
 - Route capture-token authority, session/event transitions, retained content, replay-cursor validation, graph
   projection, and retention through a typed AgentContextService and repository port.
+- Route provider credentials, planning sessions/messages, review-gated build specs, agent runs, and the tool catalog
+  through a typed PlanningService and AI repository port.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

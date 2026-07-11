@@ -10,6 +10,7 @@ from graphview_api.agent_context.service import AgentContextService
 from graphview_api.actions import create_actions_router
 from graphview_api.actions.service import ActionsService
 from graphview_api.ai import create_agent_tools_router, create_planning_router, create_retrieval_router
+from graphview_api.ai.service import PlanningService
 from graphview_api.attention import create_attention_router
 from graphview_api.attention.service import AttentionService
 from graphview_api.api_v1 import create_v1_router
@@ -133,13 +134,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return GraphService(repo())
     def sources_service() -> SourcesService:
         return SourcesService(repo(), settings)
-
     def connector_service() -> ConnectorService:
         return ConnectorService(repo(), settings, llm_provider_factory=build_llm_provider)
-
     def review_service() -> ReviewService:
         return ReviewService(repo())
-
     def actions_service() -> ActionsService:
         return ActionsService(repo())
     def attention_service() -> AttentionService:
@@ -148,6 +146,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return DataOperationsService(repo())
     def agent_context_service() -> AgentContextService:
         return AgentContextService(repo())
+    def planning_service() -> PlanningService:
+        return PlanningService(repo(), settings, provider_registry_factory=configured_provider_registry)
 
     app.include_router(
         create_health_router(
@@ -173,7 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(create_actions_router(actions_service))
     app.include_router(create_graph_exploration_router(graph_service))
 
-    app.include_router(create_planning_router(repo, provider_registry_factory=configured_provider_registry))
+    app.include_router(create_planning_router(planning_service))
 
     app.include_router(create_agent_context_router(agent_context_service, telemetry=app.state.telemetry))
 
