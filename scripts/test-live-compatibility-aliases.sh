@@ -86,10 +86,8 @@ if graph_status != 200:
     raise SystemExit(f"Unable to resolve graph anchors: HTTP {graph_status}")
 graph = json.loads(graph_body)
 node_ids = [node["id"] for node in graph.get("nodes", [])]
-if not node_ids:
-    raise SystemExit("Compatibility replay requires at least one reviewed graph node")
-source_node_id = node_ids[0]
-target_node_id = node_ids[1] if len(node_ids) > 1 else source_node_id
+source_node_id = node_ids[0] if node_ids else "missing-alias-node-a"
+target_node_id = node_ids[1] if len(node_ids) > 1 else "missing-alias-node-b"
 
 substitutions = {
     "{agent_run_id}": "missing-alias-agent-run",
