@@ -15,4 +15,6 @@ owner: codex
   ConnectorService and repository port while preserving the injectable LLM provider factory.
 - Route proposal projections, dashboards, provenance coverage, creation, and reviewer-authority transitions through
   a typed ReviewService and repository port.
+- Route decisions, action proposals, approval/rejection, action runs, outcomes, and feedback through a typed
+  ActionsService and repository port while preserving reviewer and worker authority.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

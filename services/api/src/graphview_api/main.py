@@ -7,6 +7,7 @@ from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from graphview_api.agent_context import create_agent_context_router
 from graphview_api.actions import create_actions_router
+from graphview_api.actions.service import ActionsService
 from graphview_api.ai import create_agent_tools_router, create_planning_router, create_retrieval_router
 from graphview_api.attention import create_attention_router
 from graphview_api.api_v1 import create_v1_router
@@ -141,6 +142,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def review_service() -> ReviewService:
         return ReviewService(repo())
 
+    def actions_service() -> ActionsService:
+        return ActionsService(repo())
+
     app.include_router(
         create_health_router(
             repo,
@@ -164,7 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_attention_router(repo))
 
-    app.include_router(create_actions_router(repo))
+    app.include_router(create_actions_router(actions_service))
 
     app.include_router(create_graph_exploration_router(graph_service))
 

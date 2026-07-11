@@ -54,7 +54,9 @@ const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
+  "services/api/src/graphview_api/actions/repository.py",
   "services/api/src/graphview_api/actions/router.py",
+  "services/api/src/graphview_api/actions/service.py",
   "services/api/src/graphview_api/agent_context/router.py",
   "services/api/src/graphview_api/ai/retrieval_router.py",
   "services/api/src/graphview_api/ai/router.py",
@@ -123,6 +125,11 @@ if (connectorRouter.includes("GraphRepository") || connectorRouter.includes("rep
 const reviewRouter = await read("services/api/src/graphview_api/review/router.py");
 if (reviewRouter.includes("GraphRepository") || reviewRouter.includes("repository.")) {
   failures.push("review router must call ReviewService rather than the persistence repository");
+}
+
+const actionsRouter = await read("services/api/src/graphview_api/actions/router.py");
+if (actionsRouter.includes("GraphRepository") || actionsRouter.includes("repository.")) {
+  failures.push("actions router must call ActionsService rather than the persistence repository");
 }
 
 if (failures.length) {
