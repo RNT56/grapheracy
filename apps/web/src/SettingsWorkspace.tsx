@@ -3,6 +3,7 @@ import { useState } from "react";
 import {
   SETTINGS_PAGES,
   providerCredentialCopy,
+  type ApiActionCredentialKind,
   type ApiProviderDescriptor,
   type ApiProviderId,
   type SettingsPageId
@@ -126,6 +127,10 @@ export function SettingsWorkspace({
   onProviderApiKeyChange,
   onSaveProviderKey,
   onClearProviderKey,
+  actionCredentialStatus,
+  actionCredentialPending,
+  onSaveActionCredential,
+  onClearActionCredential,
   onLlmEnabledChange,
   onAutoCommitThresholdChange,
   onSaveSettings
@@ -145,6 +150,10 @@ export function SettingsWorkspace({
   onProviderApiKeyChange: (value: string) => void;
   onSaveProviderKey: () => void;
   onClearProviderKey: () => void;
+  actionCredentialStatus: Record<ApiActionCredentialKind, boolean>;
+  actionCredentialPending?: ApiActionCredentialKind;
+  onSaveActionCredential: (kind: ApiActionCredentialKind, credentials: Record<string, string>) => void;
+  onClearActionCredential: (kind: ApiActionCredentialKind) => void;
   onLlmEnabledChange: (enabled: boolean) => void;
   onAutoCommitThresholdChange: (threshold: number) => void;
   onSaveSettings: () => void;
@@ -247,6 +256,12 @@ export function SettingsWorkspace({
                 onSaveProviderKey={onSaveProviderKey}
                 onClearProviderKey={onClearProviderKey}
               />
+              <ActionCredentialPanel
+                status={actionCredentialStatus}
+                pending={actionCredentialPending}
+                onSave={onSaveActionCredential}
+                onClear={onClearActionCredential}
+              />
             </section>
           )}
 
@@ -313,6 +328,117 @@ export function SettingsWorkspace({
         </div>
       </div>
     </section>
+  );
+}
+
+function ActionCredentialPanel({
+  status,
+  pending,
+  onSave,
+  onClear
+}: {
+  status: Record<ApiActionCredentialKind, boolean>;
+  pending?: ApiActionCredentialKind;
+  onSave: (kind: ApiActionCredentialKind, credentials: Record<string, string>) => void;
+  onClear: (kind: ApiActionCredentialKind) => void;
+}) {
+  const [activeKind, setActiveKind] = useState<ApiActionCredentialKind>("github");
+  const [primarySecret, setPrimarySecret] = useState("");
+  const [secondarySecret, setSecondarySecret] = useState("");
+  const [username, setUsername] = useState("");
+  const labels: Record<ApiActionCredentialKind, { title: string; primary: string; secondary?: string }> = {
+    github: { title: "GitHub Issues", primary: "Installation or access token" },
+    smtp: { title: "SMTP relay", primary: "Password", secondary: "Username" },
+    webhook: { title: "Signed webhook", primary: "Signing secret", secondary: "Callback secret" }
+  };
+  const selected = labels[activeKind];
+  const save = () => {
+    let credentials: Record<string, string>;
+    if (activeKind === "github") credentials = { token: primarySecret };
+    else if (activeKind === "smtp") credentials = username ? { username, password: primarySecret } : {};
+    else credentials = { secret: primarySecret, callback_secret: secondarySecret || primarySecret };
+    onSave(activeKind, credentials);
+    setPrimarySecret("");
+    setSecondarySecret("");
+    setUsername("");
+  };
+
+  return (
+    <div className="credential-settings-grid" aria-label="External action credentials">
+      <div className="credential-provider-grid">
+        {(Object.keys(labels) as ApiActionCredentialKind[]).map((kind) => (
+          <button
+            className="credential-provider-card"
+            type="button"
+            aria-pressed={kind === activeKind}
+            key={kind}
+            onClick={() => {
+              setActiveKind(kind);
+              setPrimarySecret("");
+              setSecondarySecret("");
+              setUsername("");
+            }}
+          >
+            <span className={status[kind] ? "is-configured" : ""}>{status[kind] ? "Configured" : "Needs setup"}</span>
+            <strong>{labels[kind].title}</strong>
+            <small>Worker-only secret resolution</small>
+          </button>
+        ))}
+      </div>
+      <div className="credential-detail-panel">
+        <div className="credential-detail-head">
+          <div>
+            <p className="eyebrow">External actions</p>
+            <h4>{selected.title}</h4>
+            <span>Secrets are stored externally and never copied into reviewed proposals.</span>
+          </div>
+          <strong>{status[activeKind] ? "Configured" : "Not configured"}</strong>
+        </div>
+        <div className="credential-key-panel">
+          {selected.secondary && activeKind === "smtp" && (
+            <label>
+              {selected.secondary}
+              <input type="text" value={username} autoComplete="off" onChange={(event) => setUsername(event.target.value)} />
+            </label>
+          )}
+          <label>
+            {selected.primary}
+            <input
+              type="password"
+              value={primarySecret}
+              autoComplete="off"
+              placeholder={status[activeKind] ? "Configured" : selected.primary}
+              onChange={(event) => setPrimarySecret(event.target.value)}
+            />
+          </label>
+          {selected.secondary && activeKind === "webhook" && (
+            <label>
+              {selected.secondary}
+              <input
+                type="password"
+                value={secondarySecret}
+                autoComplete="off"
+                placeholder="Defaults to signing secret"
+                onChange={(event) => setSecondarySecret(event.target.value)}
+              />
+            </label>
+          )}
+          <div className="credential-key-actions">
+            <button
+              className="provider-save-settings"
+              type="button"
+              disabled={pending === activeKind || (activeKind !== "smtp" && !primarySecret.trim()) || (activeKind === "smtp" && Boolean(username) !== Boolean(primarySecret))}
+              onClick={save}
+            >
+              Save credential
+            </button>
+            <button type="button" disabled={pending === activeKind || !status[activeKind]} onClick={() => onClear(activeKind)}>
+              Clear credential
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -508,4 +634,3 @@ function SettingsReadout({ label, value, detail }: { label: string; value: strin
     </div>
   );
 }
-

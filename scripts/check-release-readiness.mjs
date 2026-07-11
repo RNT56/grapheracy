@@ -14,6 +14,7 @@ for (const command of [
   "test:performance",
   "test:performance:live",
   "test:failure-injection:live",
+  "test:external-canaries",
   "security:full",
   "release:verify"
 ]) {
@@ -34,7 +35,9 @@ for (const file of [
   "scripts/verify-release-artifacts.mjs",
   ".github/workflows/ci.yml",
   ".github/workflows/security.yml",
-  ".github/workflows/release.yml"
+  ".github/workflows/release.yml",
+  ".github/workflows/external-canaries.yml",
+  "scripts/test-live-external-canaries.sh"
 ]) {
   try {
     await access(path.join(root, file));
@@ -73,6 +76,7 @@ const operations = await read("docs/06-operations.md");
 const ledger = await read("docs/14-graphview-1.0-upgrade-ledger.md");
 const ciWorkflow = await read(".github/workflows/ci.yml");
 const releaseWorkflow = await read(".github/workflows/release.yml");
+const externalCanaryWorkflow = await read(".github/workflows/external-canaries.yml");
 const composeRealm = JSON.parse(await read("infra/compose/keycloak/graphview-realm.json"));
 for (const required of ["/api/v1", "PostgreSQL", "Redis", "S3", "OIDC", "Sigma", "Graphology"]) {
   if (!`${architecture}\n${operations}\n${ledger}`.includes(required)) failures.push(`1.0 documentation missing ${required}`);
@@ -94,6 +98,14 @@ for (const required of [
   "pnpm run test:backup-restore:live"
 ]) {
   if (!ciWorkflow.includes(required)) failures.push(`live-stack CI workflow missing ${required}`);
+}
+for (const required of [
+  "workflow_dispatch:",
+  "environment: external-canaries",
+  "bash scripts/test-live-external-canaries.sh",
+  "graphview-external-canary-receipt"
+]) {
+  if (!externalCanaryWorkflow.includes(required)) failures.push(`external canary workflow missing ${required}`);
 }
 const webClient = composeRealm.clients?.find((client) => client.clientId === "graphview-web");
 const ciCallback = "http://127.0.0.1:8080/api/v1/auth/callback";

@@ -241,6 +241,7 @@ OwnerType = Literal["person", "team", "service_account", "group"]
 OwnershipScopeKind = Literal["project", "lens", "topic", "source", "node_kind", "node", "edge", "policy", "action_type", "connector"]
 DecisionRecordValue = Literal["accept", "reject", "approve", "defer", "dismiss", "escalate", "reopen"]
 ActionProposalStatus = Literal["proposed", "pending_review", "approved", "rejected", "queued", "running", "succeeded", "failed", "cancelled"]
+ActionCredentialKind = Literal["github", "smtp", "webhook"]
 ActionRunStatus = Literal["queued", "running", "succeeded", "failed", "partial", "cancelled"]
 OutcomeStatus = Literal["waiting", "succeeded", "failed", "partial", "unresolved", "resolved", "reopened"]
 FeedbackKind = Literal["source_freshness", "confidence_update", "priority_update", "policy_suggestion", "graph_memory_proposal", "false_positive"]
@@ -840,6 +841,17 @@ class ActionSafetyOut(BaseModel):
     calls_external_system: bool
     transfers_private_content: bool
     approval_required: bool
+
+
+class ActionCredentialUpdate(BaseModel):
+    credentials: dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionCredentialOut(BaseModel):
+    id: ActionCredentialKind
+    kind: ActionCredentialKind
+    configured: bool
+    updated_at: datetime | None = None
 
 
 class ActionProposalCreate(BaseModel):

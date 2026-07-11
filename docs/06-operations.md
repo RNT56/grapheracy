@@ -212,6 +212,13 @@ Action execution is gated by approved action proposals, operate permission, and 
 allowlist. Internal source-freshness actions mutate only sources in the proposal's project. External actions execute
 only as durable worker jobs through three production adapters:
 
+Operators configure project-scoped adapter credentials through `GET /api/v1/action-credentials`,
+`PUT /api/v1/action-credentials/{github|smtp|webhook}`, and the matching `DELETE` route. The API accepts secret
+material only on the write request, stores it through the configured external secret provider, and returns configured
+status plus rotation time without exposing the secret reference. Reviewed proposals select a slot with
+`payload.credential_id`; only the worker resolves that identifier to the current secret reference immediately before
+execution. Rotation preserves the stable reference, and deletion makes queued/retried execution fail closed.
+
 - `create_external_ticket` mints a short-lived GitHub App installation token (or accepts an explicitly referenced
   installation token), scans all issue pages for the stable Graphview marker, and creates one GitHub Issue receipt.
 - `create_notification` renders reviewed subject/body templates with inert string substitution, honors the suppression
@@ -225,6 +232,14 @@ The worker writes the action-run before calling an external system. Retries reus
 `running`, `queued`, and `succeeded`; terminal provider errors and cancellation produce `failed` or `cancelled` records
 and block linked Attention. Expired worker leases are reclaimed up to the configured job attempt limit. Provider error
 text is redacted before job storage, connector health, action audit, or OpenTelemetry exception recording.
+
+The secret-backed release canary is the manual `Protected external canaries` GitHub Actions workflow bound to the
+`external-canaries` environment. Provision dedicated fixture values for a writable GitHub repository, Google Drive
+folder, Notion page or database, OpenAI model, SMTP relay/recipient, and HTTPS webhook receiver. The workflow builds
+the exact eight candidate images, grants its ephemeral service account review authority only inside the disposable
+stack, performs initial and cursor-based connector syncs, runs cited AI, executes all three reviewed external actions,
+records callback/user-confirmed outcomes and feedback, uploads a redacted ID-only receipt, deletes stored credentials,
+and destroys the stack. Never point these fixtures at production repositories, mail recipients, or workflow receivers.
 
 ## Logical Project Export
 

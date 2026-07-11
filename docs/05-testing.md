@@ -155,6 +155,8 @@ presence, and the product-first web shell.
   citations, research-created sources/proposals, permission checks, export coverage, and action approval.
 - Provider tests for mocked OpenAI Responses, Anthropic Messages, and Gemini generate-content request payloads, disabled
   provider behavior, and structured output parsing.
+- Action credential tests prove operator-only create/rotate/delete, stable external-secret references, redacted settings
+  and proposal reads, worker-only resolution, invalid credential rejection, and fail-closed execution after deletion.
 - Worker tests for the AI stage plan from `agent.plan` through `agent.action.apply`.
 - Web shell tests for Planning Mode, embedded Graph AI command flow, citation drawer, research status, and action approval
   UI wiring.

@@ -96,6 +96,42 @@ rotated_provider_reference="$(
 provider_v2="$(vault_document "$provider_secret_id")"
 jq -e '.data.data.api_key == "rotated-provider-secret" and .data.metadata.version == 2' <<<"$provider_v2" >/dev/null
 
+action_credential="$(
+  api_request PUT /api/v1/action-credentials/webhook \
+    "$(jq -nc '{credentials:{secret:"initial-action-secret",callback_secret:"initial-callback-secret"}}')"
+)"
+jq -e '.id == "webhook" and .configured == true and (tostring | contains("initial-action-secret") | not)' \
+  <<<"$action_credential" >/dev/null
+action_reference="$(
+  psql_value "SELECT COALESCE(settings_json__jsonb, settings_json::jsonb) #>> '{action_credentials,webhook,encrypted_secret}' FROM graph_settings WHERE project_id = 'project-default'"
+)"
+action_secret_id="$(vault_reference_id "$action_reference")"
+action_v1="$(vault_document "$action_secret_id")"
+jq -e '
+  .data.data.secret == "initial-action-secret"
+  and .data.data.callback_secret == "initial-callback-secret"
+  and .data.metadata.version == 1
+' <<<"$action_v1" >/dev/null
+
+api_request PUT /api/v1/action-credentials/webhook \
+  "$(jq -nc '{credentials:{secret:"rotated-action-secret",callback_secret:"rotated-callback-secret"}}')" >/dev/null
+rotated_action_reference="$(
+  psql_value "SELECT COALESCE(settings_json__jsonb, settings_json::jsonb) #>> '{action_credentials,webhook,encrypted_secret}' FROM graph_settings WHERE project_id = 'project-default'"
+)"
+[[ "$rotated_action_reference" == "$action_reference" ]]
+action_v2="$(vault_document "$action_secret_id")"
+jq -e '
+  .data.data.secret == "rotated-action-secret"
+  and .data.data.callback_secret == "rotated-callback-secret"
+  and .data.metadata.version == 2
+' <<<"$action_v2" >/dev/null
+action_settings="$(api_request GET /api/v1/graph/settings)"
+jq -e '.settings.action_credentials.webhook.configured == true' <<<"$action_settings" >/dev/null
+if grep -Eq 'rotated-action-secret|rotated-callback-secret|gvsecret:' <<<"$action_settings"; then
+  echo "Action credential material leaked through graph settings." >&2
+  exit 1
+fi
+
 migration_account="$(
   api_request POST /api/v1/connector-accounts \
     "$(jq -nc '{kind:"repository",display_name:"Legacy credential migration acceptance"}')"
@@ -143,8 +179,9 @@ jq -e '.data.data.access_token == "legacy-database-secret" and .data.metadata.ve
 api_request DELETE "/api/v1/connector-accounts/$connector_id/credentials" >/dev/null
 api_request DELETE "/api/v1/connector-accounts/$migration_account_id/credentials" >/dev/null
 api_request DELETE /api/v1/providers/openai/credentials >/dev/null
+api_request DELETE /api/v1/action-credentials/webhook >/dev/null
 
-for deleted_secret_id in "$connector_secret_id" "$migrated_secret_id" "$provider_secret_id"; do
+for deleted_secret_id in "$connector_secret_id" "$migrated_secret_id" "$provider_secret_id" "$action_secret_id"; do
   if "${compose[@]}" exec -T \
     -e VAULT_ADDR=http://127.0.0.1:8200 \
     -e VAULT_TOKEN="$VAULT_DEV_ROOT_TOKEN" \
@@ -158,5 +195,6 @@ cleared_connector="$(psql_value "SELECT (encrypted_token_json IS NULL)::text || 
 cleared_migration="$(psql_value "SELECT (encrypted_token_json IS NULL)::text || '|' || status FROM connector_accounts WHERE id = '$migration_account_id'")"
 [[ "$cleared_connector" == "true|error" ]]
 [[ "$cleared_migration" == "true|error" ]]
+[[ -z "$(psql_value "SELECT COALESCE(settings_json__jsonb, settings_json::jsonb) #>> '{action_credentials,webhook}' FROM graph_settings WHERE project_id = 'project-default'")" ]]
 
-echo "Live secret lifecycle proof passed: Vault references rotated in place, legacy database credentials migrated, and deleted credentials were purged."
+echo "Live secret lifecycle proof passed: connector, provider, and action Vault references rotated in place, legacy database credentials migrated, and deleted credentials were purged."

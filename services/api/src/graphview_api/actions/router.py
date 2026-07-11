@@ -7,6 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, REVIEW_PERMISSION, WRITE_PERMISSION, CurrentUser, require_permission
 from graphview_api.actions.service import ActionsService
 from graphview_api.schemas import (
+    ActionCredentialKind,
+    ActionCredentialOut,
+    ActionCredentialUpdate,
     ActionProposalCreate,
     ActionProposalDecision,
     ActionProposalOut,
@@ -23,6 +26,33 @@ from graphview_api.schemas import (
 
 def create_actions_router(service_provider: Callable[[], ActionsService]) -> APIRouter:
     router = APIRouter()
+
+    @router.get("/action-credentials")
+    async def action_credentials(
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        service: ActionsService = Depends(service_provider),
+    ) -> dict[str, list[ActionCredentialOut]]:
+        return service.credentials()
+
+    @router.put("/action-credentials/{credential_kind}", response_model=ActionCredentialOut)
+    async def update_action_credential(
+        credential_kind: ActionCredentialKind,
+        payload: ActionCredentialUpdate,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        service: ActionsService = Depends(service_provider),
+    ) -> ActionCredentialOut:
+        try:
+            return service.update_credential(credential_kind, payload.credentials)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+
+    @router.delete("/action-credentials/{credential_kind}", response_model=ActionCredentialOut)
+    async def delete_action_credential(
+        credential_kind: ActionCredentialKind,
+        _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
+        service: ActionsService = Depends(service_provider),
+    ) -> ActionCredentialOut:
+        return service.delete_credential(credential_kind)
 
     @router.get("/decision-records")
     async def decision_records(
@@ -55,7 +85,10 @@ def create_actions_router(service_provider: Callable[[], ActionsService]) -> API
         user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
         service: ActionsService = Depends(service_provider),
     ) -> dict:
-        return service.create_proposal(payload, actor_id=user.id)
+        try:
+            return service.create_proposal(payload, actor_id=user.id)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
 
     @router.post("/action-proposals/{action_proposal_id}/approve", response_model=ActionProposalOut)
     async def approve_action_proposal(

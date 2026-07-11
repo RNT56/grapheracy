@@ -27,6 +27,7 @@ import { GraphCanvas, type GraphCanvasEdge, type GraphDimensionMode, type GraphL
 import { useGraphWorkspaceStore } from "./graphWorkspaceStore";
 import { useViewportProjection } from "./useViewportProjection";
 import { useWorkspaceQueries } from "./useWorkspaceQueries";
+import { useActionCredentialMutations } from "./useActionCredentialMutations";
 import { ProviderSettingsPanel, SettingsWorkspace } from "./SettingsWorkspace";
 import { AgentToolCallCard, PlanningWorkspace, agentRunToolCalls } from "./PlanningWorkspace";
 import { AgentContextWorkspace } from "./AgentContextWorkspace";
@@ -72,6 +73,7 @@ import {
 } from "./workspaceModel";
 import {
   withFallbackProviders,
+  type ApiActionCredentialKind,
   type AgentToolKind,
   type ApiAgentActionProposal,
   type ApiAgentCitation,
@@ -249,6 +251,7 @@ function Shell() {
   const [autoCommitThreshold, setAutoCommitThreshold] = useState(0.92);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<ApiProviderId>("graphview-local");
   const [providerApiKey, setProviderApiKey] = useState("");
+  const { saveActionCredential, clearActionCredential } = useActionCredentialMutations();
   const searchText = useGraphWorkspaceStore((state) => state.searchText);
   const setSearchText = useGraphWorkspaceStore((state) => state.setSearchText);
   const graphLayout = useGraphWorkspaceStore((state) => state.graphLayout);
@@ -351,6 +354,14 @@ function Shell() {
   const selectedAiProvider = providerList.find((provider) => provider.id === selectedAiProviderId) ?? providerList[0];
   const activeAiProviderId: ApiProviderId = selectedAiProvider?.enabled ? selectedAiProvider.id : "graphview-local";
   const savedProviderCredentials = graphSettings.data?.settings.ai_provider_credentials as Record<string, { configured?: boolean }> | undefined;
+  const savedActionCredentials = graphSettings.data?.settings.action_credentials as
+    | Record<ApiActionCredentialKind, { configured?: boolean }>
+    | undefined;
+  const actionCredentialStatus: Record<ApiActionCredentialKind, boolean> = {
+    github: Boolean(savedActionCredentials?.github?.configured),
+    smtp: Boolean(savedActionCredentials?.smtp?.configured),
+    webhook: Boolean(savedActionCredentials?.webhook?.configured)
+  };
   const selectedProviderHasSavedKey = Boolean(savedProviderCredentials?.[selectedAiProviderId]?.configured);
   const selectedProviderStatus =
     selectedAiProviderId === "graphview-local"
@@ -838,9 +849,12 @@ function Shell() {
 
   const createOperationalAction = useMutation({
     mutationFn: (item: ApiOperationalAttentionItem) => {
-      const actionType =
-        item.suggested_actions.find((action) => action !== "mark_source_stale" || Boolean(item.source_id)) ??
-        (item.source_id ? "mark_source_stale" : "create_notification");
+      const owner = operationalOwnerList.find((candidate) => candidate.id === item.owner_id);
+      const actionType = item.source_id
+        ? "mark_source_stale"
+        : actionCredentialStatus.smtp && owner?.contact
+          ? "create_notification"
+          : "request_owner_confirmation";
       return fetchJson<ApiOperationalActionProposal>("/action-proposals", {
         method: "POST",
         body: JSON.stringify({
@@ -848,15 +862,24 @@ function Shell() {
           alert_id: item.alert_id,
           attention_item_id: item.id,
           action_type: actionType,
-          title: actionType === "mark_source_stale" ? "Mark source stale" : "Notify owner",
+          title:
+            actionType === "mark_source_stale"
+              ? "Mark source stale"
+              : actionType === "create_notification"
+                ? "Notify owner"
+                : "Request owner confirmation",
           summary:
             actionType === "mark_source_stale"
               ? "Flag the linked source as stale until it is refreshed."
-              : "Notify the responsible owner that the graph needs attention.",
+              : actionType === "create_notification"
+                ? "Notify the responsible owner that the graph needs attention."
+                : "Keep the action inside Graphview until an owner contact and SMTP credential are configured.",
           payload:
             actionType === "mark_source_stale"
               ? { source_id: item.source_id }
-              : { target: item.owner_id ?? "graph-owner", attention_item_id: item.id }
+              : actionType === "create_notification"
+                ? { credential_id: "smtp", to: owner?.contact, attention_item_id: item.id }
+                : { owner_id: item.owner_id, attention_item_id: item.id }
         })
       });
     },
@@ -877,11 +900,19 @@ function Shell() {
   });
 
   const runOperationalAction = useMutation({
-    mutationFn: (action: ApiOperationalActionProposal) =>
-      fetchJson<ApiOperationalActionRun>("/action-runs", {
+    mutationFn: async (action: ApiOperationalActionProposal) => {
+      if (["create_external_ticket", "create_notification", "trigger_workflow"].includes(action.action_type)) {
+        const job = await fetchJson<{ id: string }>(`/action-proposals/${encodeURIComponent(action.id)}/run`, {
+          method: "POST",
+          body: "{}"
+        });
+        return waitForJob<ApiOperationalActionRun>(job.id);
+      }
+      return fetchJson<ApiOperationalActionRun>("/action-runs", {
         method: "POST",
         body: JSON.stringify({ action_proposal_id: action.id })
-      }),
+      });
+    },
     onSuccess: async () => {
       await invalidateConnectorAndGraphQueries(selectedGraphId);
     }
@@ -1533,6 +1564,16 @@ function Shell() {
           onProviderApiKeyChange={setProviderApiKey}
           onSaveProviderKey={() => saveProviderCredential.mutate()}
           onClearProviderKey={() => clearProviderCredential.mutate()}
+          actionCredentialStatus={actionCredentialStatus}
+          actionCredentialPending={
+            saveActionCredential.isPending
+              ? saveActionCredential.variables?.kind
+              : clearActionCredential.isPending
+                ? clearActionCredential.variables
+                : undefined
+          }
+          onSaveActionCredential={(kind, credentials) => saveActionCredential.mutate({ kind, credentials })}
+          onClearActionCredential={(kind) => clearActionCredential.mutate(kind)}
           onLlmEnabledChange={setLlmEnabled}
           onAutoCommitThresholdChange={setAutoCommitThreshold}
           onSaveSettings={() => updateGraphSettings.mutate()}

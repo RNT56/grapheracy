@@ -43,15 +43,18 @@
     legacy database-envelope migration, response redaction, database neutralization, and permanent Vault purge.
 30. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider
     credentials, adapter sessions, Redis sessions, jobs, outbox events, and actions are inert.
-31. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
+31. Dispatch `Protected external canaries` from the candidate commit against the reviewed `external-canaries`
+    environment; retain the redacted receipt and confirm the GitHub fixture issue was closed. If credentials are not
+    provisioned, keep connector, external-provider, and external-action ledger rows explicitly blocked.
+32. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
-32. Run `pnpm run test:performance:live` on the 100k-node/500k-edge seed and retain the four-route p95 JSON receipt.
-33. Run `pnpm run test:failure-injection:live` and `pnpm run test:migrations:postgres`; retain dependency outage,
+33. Run `pnpm run test:performance:live` on the 100k-node/500k-edge seed and retain the four-route p95 JSON receipt.
+34. Run `pnpm run test:failure-injection:live` and `pnpm run test:migrations:postgres`; retain dependency outage,
     worker recovery, replay, redaction, and interrupted-migration rollback evidence.
-34. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
-35. Run full CI security gates.
-36. Run `pnpm run release:artifacts:verify`, then confirm tag CI generates SBOMs for all release images and packaged
+35. Run `pnpm run test:smoke`, `pnpm run quality:full`, and `pnpm run release:verify`.
+36. Run full CI security gates.
+37. Run `pnpm run release:artifacts:verify`, then confirm tag CI generates SBOMs for all release images and packaged
     gateway/extension artifacts, records all image digests, verifies the annotated tag, and signs the checksum manifest.
-37. Confirm no release-blocking security criteria in `../../SECURITY.md`.
-38. Confirm runtime image users are non-root.
-39. Tag release after coordinator approval.
+38. Confirm no release-blocking security criteria in `../../SECURITY.md`.
+39. Confirm runtime image users are non-root.
+40. Tag release after coordinator approval.

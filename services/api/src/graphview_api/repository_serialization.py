@@ -8,6 +8,7 @@ from graphview_api.schemas import SourceCreate, SourceUpdate
 
 
 AI_PROVIDER_CREDENTIALS_KEY = "ai_provider_credentials"
+ACTION_CREDENTIALS_KEY = "action_credentials"
 SENSITIVE_SETTINGS_KEYS = {
     "access_token",
     "api_key",
@@ -109,6 +110,17 @@ class RepositorySerializationMixin:
                             else None,
                         }
                         for provider_id, credential in item.items()
+                    }
+                elif key == ACTION_CREDENTIALS_KEY and isinstance(item, dict):
+                    redacted[key] = {
+                        credential_id: {
+                            "configured": isinstance(credential, dict)
+                            and bool(credential.get("encrypted_secret")),
+                            "updated_at": credential.get("updated_at")
+                            if isinstance(credential, dict)
+                            else None,
+                        }
+                        for credential_id, credential in item.items()
                     }
                 elif key_lower in SENSITIVE_SETTINGS_KEYS:
                     continue

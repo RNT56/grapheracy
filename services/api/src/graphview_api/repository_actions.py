@@ -21,6 +21,7 @@ SENSITIVE_PAYLOAD_KEYS = {
     "apikey",
     "authorization",
     "credential",
+    "credential_ref",
     "credentials",
 }
 
@@ -55,7 +56,18 @@ class ActionRepositoryMixin:
             row = conn.execute(select(db.action_proposals).where(and_(*conditions))).mappings().first()
         if row is None:
             return None
-        return self._action_proposal_from_row(row), json.loads(json_value(row, "payload_json"))
+        payload = json.loads(json_value(row, "payload_json"))
+        if row["action_type"] in EXTERNAL_ACTION_TYPES:
+            if payload.get("credential_ref"):
+                raise ValueError("Direct external action secret references are not executable")
+            credential_id = payload.get("credential_id")
+            if not credential_id:
+                raise ValueError("External action credential_id is required")
+            credential_reference = self.action_credential_reference(str(credential_id))
+            if credential_reference is None:
+                raise ValueError(f"Action credential {credential_id} is not configured")
+            payload["credential_ref"] = credential_reference
+        return self._action_proposal_from_row(row), payload
 
     def get_action_run(self, action_run_id: str, *, project_id: str | None = None) -> dict | None:
         conditions = [db.action_runs.c.id == action_run_id]

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from graphview_api.actions.repository import ActionsRepositoryPort
 from graphview_api.schemas import (
+    ActionCredentialKind,
+    ActionCredentialOut,
     ActionProposalCreate,
     ActionProposalDecision,
     ActionRunCreate,
@@ -15,6 +17,15 @@ class ActionsService:
     def __init__(self, repository: ActionsRepositoryPort) -> None:
         self.repository = repository
 
+    def credentials(self) -> dict[str, list[ActionCredentialOut]]:
+        return {"action_credentials": self.repository.list_action_credentials()}
+
+    def update_credential(self, kind: ActionCredentialKind, credentials: dict) -> ActionCredentialOut:
+        return self.repository.upsert_action_credential(kind, credentials)
+
+    def delete_credential(self, kind: ActionCredentialKind) -> ActionCredentialOut:
+        return self.repository.delete_action_credential(kind)
+
     def decisions(self, *, limit: int) -> dict[str, list[dict]]:
         return {"decision_records": self.repository.list_decision_records(limit=limit)}
 
@@ -25,6 +36,16 @@ class ActionsService:
         return {"action_proposals": self.repository.list_action_proposals(status=status_filter, limit=limit)}
 
     def create_proposal(self, payload: ActionProposalCreate, *, actor_id: str) -> dict:
+        credential_kind = {
+            "create_external_ticket": "github",
+            "create_notification": "smtp",
+            "trigger_workflow": "webhook",
+        }.get(payload.action_type)
+        if credential_kind is not None:
+            if "credential_ref" in payload.payload:
+                raise ValueError("External action proposals must select a credential_id, not a secret reference")
+            if payload.payload.get("credential_id") != credential_kind:
+                raise ValueError(f"{payload.action_type} requires credential_id={credential_kind}")
         return self.repository.create_action_proposal(payload, actor_id)
 
     def decide_proposal(

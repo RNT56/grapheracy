@@ -147,9 +147,9 @@ WHERE id='attention-restore-canary';
 
 UPDATE graph_settings
 SET settings_json=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb)
-    || '{"ai_provider_credentials":{"openai":{"encrypted_api_key":"gvsecret:vault:v1:must-not-survive"}}}'::jsonb)::text,
+    || '{"ai_provider_credentials":{"openai":{"encrypted_api_key":"gvsecret:vault:v1:must-not-survive"}},"action_credentials":{"webhook":{"encrypted_secret":"gvsecret:vault:v1:must-not-survive"}}}'::jsonb)::text,
     settings_json__jsonb=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb)
-    || '{"ai_provider_credentials":{"openai":{"encrypted_api_key":"gvsecret:vault:v1:must-not-survive"}}}'::jsonb),
+    || '{"ai_provider_credentials":{"openai":{"encrypted_api_key":"gvsecret:vault:v1:must-not-survive"}},"action_credentials":{"webhook":{"encrypted_secret":"gvsecret:vault:v1:must-not-survive"}}}'::jsonb),
     updated_at=now()
 WHERE project_id='project-default';
 SQL
@@ -241,6 +241,13 @@ BEGIN
       AND COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb) ? 'ai_provider_credentials'
   ) THEN
     RAISE EXCEPTION 'AI provider credential reference survived restore';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM graph_settings
+    WHERE project_id='project-default'
+      AND COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb) ? 'action_credentials'
+  ) THEN
+    RAISE EXCEPTION 'action credential reference survived restore';
   END IF;
   IF NOT EXISTS (
     SELECT 1 FROM audit_events

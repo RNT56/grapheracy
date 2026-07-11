@@ -433,6 +433,41 @@ export interface paths {
         patch: operations["update_routing_policy_routing_policies__policy_id__patch"];
         trace?: never;
     };
+    "/action-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Action Credentials */
+        get: operations["action_credentials_action_credentials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/action-credentials/{credential_kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update Action Credential */
+        put: operations["update_action_credential_action_credentials__credential_kind__put"];
+        post?: never;
+        /** Delete Action Credential */
+        delete: operations["delete_action_credential_action_credentials__credential_kind__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/decision-records": {
         parameters: {
             query?: never;
@@ -2243,6 +2278,41 @@ export interface paths {
         patch: operations["v1_update_routing_policy_api_v1_routing_policies__policy_id__patch"];
         trace?: never;
     };
+    "/api/v1/action-credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** V1-Action Credentials */
+        get: operations["v1_action_credentials_api_v1_action_credentials_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/action-credentials/{credential_kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** V1-Update Action Credential */
+        put: operations["v1_update_action_credential_api_v1_action_credentials__credential_kind__put"];
+        post?: never;
+        /** V1-Delete Action Credential */
+        delete: operations["v1_delete_action_credential_api_v1_action_credentials__credential_kind__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decision-records": {
         parameters: {
             query?: never;
@@ -3268,6 +3338,30 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActionCredentialOut */
+        ActionCredentialOut: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "github" | "smtp" | "webhook";
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "github" | "smtp" | "webhook";
+            /** Configured */
+            configured: boolean;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** ActionCredentialUpdate */
+        ActionCredentialUpdate: {
+            /** Credentials */
+            credentials?: {
+                [key: string]: unknown;
+            };
+        };
         /** ActionProposalCreate */
         ActionProposalCreate: {
             /** Decision Record Id */
@@ -7820,6 +7914,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoutingPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    action_credentials_action_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["ActionCredentialOut"][];
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_action_credential_action_credentials__credential_kind__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                credential_kind: "github" | "smtp" | "webhook";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActionCredentialUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCredentialOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_action_credential_action_credentials__credential_kind__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                credential_kind: "github" | "smtp" | "webhook";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCredentialOut"];
                 };
             };
             /** @description Validation Error */
@@ -12484,6 +12684,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoutingPolicyOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_action_credentials_api_v1_action_credentials_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: components["schemas"]["ActionCredentialOut"][];
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_update_action_credential_api_v1_action_credentials__credential_kind__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                credential_kind: "github" | "smtp" | "webhook";
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ActionCredentialUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCredentialOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    v1_delete_action_credential_api_v1_action_credentials__credential_kind__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "x-graphview-user"?: string | null;
+            };
+            path: {
+                credential_kind: "github" | "smtp" | "webhook";
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionCredentialOut"];
                 };
             };
             /** @description Validation Error */

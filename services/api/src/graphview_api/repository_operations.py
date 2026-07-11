@@ -563,7 +563,10 @@ class DataOperationsRepositoryMixin:
             graph_settings = None
             if bundle.graph_settings:
                 graph_settings = bundle.graph_settings.model_dump()
-                graph_settings["settings_json"] = dump_json(graph_settings.pop("settings") or {})
+                restored_settings = graph_settings.pop("settings") or {}
+                restored_settings.pop("ai_provider_credentials", None)
+                restored_settings.pop("action_credentials", None)
+                graph_settings["settings_json"] = dump_json(restored_settings)
             planning_sessions = [
                 {
                     "id": session.id,

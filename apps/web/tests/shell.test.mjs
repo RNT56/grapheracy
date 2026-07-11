@@ -175,7 +175,7 @@ test("graph canvas uses bounded render plans for large graphs", async () => {
 });
 
 test("phase 25 digital nervous system routes through Attention mode", async () => {
-  const appSource = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/useAttentionQueries.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/AgentContextWorkspace.tsx", import.meta.url), "utf8")}`;
+  const appSource = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/useAttentionQueries.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/useActionCredentialMutations.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/AgentContextWorkspace.tsx", import.meta.url), "utf8")}`;
   const canvasSource = await readFile(new URL("../src/GraphCanvas.tsx", import.meta.url), "utf8");
   const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
   const graphCore = await readFile(new URL("../../../packages/graph-core/src/index.ts", import.meta.url), "utf8");
@@ -188,6 +188,7 @@ test("phase 25 digital nervous system routes through Attention mode", async () =
     "/owners",
     "/routing-policies",
     "/decision-records",
+    "/action-credentials/",
     "/action-proposals",
     "/action-runs",
     "/outcomes",
@@ -200,6 +201,8 @@ test("phase 25 digital nervous system routes through Attention mode", async () =
   assertSourceIncludes(appSource, /createOperationalSignal/, "sense mutation");
   assertSourceIncludes(appSource, /createOperationalDecision/, "decision mutation");
   assertSourceIncludes(appSource, /approveOperationalAction/, "action approval mutation");
+  assertSourceIncludes(appSource, /credential_id: "smtp"/, "safe SMTP credential selection");
+  assertSourceIncludes(appSource, /waitForJob<ApiOperationalActionRun>/, "durable external action execution");
   assertSourceIncludes(appSource, /recordOperationalOutcome/, "outcome mutation");
   assertSourceIncludes(appSource, /operating-loop-strip/, "operating loop strip");
   assertSourceIncludes(appSource, /Sense", "Interpret", "Remember", "Prioritize", "Decide", "Act", "Observe", "Learn"/, "loop labels");

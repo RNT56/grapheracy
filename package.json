@@ -44,6 +44,7 @@
     "test:performance": "node --experimental-strip-types scripts/check-performance-contract.mjs",
     "test:performance:live": "bash scripts/test-live-performance.sh",
     "test:failure-injection:live": "bash scripts/test-live-failure-injection.sh",
+    "test:external-canaries": "bash scripts/test-live-external-canaries.sh",
     "test:deployment": "bash scripts/check-helm.sh",
     "security:full": "pnpm run security:local && pnpm run security:licenses && pnpm run security:audit && pnpm run security:osv && pnpm run security:secrets && pnpm run security:signatures",
     "quality:full": "pnpm run clean:artifacts && pnpm run quality:fast && pnpm run test:smoke && pnpm run test:integration && pnpm run test:e2e && pnpm run test:performance && pnpm run clean:artifacts",

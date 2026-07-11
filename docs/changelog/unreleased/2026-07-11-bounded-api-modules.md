@@ -117,4 +117,14 @@ owner: codex
   capture, and compare the renderer's pixels directly so overlapping workspace chrome cannot contaminate motion proof.
 - Complete the ten-case headed Chromium renderer acceptance on the Apple M2 Pro Metal backend, including 2D/3D
   output, fallback, recovery, clustered opening, both visible-load frame gates, and reduced-motion stability.
+- Add operator-only GitHub, SMTP, and webhook action-credential slots backed by the configured secret provider; expose
+  only configured/rotation metadata, resolve stable references inside workers from safe proposal `credential_id`
+  values, fail closed after deletion, and strip all action credential state during restore.
+- Wire the three credential slots into focused Settings controls; route external actions through durable V1 jobs,
+  require safe credential IDs instead of operator-supplied secret references, and keep Attention notifications internal
+  until both an SMTP slot and owner contact are present.
+- Add a protected, manual, exact-image external canary workflow for real GitHub/Google/Notion sync and cursor replay,
+  cited OpenAI query, GitHub Issue, SMTP, signed webhook callback, outcomes, feedback, redacted receipts, and cleanup.
+- Avoid a redundant full-position count for low-zoom cluster projections and join sampled edges directly through the
+  indexed layout positions, reducing the shared-runner overview query without changing the 250 ms acceptance limit.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

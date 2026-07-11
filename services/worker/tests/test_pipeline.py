@@ -123,12 +123,13 @@ def test_running_worker_task_is_cooperatively_cancelled() -> None:
 def test_external_action_retry_reuses_visible_run_and_finishes_with_receipt() -> None:
     repository = GraphRepository(create_app_engine("sqlite://"))
     repository.initialize()
+    repository.upsert_action_credential("webhook", {"secret": "workflow-secret"})
     proposal = repository.create_action_proposal(
         ActionProposalCreate(
             action_type="trigger_workflow",
             title="Trigger reviewed workflow",
             summary="Send a signed reviewed event.",
-            payload={"credential_ref": "workflow-secret", "destination": "https://hooks.example.test/run"},
+            payload={"credential_id": "webhook", "destination": "https://hooks.example.test/run"},
         ),
         "reviewer",
     )

@@ -715,9 +715,13 @@ export interface ApiOwner {
   id: string;
   owner_type: string;
   display_name: string;
+  contact?: string | null;
+  escalation_contact?: string | null;
   scope_kind: string;
   scope_id?: string | null;
 }
+
+export type ApiActionCredentialKind = "github" | "smtp" | "webhook";
 
 export interface ApiRoutingPolicy {
   id: string;

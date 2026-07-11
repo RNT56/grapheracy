@@ -12,13 +12,15 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import select, update
 
 from graphview_api import db
-from graphview_api.schemas import GraphSettingsUpdate
+from graphview_api.schemas import ActionCredentialKind, ActionCredentialOut, GraphSettingsUpdate
 
 
 DEFAULT_PROJECT_ID = "project-default"
 AI_PROVIDER_CREDENTIALS_KEY = "ai_provider_credentials"
 AI_PROVIDER_IDS = {"openai", "anthropic", "gemini"}
 AI_DEFAULT_PROVIDER_KEY = "ai_default_provider"
+ACTION_CREDENTIALS_KEY = "action_credentials"
+ACTION_CREDENTIAL_KINDS = ("github", "smtp", "webhook")
 
 
 def _now() -> datetime:
@@ -38,6 +40,103 @@ def _load_json(value: object | None, fallback: object):
 
 
 class SecretRepositoryMixin:
+    def list_action_credentials(self) -> list[ActionCredentialOut]:
+        settings_doc = self.graph_settings_with_secrets()["settings"]
+        credentials = settings_doc.get(ACTION_CREDENTIALS_KEY)
+        credentials = credentials if isinstance(credentials, dict) else {}
+        return [
+            ActionCredentialOut(
+                id=kind,
+                kind=kind,
+                configured=isinstance(credentials.get(kind), dict)
+                and bool(credentials[kind].get("encrypted_secret")),
+                updated_at=credentials[kind].get("updated_at")
+                if isinstance(credentials.get(kind), dict)
+                else None,
+            )
+            for kind in ACTION_CREDENTIAL_KINDS
+        ]
+
+    def upsert_action_credential(
+        self,
+        kind: ActionCredentialKind,
+        credentials: dict,
+    ) -> ActionCredentialOut:
+        self._validate_action_credential(kind, credentials)
+        timestamp = _now()
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+            ).mappings().one()
+            settings_doc = _load_json(json_value(row, "settings_json"), {})
+            action_credentials = dict(settings_doc.get(ACTION_CREDENTIALS_KEY) or {})
+            existing = action_credentials.get(kind) if isinstance(action_credentials.get(kind), dict) else {}
+            current_reference = existing.get("encrypted_secret")
+            action_credentials[kind] = {
+                "encrypted_secret": self._replace_encrypted_json(
+                    str(current_reference) if current_reference else None,
+                    credentials,
+                ),
+                "updated_at": timestamp.isoformat(),
+            }
+            settings_doc[ACTION_CREDENTIALS_KEY] = action_credentials
+            conn.execute(
+                update(db.graph_settings)
+                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+                .values(settings_json=_dump_json(settings_doc), updated_at=timestamp)
+            )
+        return ActionCredentialOut(id=kind, kind=kind, configured=True, updated_at=timestamp)
+
+    def delete_action_credential(self, kind: ActionCredentialKind) -> ActionCredentialOut:
+        timestamp = _now()
+        removed_reference: str | None = None
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+            ).mappings().one()
+            settings_doc = _load_json(json_value(row, "settings_json"), {})
+            action_credentials = dict(settings_doc.get(ACTION_CREDENTIALS_KEY) or {})
+            removed = action_credentials.pop(kind, None)
+            if isinstance(removed, dict) and removed.get("encrypted_secret"):
+                removed_reference = str(removed["encrypted_secret"])
+            if action_credentials:
+                settings_doc[ACTION_CREDENTIALS_KEY] = action_credentials
+            else:
+                settings_doc.pop(ACTION_CREDENTIALS_KEY, None)
+            conn.execute(
+                update(db.graph_settings)
+                .where(db.graph_settings.c.project_id == DEFAULT_PROJECT_ID)
+                .values(settings_json=_dump_json(settings_doc), updated_at=timestamp)
+            )
+        self._delete_encrypted_json(removed_reference)
+        return ActionCredentialOut(id=kind, kind=kind, configured=False, updated_at=None)
+
+    def action_credential_reference(self, kind: str) -> str | None:
+        if kind not in ACTION_CREDENTIAL_KINDS:
+            return None
+        settings_doc = self.graph_settings_with_secrets()["settings"]
+        credentials = settings_doc.get(ACTION_CREDENTIALS_KEY)
+        credential = credentials.get(kind) if isinstance(credentials, dict) else None
+        if not isinstance(credential, dict) or not credential.get("encrypted_secret"):
+            return None
+        return str(credential["encrypted_secret"])
+
+    @staticmethod
+    def _validate_action_credential(kind: ActionCredentialKind, credentials: dict) -> None:
+        if kind == "github":
+            has_token = bool(credentials.get("token") or credentials.get("access_token"))
+            has_app = all(credentials.get(key) for key in ("app_id", "installation_id", "private_key"))
+            if not has_token and not has_app:
+                raise ValueError("GitHub action credentials require a token or app_id, installation_id, and private_key")
+        elif kind == "smtp":
+            if bool(credentials.get("username")) != bool(credentials.get("password")):
+                raise ValueError("SMTP action credentials require both username and password, or neither")
+        elif kind == "webhook":
+            if not credentials.get("secret"):
+                raise ValueError("Webhook action credentials require a signing secret")
+        else:
+            raise ValueError("Unsupported action credential kind")
+
     def graph_settings(self) -> dict:
         with self.engine.begin() as conn:
             row = conn.execute(
@@ -264,6 +363,22 @@ class SecretRepositoryMixin:
                 continue
         if credentials:
             settings[AI_PROVIDER_CREDENTIALS_KEY] = credentials
+        action_credentials = dict(settings.get(ACTION_CREDENTIALS_KEY) or {})
+        for credential in action_credentials.values():
+            if not isinstance(credential, dict):
+                continue
+            envelope = credential.get("encrypted_secret")
+            if not envelope or str(envelope).startswith("gvsecret:") or (
+                self.secret_store is None and str(envelope).startswith("gvenc:aesgcm:v2:")
+            ):
+                continue
+            try:
+                credential["encrypted_secret"] = self._encrypt_json(self._decrypt_json(str(envelope)))
+                changed = True
+            except Exception:
+                continue
+        if action_credentials:
+            settings[ACTION_CREDENTIALS_KEY] = action_credentials
         if changed:
             conn.execute(
                 update(db.graph_settings)

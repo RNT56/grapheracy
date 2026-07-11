@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Protocol
 
 from graphview_api.schemas import (
+    ActionCredentialKind,
+    ActionCredentialOut,
     ActionProposalCreate,
     ActionProposalDecision,
     ActionRunCreate,
@@ -13,6 +15,12 @@ from graphview_api.schemas import (
 
 
 class ActionsRepositoryPort(Protocol):
+    def list_action_credentials(self) -> list[ActionCredentialOut]: ...
+
+    def upsert_action_credential(self, kind: ActionCredentialKind, credentials: dict) -> ActionCredentialOut: ...
+
+    def delete_action_credential(self, kind: ActionCredentialKind) -> ActionCredentialOut: ...
+
     def list_decision_records(self, *, limit: int = 50) -> list[dict]: ...
 
     def create_decision_record(self, payload: DecisionRecordCreate, actor_id: str) -> dict: ...

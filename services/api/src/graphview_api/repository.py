@@ -34,7 +34,7 @@ from graphview_api.schemas import SignalCreate
 DEFAULT_PROJECT_ID = "project-default"
 GRAPH_LENSES = ("research", "engineering", "ops")
 SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
-SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credentials"}
+SENSITIVE_PAYLOAD_KEYS = {"token", "secret", "password", "api_key", "apikey", "authorization", "credential", "credential_ref", "credentials"}
 AGENT_CONTEXT_CAPTURE_SCOPE = "context:capture"
 AGENT_CONTEXT_DEFAULT_DENIED_PATTERNS = (".env", "id_rsa", "id_ed25519", ".pem", ".p12")
 

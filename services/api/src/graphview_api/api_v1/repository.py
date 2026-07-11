@@ -175,39 +175,48 @@ class GraphProjectionRepository:
                 "max_edges": max_edges,
                 "edge_scan_limit": min(40_000, max(16_000, max_edges * 2)),
             }
-            total_nodes = int(conn.execute(text("""
-                SELECT count(*) FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
-                WHERE p.layout_id=:layout_id AND n.project_id=:project_id
-                  AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
-            """), parameters).scalar_one())
-            if zoom < 1.75 or total_nodes > max_nodes:
+            total_nodes = None
+            if zoom >= 1.75:
+                total_nodes = int(conn.execute(text("""
+                    SELECT count(*) FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
+                    WHERE p.layout_id=:layout_id AND n.project_id=:project_id
+                      AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
+                """), parameters).scalar_one())
+            if zoom < 1.75 or (total_nodes is not None and total_nodes > max_nodes):
                 parameters["cell"] = max(0.04, min(0.8, 0.65 / (2 ** max(0.0, zoom))))
                 clusters = [dict(row) for row in conn.execute(text("""
                     SELECT concat('cluster:', floor(p.x/:cell)::bigint, ':', floor(p.y/:cell)::bigint) AS id,
                       concat(count(*), ' related items') AS label, avg(p.x) AS x, avg(p.y) AS y,
-                      count(*) AS node_count, 0 AS edge_count, mode() WITHIN GROUP (ORDER BY n.kind) AS dominant_kind
+                      count(*) AS node_count, 0 AS edge_count, mode() WITHIN GROUP (ORDER BY n.kind) AS dominant_kind,
+                      sum(count(*)) OVER () AS total_nodes
                     FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
                     WHERE p.layout_id=:layout_id AND n.project_id=:project_id
                       AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
                     GROUP BY floor(p.x/:cell), floor(p.y/:cell)
                     ORDER BY count(*) DESC LIMIT :max_nodes
                 """), parameters).mappings()]
+                if total_nodes is None:
+                    total_nodes = int(clusters[0]["total_nodes"]) if clusters else 0
+                for cluster in clusters:
+                    cluster.pop("total_nodes", None)
                 edges = [dict(row) for row in conn.execute(text("""
-                    WITH positioned AS MATERIALIZED (
-                      SELECT n.id, floor(p.x/:cell)::bigint gx, floor(p.y/:cell)::bigint gy
-                      FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
-                      WHERE p.layout_id=:layout_id AND n.project_id=:project_id
-                        AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
-                    ), edge_sample AS MATERIALIZED (
+                    WITH edge_sample AS MATERIALIZED (
                       SELECT id, source_node_id, target_node_id, relation, weight
                       FROM semantic_edges WHERE project_id=:project_id LIMIT :edge_scan_limit
                     )
-                    SELECT concat('aggregate:', s.gx, ':', s.gy, ':', t.gx, ':', t.gy, ':', e.relation) AS id,
-                      concat('cluster:', s.gx, ':', s.gy) source_id, concat('cluster:', t.gx, ':', t.gy) target_id,
+                    SELECT concat('aggregate:', floor(s.x/:cell)::bigint, ':', floor(s.y/:cell)::bigint, ':',
+                      floor(t.x/:cell)::bigint, ':', floor(t.y/:cell)::bigint, ':', e.relation) AS id,
+                      concat('cluster:', floor(s.x/:cell)::bigint, ':', floor(s.y/:cell)::bigint) source_id,
+                      concat('cluster:', floor(t.x/:cell)::bigint, ':', floor(t.y/:cell)::bigint) target_id,
                       e.relation, avg(e.weight) weight, count(*) count
-                    FROM edge_sample e JOIN positioned s ON s.id=e.source_node_id JOIN positioned t ON t.id=e.target_node_id
-                    WHERE (s.gx,s.gy)<>(t.gx,t.gy)
-                    GROUP BY s.gx,s.gy,t.gx,t.gy,e.relation ORDER BY count(*) DESC LIMIT :max_edges
+                    FROM edge_sample e
+                    JOIN graph_layout_positions s ON s.layout_id=:layout_id AND s.node_id=e.source_node_id
+                    JOIN graph_layout_positions t ON t.layout_id=:layout_id AND t.node_id=e.target_node_id
+                    WHERE s.x BETWEEN :min_x AND :max_x AND s.y BETWEEN :min_y AND :max_y
+                      AND t.x BETWEEN :min_x AND :max_x AND t.y BETWEEN :min_y AND :max_y
+                      AND (floor(s.x/:cell),floor(s.y/:cell))<>(floor(t.x/:cell),floor(t.y/:cell))
+                    GROUP BY floor(s.x/:cell),floor(s.y/:cell),floor(t.x/:cell),floor(t.y/:cell),e.relation
+                    ORDER BY count(*) DESC LIMIT :max_edges
                 """), parameters).mappings()]
                 return {"nodes": [], "clusters": clusters, "edges": [{**edge, "edge": None} for edge in edges], "total_nodes": total_nodes}
             node_rows = [dict(row) for row in conn.execute(text("""

@@ -140,6 +140,9 @@ scanner gates are wired in CI and require the tools installed there.
   prompts when they may include private source text or user secrets.
 - Graph query should prefer stored Graphview graph, source chunk, lineage, neighborhood, and path context over external
   tools for private connector content unless an operator explicitly configures provider use.
+- GitHub Issue, SMTP, and signed-workflow adapter credentials are written through the operator-only action-credential
+  API into the configured secret provider. Public settings expose only configured state and rotation time; proposals
+  carry a non-secret `credential_id`, and workers resolve the opaque secret reference only at execution time.
 - AI research may create sources, source chunks, ingestion runs, embeddings, proposals, research tasks, and action
   proposals. Reviewed nodes and edges must still flow through the existing review decision path.
 

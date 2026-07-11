@@ -522,7 +522,7 @@ def test_v1_approved_action_can_be_enqueued_once() -> None:
 def test_signed_workflow_outcome_callback_is_fresh_durable_and_replay_safe() -> None:
     client = make_client()
     repository = client.app.state.repository
-    credential_ref = repository.secret_store.put({"secret": "workflow-callback-secret"})
+    repository.upsert_action_credential("webhook", {"secret": "workflow-callback-secret"})
     proposal = client.post(
         "/action-proposals",
         headers=ADMIN_HEADERS,
@@ -531,7 +531,7 @@ def test_signed_workflow_outcome_callback_is_fresh_durable_and_replay_safe() -> 
             "title": "Trigger workflow with callback",
             "summary": "Wait for the signed workflow outcome.",
             "payload": {
-                "credential_ref": credential_ref,
+                "credential_id": "webhook",
                 "destination": "https://hooks.example.test/workflow",
                 "event": {"kind": "review.accepted"},
             },
@@ -2671,7 +2671,7 @@ def test_phase25_action_runs_require_approval_and_operate_permission() -> None:
             "action_type": "create_notification",
             "title": "Notify source owner",
             "summary": "Create a safe notification after review.",
-            "payload": {"target": "owner-team", "message": "Please refresh the source."},
+            "payload": {"credential_id": "smtp", "target": "owner-team", "message": "Please refresh the source."},
         },
     )
     assert proposal.status_code == 201
@@ -2691,6 +2691,100 @@ def test_phase25_action_runs_require_approval_and_operate_permission() -> None:
     )
     assert unapproved_run.status_code == 409
     assert "approved" in unapproved_run.json()["detail"]
+
+
+def test_external_action_credentials_are_redacted_rotated_and_resolved_only_for_workers() -> None:
+    client = make_client()
+
+    denied = client.get("/action-credentials", headers=READER_HEADERS)
+    assert denied.status_code == 403
+
+    initial = client.get("/api/v1/action-credentials", headers=ADMIN_HEADERS)
+    assert initial.status_code == 200
+    assert {item["id"] for item in initial.json()["action_credentials"]} == {"github", "smtp", "webhook"}
+    assert not any(item["configured"] for item in initial.json()["action_credentials"])
+
+    invalid = client.put(
+        "/api/v1/action-credentials/github",
+        headers=ADMIN_HEADERS,
+        json={"credentials": {}},
+    )
+    assert invalid.status_code == 422
+
+    direct_reference = client.post(
+        "/api/v1/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "trigger_workflow",
+            "title": "Unsafe direct reference",
+            "summary": "Must be rejected before persistence.",
+            "payload": {
+                "credential_ref": "gvsecret:vault:v1:untrusted-reference",
+                "destination": "https://hooks.example.test/canary",
+            },
+        },
+    )
+    assert direct_reference.status_code == 422
+    assert "credential_id" in direct_reference.json()["detail"]
+
+    created = client.put(
+        "/api/v1/action-credentials/webhook",
+        headers=ADMIN_HEADERS,
+        json={"credentials": {"secret": "first-signing-secret", "callback_secret": "callback-secret"}},
+    )
+    assert created.status_code == 200
+    assert created.json()["configured"] is True
+    assert "secret" not in created.text
+
+    proposal = client.post(
+        "/action-proposals",
+        headers=ADMIN_HEADERS,
+        json={
+            "action_type": "trigger_workflow",
+            "title": "Run reviewed canary workflow",
+            "summary": "Send an approved signed event.",
+            "payload": {
+                "credential_id": "webhook",
+                "destination": "https://hooks.example.test/canary",
+                "event": {"kind": "release.canary"},
+            },
+        },
+    )
+    assert proposal.status_code == 201
+    assert proposal.json()["redacted_payload"]["credential_id"] == "webhook"
+    assert "credential_ref" not in proposal.text
+
+    repository = client.app.state.repository
+    _, first_payload = repository.action_proposal_execution_bundle(proposal.json()["id"])
+    first_reference = first_payload["credential_ref"]
+    assert first_reference.startswith("gvsecret:")
+    assert repository.secret_store.get(first_reference)["secret"] == "first-signing-secret"
+
+    rotated = client.put(
+        "/api/v1/action-credentials/webhook",
+        headers=ADMIN_HEADERS,
+        json={"credentials": {"secret": "rotated-signing-secret", "callback_secret": "callback-secret"}},
+    )
+    assert rotated.status_code == 200
+    _, rotated_payload = repository.action_proposal_execution_bundle(proposal.json()["id"])
+    assert rotated_payload["credential_ref"] == first_reference
+    assert repository.secret_store.get(first_reference)["secret"] == "rotated-signing-secret"
+
+    settings_response = client.get("/api/v1/graph/settings", headers=ADMIN_HEADERS)
+    assert settings_response.status_code == 200
+    assert "rotated-signing-secret" not in settings_response.text
+    assert "gvsecret:" not in settings_response.text
+    assert settings_response.json()["settings"]["action_credentials"]["webhook"]["configured"] is True
+
+    deleted = client.delete("/api/v1/action-credentials/webhook", headers=ADMIN_HEADERS)
+    assert deleted.status_code == 200
+    assert deleted.json()["configured"] is False
+    try:
+        repository.action_proposal_execution_bundle(proposal.json()["id"])
+    except ValueError as error:
+        assert "not configured" in str(error)
+    else:
+        raise AssertionError("Deleted action credential unexpectedly resolved")
 
 
 def test_text_ingestion_creates_source_run_proposal_and_embedding() -> None:

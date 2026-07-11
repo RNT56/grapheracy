@@ -512,6 +512,12 @@ test("settings use left navigation and focused pages", async ({ page }) => {
   await page.getByLabel("OpenAI API key").fill("test-openai-key");
   await expect(page.getByRole("button", { name: "Save key" })).toBeEnabled();
   await expect(page.getByText("Saving sets OpenAI as the default LLM provider.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /GitHub Issues/ })).toBeVisible();
+  await page.getByRole("button", { name: /Signed webhook/ }).click();
+  await expect(page.getByLabel("Signing secret")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save credential" })).toBeDisabled();
+  await page.getByLabel("Signing secret").fill("test-webhook-secret");
+  await expect(page.getByRole("button", { name: "Save credential" })).toBeEnabled();
 
   await page.getByRole("tab", { name: /Automation/ }).click();
   await expect(page.getByRole("heading", { name: "Automation" })).toBeVisible();
