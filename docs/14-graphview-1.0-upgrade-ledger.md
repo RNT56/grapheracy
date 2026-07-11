@@ -58,7 +58,10 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   `sourceContentModel.ts` and `contentExpansionModel.ts`, using the shared `GraphRenderEdge` visual contract rather
   than importing renderer UI types. Navigation/graph-control presentation lives in `WorkspaceChrome.tsx`, and
   connector descriptors plus sync-settings projection live in `connectorWorkspaceModel.ts`. The shell is now 3,033
-  lines under a 3,075-line ceiling while production typecheck, contract tests, and the Vite build remain green.
+  lines before production fallback cleanup. The preserved prototype fixture is now excluded from all production source
+  imports, generic empty/loading defaults live in `workspaceDefaults.ts`, and architecture checks enforce the boundary
+  for `App.tsx` too. The shell is now 3,003 lines under a 3,040-line ceiling; the production bundle fell from about
+  639 kB to 616 kB, and 19 mocked-live desktop/mobile Playwright checks passed with 3 environment-gated checks skipped.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph

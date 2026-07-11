@@ -29,15 +29,14 @@ test("iOS 26 Swift demo graph covers native app development areas", async () => 
   }
 });
 
-test("web shell defaults to the live iOS 26 Swift graph and keeps an offline fallback", async () => {
+test("preserved prototype data is isolated from the production web shell", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 
-  assert.match(appSource, /project-ios26-swift-demo/);
   assert.match(appSource, /\/graphs/);
   assert.match(appSource, /selectedGraphId/);
   assert.match(appSource, /graphScopedPath/);
-  assert.match(appSource, /ios26SwiftDemoGraph/);
-  assert.match(appSource, /usingDemoGraph/);
-  assert.match(appSource, /demoDefaultSourceText/);
-  assert.match(appSource, /demoReviewDashboard/);
+  assert.match(appSource, /emptyWorkspaceGraph/);
+  assert.doesNotMatch(appSource, /ios26SwiftDemoGraph/);
+  assert.doesNotMatch(appSource, /usingDemoGraph/);
+  assert.doesNotMatch(appSource, /demoDefaultSourceText/);
 });

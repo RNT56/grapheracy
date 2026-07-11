@@ -75,4 +75,6 @@ owner: codex
   lines under a 3,400-line ceiling.
 - Move graph selection, lens, dock, and mobile-navigation presentation into WorkspaceChrome and connector setup
   projections into connectorWorkspaceModel; reduce App.tsx to 3,033 lines under a 3,075-line ceiling.
+- Remove preserved prototype fixtures from the production web import graph, replace them with generic empty/loading and
+  lens defaults, enforce the demo-import rule for App.tsx, and ratchet the shell to 3,003 lines under a 3,040-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

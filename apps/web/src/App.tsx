@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router";
-import { applyGraphLens, deriveGraphActivityEvents } from "@graphview/graph-core";
+import { deriveGraphActivityEvents } from "@graphview/graph-core";
 import {
   NODE_KIND_DEFINITIONS,
   normalizeContentNodeKind,
@@ -47,6 +47,12 @@ import {
   fallbackConnectors,
   targetTypeForConnector
 } from "./connectorWorkspaceModel";
+import {
+  DEFAULT_EXTRACTION_LENSES,
+  DEFAULT_GRAPH_LENSES,
+  emptyWorkspaceFocusNode,
+  emptyWorkspaceGraph
+} from "./workspaceDefaults";
 import { agentRunActivityPath, apiUrl, fetchHealth, fetchJson, graphLensScopedPath, graphScopedPath, waitForJob } from "./apiClient";
 import {
   apiAgentRunToShared,
@@ -123,22 +129,6 @@ import {
   type SourceContentBlock,
   type WorkspaceMode
 } from "./workspaceTypes";
-import {
-  demoDefaultSourceText,
-  demoGraph,
-  demoExtractionLenses,
-  demoGraphLenses,
-  demoInsights,
-  demoLineage,
-  demoNeighborhood,
-  demoPath,
-  demoProposals,
-  demoReviewActivity,
-  demoReviewDashboard,
-  demoReviewQueue,
-  demoSourceReviewCoverage,
-  demoSources
-} from "./demo/ios26SwiftDemoGraph";
 import "./styles.css";
 
 const queryClient = new QueryClient();
@@ -244,16 +234,16 @@ function Shell() {
   useEffect(() => {
     if (location.pathname === "/") navigate("/graph", { replace: true });
   }, [location.pathname, navigate]);
-  const [selectedGraphId, setSelectedGraphId] = useState("project-ios26-swift-demo");
+  const [selectedGraphId, setSelectedGraphId] = useState("project-default");
   const selectedGraphLensId = useGraphWorkspaceStore((state) => state.selectedGraphLensId);
   const setSelectedGraphLensId = useGraphWorkspaceStore((state) => state.setSelectedGraphLensId);
   const [sourceKind, setSourceKind] = useState<SourceKind>("markdown");
-  const [sourceTitle, setSourceTitle] = useState("iOS 26 Swift app blueprint");
-  const [ingestionText, setIngestionText] = useState(demoDefaultSourceText);
+  const [sourceTitle, setSourceTitle] = useState("");
+  const [ingestionText, setIngestionText] = useState("");
   const [connectorKind, setConnectorKind] = useState<ApiConnectorDescriptor["kind"]>("upload");
   const [connectorTitle, setConnectorTitle] = useState("Imported knowledge source");
   const [connectorRemoteId, setConnectorRemoteId] = useState("local-upload");
-  const [connectorContent, setConnectorContent] = useState("# Architecture\nSwiftUI references https://developer.apple.com/documentation/swiftui");
+  const [connectorContent, setConnectorContent] = useState("");
   const [llmEnabled, setLlmEnabled] = useState(false);
   const [autoCommitThreshold, setAutoCommitThreshold] = useState(0.92);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<ApiProviderId>("graphview-local");
@@ -500,8 +490,8 @@ function Shell() {
     retry: false
   });
 
-  const extractionLensList = extractionLenses.data?.extraction_lenses.map(normalizeExtractionLens) ?? demoExtractionLenses;
-  const graphLensList = graphLenses.data?.graph_lenses.map(normalizeGraphLens) ?? demoGraphLenses;
+  const extractionLensList = extractionLenses.data?.extraction_lenses.map(normalizeExtractionLens) ?? DEFAULT_EXTRACTION_LENSES;
+  const graphLensList = graphLenses.data?.graph_lenses.map(normalizeGraphLens) ?? DEFAULT_GRAPH_LENSES;
   const connectorList = connectors.data?.connectors ?? fallbackConnectors;
   const connectorAccountList = connectorAccounts.data?.connector_accounts ?? [];
   const connectorTargetList = connectorTargets.data?.connector_targets ?? [];
@@ -544,21 +534,9 @@ function Shell() {
   const selectedPlanningSession = selectedPlanningSessionId
     ? planningSessionList.find((session) => session.id === selectedPlanningSessionId)
     : planningSessionList[0];
-  const selectedGraphLens = graphLensList.find((lens) => lens.id === selectedGraphLensId) ?? demoGraphLenses[0];
+  const selectedGraphLens = graphLensList.find((lens) => lens.id === selectedGraphLensId) ?? DEFAULT_GRAPH_LENSES[0];
   const selectedConnector = connectorList.find((connector) => connector.kind === connectorKind) ?? connectorList[0];
-  const offlineDemoGraphView: ApiGraphView = {
-    id: demoGraph.project.id,
-    project_id: demoGraph.project.id,
-    label: demoGraph.project.name,
-    description: demoGraph.project.description,
-    kind: "project",
-    source_ids: demoSources.map((source) => source.id),
-    node_count: demoGraph.nodes.length,
-    edge_count: demoGraph.edges.length,
-    source_count: demoSources.length,
-    pending_proposal_count: demoProposals.filter((proposal) => proposal.status === "pending_review").length
-  };
-  const graphViewList = ensureGeneralGraphView(graphViews.data ?? [], graphViews.data ? undefined : offlineDemoGraphView);
+  const graphViewList = ensureGeneralGraphView(graphViews.data ?? []);
   const selectedGraphView = graphViewList.find((view) => view.id === selectedGraphId);
 
   useEffect(() => {
@@ -1084,20 +1062,14 @@ function Shell() {
     }
   });
 
-  const usingDemoGraph = !graph.data;
-  const rawGraphData = usingDemoGraph ? demoGraph : normalizeGraph(graph.data);
-  const demoLensPlan = useMemo(
-    () => (usingDemoGraph ? applyGraphLens(rawGraphData, selectedGraphLensId) : undefined),
-    [rawGraphData, selectedGraphLensId, usingDemoGraph]
-  );
-  const graphData = usingDemoGraph && demoLensPlan
-    ? { ...rawGraphData, nodes: demoLensPlan.nodes, edges: demoLensPlan.edges }
-    : rawGraphData;
-  const effectiveInsights = usingDemoGraph ? demoInsights : insights.data;
-  const effectiveReviewDashboard = usingDemoGraph ? demoReviewDashboard : reviewDashboard.data;
-  const effectiveReviewQueue: ApiReviewQueue | undefined = usingDemoGraph ? demoReviewQueue as ApiReviewQueue : reviewQueue.data;
-  const effectiveReviewActivity = usingDemoGraph ? demoReviewActivity : reviewActivity.data;
-  const effectiveSourceReviewCoverage = usingDemoGraph ? demoSourceReviewCoverage : sourceReviewCoverage.data;
+  const graphData = graph.data
+    ? normalizeGraph(graph.data)
+    : emptyWorkspaceGraph(selectedGraphId, selectedGraphView?.label);
+  const effectiveInsights = insights.data;
+  const effectiveReviewDashboard = reviewDashboard.data;
+  const effectiveReviewQueue: ApiReviewQueue | undefined = reviewQueue.data;
+  const effectiveReviewActivity = reviewActivity.data;
+  const effectiveSourceReviewCoverage = sourceReviewCoverage.data;
   const neighborhoodTargetId = graphData.nodes[0]?.id ?? effectiveInsights?.top_nodes[0]?.id ?? null;
   const pathSourceId = graphData.nodes[0]?.id ?? effectiveInsights?.top_nodes[0]?.id ?? null;
   const pathTargetId =
@@ -1115,7 +1087,7 @@ function Shell() {
       if (!lineageTarget) throw new Error("No lineage target");
       return fetchJson<ApiLineage>(graphScopedPath(`/lineage/${lineageTarget.kind}/${lineageTarget.id}`, selectedGraphId));
     },
-    enabled: !usingDemoGraph && Boolean(lineageTarget),
+    enabled: Boolean(graph.data && lineageTarget),
     retry: false
   });
   const neighborhood = useQuery({
@@ -1126,7 +1098,7 @@ function Shell() {
         graphLensScopedPath(`/graph/neighborhood/${encodeURIComponent(neighborhoodTargetId)}?depth=1&limit=12`, selectedGraphId, selectedGraphLensId)
       );
     },
-    enabled: !usingDemoGraph && Boolean(neighborhoodTargetId),
+    enabled: Boolean(graph.data && neighborhoodTargetId),
     retry: false
   });
   const path = useQuery({
@@ -1140,16 +1112,16 @@ function Shell() {
       });
       return fetchJson<ApiPath>(graphLensScopedPath(`/graph/path?${params.toString()}`, selectedGraphId, selectedGraphLensId));
     },
-    enabled: !usingDemoGraph && Boolean(pathSourceId && pathTargetId && pathSourceId !== pathTargetId),
+    enabled: Boolean(graph.data && pathSourceId && pathTargetId && pathSourceId !== pathTargetId),
     retry: false
   });
-  const effectiveLineage = usingDemoGraph ? demoLineage : lineage.data;
-  const effectiveNeighborhood = usingDemoGraph ? demoNeighborhood : neighborhood.data;
-  const effectivePath = usingDemoGraph ? demoPath : path.data;
-  const sourceList = usingDemoGraph ? demoSources : sources.data?.sources ?? [];
+  const effectiveLineage = lineage.data;
+  const effectiveNeighborhood = neighborhood.data;
+  const effectivePath = path.data;
+  const sourceList = sources.data?.sources ?? [];
   const selectedSource = selectedSourceId ? sourceList.find((source) => source.id === selectedSourceId) : undefined;
   const sourceChunks = selectedSourceChunks.data?.source_chunks ?? [];
-  const proposalList = usingDemoGraph ? demoProposals : proposals.data?.proposals ?? [];
+  const proposalList = proposals.data?.proposals ?? [];
   const pendingContentNode = proposalList.find(
     (proposal) => proposal.status === "pending_review" && proposal.kind === "content_node"
   );
@@ -1170,8 +1142,8 @@ function Shell() {
   const activeExtractionLensId = extractionLensIdForGraphLens(selectedGraphLensId, kindLibrarySourceKind);
   const activeExtractionLens =
     extractionLensList.find((lens) => lens.id === activeExtractionLensId) ??
-    demoExtractionLenses.find((lens) => lens.id === activeExtractionLensId) ??
-    demoExtractionLenses[0];
+    DEFAULT_EXTRACTION_LENSES.find((lens) => lens.id === activeExtractionLensId) ??
+    DEFAULT_EXTRACTION_LENSES[0];
   const kindLibraryDefinitions = nodeKindDefinitionsForLens(activeExtractionLens, activeKind);
   const baseNodeKindDefinitions = kindLibraryDefinitions.slice(0, NODE_KIND_COMPACT_COUNT);
   const compactNodeKindDefinitions = activeKindDefinition
@@ -1192,9 +1164,9 @@ function Shell() {
     selectedGraphNode ??
     graphData.nodes.find((node) => node.id === neighborhoodTargetId) ??
     graphData.nodes[0] ??
-    demoGraph.nodes[0];
-  const graphNodes = graphData.nodes.length > 0 ? graphData.nodes : demoGraph.nodes;
-  const reviewedGraphEdges: GraphCanvasEdge[] = (graphData.edges.length > 0 ? graphData.edges : demoGraph.edges).map((edge) => ({
+    emptyWorkspaceFocusNode(graphData.project.id);
+  const graphNodes = graphData.nodes;
+  const reviewedGraphEdges: GraphCanvasEdge[] = graphData.edges.map((edge) => ({
     ...edge,
     reviewStatus: "accepted"
   }));
@@ -3013,15 +2985,13 @@ function inferSourceKind(filename: string): SourceKind {
 
 function sampleContentForSourceKind(kind: SourceKind): string {
   if (kind === "repository") {
-    return "App/Sources/AppShell/App.swift\nFeature/Timeline/TimelineView.swift\nPackage.swift\nimport SwiftUI\nimport SwiftData\nfunc registerAppIntents() {}\nIssue #26 tracks Liquid Glass migration.";
+    return "# Repository source\n\nConnect a repository or upload source files to extract modules, symbols, and dependencies.";
   }
   if (kind === "ops-document") {
-    return "# iOS 26 Release Checklist\nOwner: Mobile Platform\nReview: each TestFlight train\nPrivacy labels\nApp Review notes\nRollback criteria";
+    return "# Operational document\n\nOwner:\nReview cadence:\nControls:\nRisks:\nRollback criteria:";
   }
-  if (kind === "url") {
-    return "https://developer.apple.com/documentation/swiftui";
-  }
-  return demoDefaultSourceText;
+  if (kind === "markdown") return "# Research note\n\n";
+  return "";
 }
 
 export function App() {

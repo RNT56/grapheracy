@@ -20,7 +20,7 @@ async function sourceFiles(relativeDir, suffixes) {
 }
 
 const boundedLegacyFiles = {
-  "apps/web/src/App.tsx": 3075,
+  "apps/web/src/App.tsx": 3040,
   "apps/web/src/GraphCanvas.tsx": 1500,
   "services/api/src/graphview_api/main.py": 220,
   "services/api/src/graphview_api/api_v1/router.py": 60,
@@ -44,7 +44,6 @@ for (const relativePath of await sourceFiles("services/api/src/graphview_api", [
 }
 
 for (const relativePath of await sourceFiles("apps/web/src", [".ts", ".tsx"])) {
-  if (relativePath.endsWith("App.tsx")) continue;
   const source = await read(relativePath);
   if (/from ["'][^"']*demo\//.test(source)) {
     failures.push(`${relativePath} imports demo fixtures from a production module`);
@@ -60,6 +59,7 @@ const requiredBoundaries = [
   "apps/web/src/contentExpansionModel.ts",
   "apps/web/src/WorkspaceChrome.tsx",
   "apps/web/src/connectorWorkspaceModel.ts",
+  "apps/web/src/workspaceDefaults.ts",
   "apps/web/src/SettingsWorkspace.tsx",
   "apps/web/src/PlanningWorkspace.tsx",
   "apps/web/src/AgentContextWorkspace.tsx",
