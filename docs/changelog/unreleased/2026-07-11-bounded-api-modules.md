@@ -79,4 +79,6 @@ owner: codex
   lens defaults, enforce the demo-import rule for App.tsx, and ratchet the shell to 3,003 lines under a 3,040-line ceiling.
 - Move graph, review, Attention, connector, planning, provider, and active-context server queries into
   useWorkspaceQueries; keep TanStack Query as the server-state owner; reduce App.tsx to 2,854 lines under a 2,900-line ceiling.
+- Split the query composition into bounded graph/review, Attention, connector/settings, planning, and active-context
+  hooks so the workspace query boundary does not become a replacement monolith.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

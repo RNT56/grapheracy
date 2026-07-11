@@ -31,7 +31,7 @@ test("iOS 26 Swift demo graph covers native app development areas", async () => 
 
 test("preserved prototype data is isolated from the production web shell", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
-  const querySource = await readFile(new URL("../src/useWorkspaceQueries.ts", import.meta.url), "utf8");
+  const querySource = await readFile(new URL("../src/useGraphQueries.ts", import.meta.url), "utf8");
 
   assert.match(querySource, /\/graphs/);
   assert.match(appSource, /selectedGraphId/);
