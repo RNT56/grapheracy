@@ -91,7 +91,7 @@ for (const file of ["web.Dockerfile", "clamav.Dockerfile"]) {
 for (const file of ["minio.Dockerfile", "ops.Dockerfile", "otel-collector.Dockerfile"]) {
   if (!containers[file].includes("golang:1.26.5-bookworm")) failures.push(`${file} must use the patched Go toolchain`);
 }
-for (const required of ["jackson-databind/2.21.4", "keycloak-admin-cli-*.jar", "mssql-jdbc-*.jar"]) {
+for (const required of ["jackson-databind/2.21.4", "mssql-jdbc/13.4.0.jre11", "keycloak-admin-cli-*.jar"]) {
   if (!containers["keycloak.Dockerfile"].includes(required)) failures.push(`keycloak.Dockerfile missing ${required}`);
 }
 for (const required of [

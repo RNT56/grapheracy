@@ -13,7 +13,7 @@ RUN tar --extract --gzip --file=/tmp/minio.tar.gz --strip-components=1 \
         golang.org/x/crypto@v0.52.0 \
         golang.org/x/net@v0.55.0 \
         google.golang.org/grpc@v1.79.3 \
-    && CGO_ENABLED=0 go build -buildvcs=false -trimpath -tags kqueue \
+    && CGO_ENABLED=0 go build -mod=mod -buildvcs=false -trimpath -tags kqueue \
         -ldflags="-s -w -X github.com/minio/minio/cmd.Version=2025-10-15T17-29-55Z -X github.com/minio/minio/cmd.CopyrightYear=2025 -X github.com/minio/minio/cmd.ReleaseTag=RELEASE.2025-10-15T17-29-55Z -X github.com/minio/minio/cmd.CommitID=9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a -X github.com/minio/minio/cmd.ShortCommitID=9e49d5e7a648" \
         -o /out/minio .
 COPY infra/docker/minio-healthcheck.go /tmp/minio-healthcheck.go

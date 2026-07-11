@@ -168,6 +168,34 @@ def test_v1_compatibility_routes_match_legacy_and_deprecate_only_legacy() -> Non
     assert "Deprecation" not in versioned.headers
 
 
+def test_every_legacy_operation_has_an_exact_v1_compatibility_contract() -> None:
+    specification = make_client().app.openapi()
+    paths = specification["paths"]
+    legacy_paths = {
+        path: operations
+        for path, operations in paths.items()
+        if not path.startswith("/api/v1") and path not in {"/health", "/version"}
+    }
+
+    def contract(value):
+        if isinstance(value, list):
+            return [contract(item) for item in value]
+        if isinstance(value, dict):
+            ignored = {"operationId", "summary", "tags", "title"}
+            return {key: contract(item) for key, item in value.items() if key not in ignored}
+        return value
+
+    assert len(legacy_paths) >= 78
+    for legacy_path, legacy_operations in legacy_paths.items():
+        successor_path = f"/api/v1{legacy_path}"
+        assert successor_path in paths, legacy_path
+        for method, legacy_operation in legacy_operations.items():
+            assert method in paths[successor_path], f"{method.upper()} {legacy_path}"
+            assert contract(paths[successor_path][method]) == contract(legacy_operation), (
+                f"{method.upper()} {legacy_path}"
+            )
+
+
 def test_v1_graph_viewport_layout_search_and_etag() -> None:
     client = make_client()
     graph_id = "project-ios26-swift-demo"

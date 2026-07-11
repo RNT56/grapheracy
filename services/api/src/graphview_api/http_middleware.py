@@ -114,7 +114,7 @@ def install_http_middleware(app, settings) -> None:
                 response.headers["X-Graphview-Trace-Id"] = trace_id
                 response.headers["X-Request-Id"] = request_id
                 if not request.url.path.startswith("/api/v1") and request.url.path not in {
-                    "/health", "/ready", "/version", "/openapi.json", "/docs", "/redoc"
+                    "/health", "/version", "/openapi.json", "/docs", "/redoc"
                 }:
                     response.headers["Deprecation"] = "true"
                     response.headers["Sunset"] = "Tue, 01 Dec 2026 00:00:00 GMT"

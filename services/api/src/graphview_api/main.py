@@ -3,7 +3,6 @@ import json
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from graphview_api.agent_context import create_agent_context_router
 from graphview_api.agent_context.service import AgentContextService
@@ -18,6 +17,7 @@ from graphview_api.attention.service import AttentionService
 from graphview_api.api_v1 import create_v1_router
 from graphview_api.connector_routes import create_connector_router
 from graphview_api.connector_service import ConnectorService
+from graphview_api.compatibility import install_v1_compatibility_aliases
 from graphview_api.db import create_app_engine
 from graphview_api.graph import create_graph_activity_router, create_graph_exploration_router
 from graphview_api.graph.service import GraphService
@@ -190,28 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(create_data_operations_router(data_operations_service))
 
     app.include_router(create_v1_router(repo, object_store=app.state.object_store, settings=settings))
-    legacy_routes = [
-        route
-        for route in list(app.routes)
-        if isinstance(route, APIRoute)
-        and not route.path.startswith("/api/v1")
-        and route.path not in {"/health", "/version"}
-    ]
-    for route in legacy_routes:
-        app.add_api_route(
-            f"/api/v1{route.path}",
-            route.endpoint,
-            methods=route.methods,
-            response_model=route.response_model,
-            status_code=route.status_code,
-            tags=["Graphview V1 Compatibility"],
-            dependencies=route.dependencies,
-            summary=route.summary,
-            description=route.description,
-            response_description=route.response_description,
-            deprecated=False,
-            name=f"v1-{route.name}",
-        )
+    install_v1_compatibility_aliases(app)
 
     return app
 

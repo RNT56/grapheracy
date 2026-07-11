@@ -9,7 +9,7 @@ RUN tar --extract --gzip --file=/tmp/mc.tar.gz --strip-components=1 \
         golang.org/x/crypto@v0.52.0 \
         golang.org/x/net@v0.55.0 \
         google.golang.org/grpc@v1.79.3 \
-    && CGO_ENABLED=0 go build -buildvcs=false -trimpath -tags kqueue \
+    && CGO_ENABLED=0 go build -mod=mod -buildvcs=false -trimpath -tags kqueue \
         -ldflags="-s -w -X github.com/minio/mc/cmd.Version=2025-08-13T08-35-41Z -X github.com/minio/mc/cmd.CopyrightYear=2025 -X github.com/minio/mc/cmd.ReleaseTag=RELEASE.2025-08-13T08-35-41Z -X github.com/minio/mc/cmd.CommitID=d6541ea280b73a834b64d4097e21f2be77676104 -X github.com/minio/mc/cmd.ShortCommitID=d6541ea280b7" \
         -o /out/mc .
 

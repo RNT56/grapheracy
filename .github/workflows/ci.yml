@@ -157,6 +157,10 @@ jobs:
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_WORKERS: "1"
           GRAPHVIEW_LIVE_STACK: "1"
+      - name: Replay every compatibility alias contract and safe read
+        run: pnpm run test:compatibility:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
       - name: Prove production telemetry and redaction
         run: pnpm run test:observability:live
         env:

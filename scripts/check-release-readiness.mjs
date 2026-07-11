@@ -88,6 +88,7 @@ for (const required of [
   if (!releaseWorkflow.includes(required)) failures.push(`release workflow missing ${required}`);
 }
 for (const required of [
+  "pnpm run test:compatibility:live",
   "pnpm run test:failure-injection:live",
   "pnpm run test:performance:live",
   "pnpm run test:backup-restore:live"
