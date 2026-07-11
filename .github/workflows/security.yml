@@ -54,6 +54,7 @@ jobs:
     name: Image SBOM and vulnerability scan (${{ matrix.service }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - { service: api, dockerfile: infra/docker/api.Dockerfile }
@@ -78,7 +79,7 @@ jobs:
           image: graphview-${{ matrix.service }}:security-scan
           artifact-name: graphview-${{ matrix.service }}.spdx.json
           format: spdx-json
-      - uses: aquasecurity/trivy-action@v0.33.1
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: graphview-${{ matrix.service }}:security-scan
           format: sarif
