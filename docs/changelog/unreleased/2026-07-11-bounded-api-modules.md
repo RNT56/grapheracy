@@ -123,8 +123,15 @@ owner: codex
 - Wire the three credential slots into focused Settings controls; route external actions through durable V1 jobs,
   require safe credential IDs instead of operator-supplied secret references, and keep Attention notifications internal
   until both an SMTP slot and owner contact are present.
+- Move sensing, decisions, reviewed action construction, durable internal/external execution, and outcome recording into
+  the Attention feature slice.
+- Move source creation/ingestion/connector sync, proposal review, provider/settings credentials, planning messages,
+  cited Q&A, research, and AI action approval into bounded feature hooks; reduce `App.tsx` to 2,528 lines and ratchet
+  its architecture ceiling to 2,550.
 - Add a protected, manual, exact-image external canary workflow for real GitHub/Google/Notion sync and cursor replay,
   cited OpenAI query, GitHub Issue, SMTP, signed webhook callback, outcomes, feedback, redacted receipts, and cleanup.
 - Avoid a redundant full-position count for low-zoom cluster projections and join sampled edges directly through the
   indexed layout positions, reducing the shared-runner overview query without changing the 250 ms acceptance limit.
+- Strip operator action-credential references from both PostgreSQL JSON shadows during physical disaster recovery,
+  and fail the fast release gate if production restore stops removing any supported credential class.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

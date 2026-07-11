@@ -27,7 +27,11 @@ import { GraphCanvas, type GraphCanvasEdge, type GraphDimensionMode, type GraphL
 import { useGraphWorkspaceStore } from "./graphWorkspaceStore";
 import { useViewportProjection } from "./useViewportProjection";
 import { useWorkspaceQueries } from "./useWorkspaceQueries";
-import { useActionCredentialMutations } from "./useActionCredentialMutations";
+import { useSettingsMutations } from "./useSettingsMutations";
+import { useAttentionMutations } from "./useAttentionQueries";
+import { usePlanningMutations } from "./usePlanningQueries";
+import { useReviewMutations } from "./useReviewMutations";
+import { useSourceMutations } from "./useSourceMutations";
 import { ProviderSettingsPanel, SettingsWorkspace } from "./SettingsWorkspace";
 import { AgentToolCallCard, PlanningWorkspace, agentRunToolCalls } from "./PlanningWorkspace";
 import { AgentContextWorkspace } from "./AgentContextWorkspace";
@@ -44,10 +48,7 @@ import {
 import { DockIcon, GraphLensIcon, GraphPicker, MobileNavIcon, viewModeLabel } from "./WorkspaceChrome";
 import {
   asApiProviderId,
-  connectorLabel,
-  connectorSyncSettings,
-  fallbackConnectors,
-  targetTypeForConnector
+  fallbackConnectors
 } from "./connectorWorkspaceModel";
 import {
   DEFAULT_EXTRACTION_LENSES,
@@ -55,7 +56,7 @@ import {
   emptyWorkspaceFocusNode,
   emptyWorkspaceGraph
 } from "./workspaceDefaults";
-import { agentRunActivityPath, apiUrl, fetchHealth, fetchJson, graphLensScopedPath, graphScopedPath, waitForJob } from "./apiClient";
+import { apiUrl, fetchHealth, fetchJson, graphLensScopedPath, graphScopedPath } from "./apiClient";
 import {
   apiAgentRunToShared,
   apiAgentToolCallToShared,
@@ -75,7 +76,6 @@ import {
   withFallbackProviders,
   type ApiActionCredentialKind,
   type AgentToolKind,
-  type ApiAgentActionProposal,
   type ApiAgentCitation,
   type ApiAgentContextArtifact,
   type ApiAgentContextBlobContent,
@@ -84,11 +84,8 @@ import {
   type ApiAgentContextSession,
   type ApiAgentRun,
   type ApiAgentToolCall,
-  type ApiConnectorAccount,
   type ApiConnectorDescriptor,
   type ApiConnectorSyncRun,
-  type ApiConnectorTarget,
-  type ApiDecisionRecord,
   type ApiExtractionLens,
   type ApiFeedbackEvent,
   type ApiGraph,
@@ -97,28 +94,19 @@ import {
   type ApiGraphLens,
   type ApiGraphQueryAnswer,
   type ApiGraphResearchResult,
-  type ApiGraphSettings,
   type ApiGraphView,
   type ApiInsights,
   type ApiLineage,
   type ApiNeighborhood,
-  type ApiOperationalActionProposal,
-  type ApiOperationalActionRun,
-  type ApiOperationalAttentionItem,
   type ApiOperationalAttentionResponse,
-  type ApiOperationalOutcome,
-  type ApiOwner,
   type ApiPath,
   type ApiPlanningMessage,
-  type ApiPlanningSession,
   type ApiProposal,
-  type ApiProviderDescriptor,
   type ApiProviderId,
   type ApiReviewActivity,
   type ApiReviewDashboard,
   type ApiReviewQueue,
   type ApiRoutingPolicy,
-  type ApiSignal,
   type ApiSource,
   type ApiSourceChunk,
   type ApiSourceReviewCoverage,
@@ -251,7 +239,6 @@ function Shell() {
   const [autoCommitThreshold, setAutoCommitThreshold] = useState(0.92);
   const [selectedAiProviderId, setSelectedAiProviderId] = useState<ApiProviderId>("graphview-local");
   const [providerApiKey, setProviderApiKey] = useState("");
-  const { saveActionCredential, clearActionCredential } = useActionCredentialMutations();
   const searchText = useGraphWorkspaceStore((state) => state.searchText);
   const setSearchText = useGraphWorkspaceStore((state) => state.setSearchText);
   const graphLayout = useGraphWorkspaceStore((state) => state.graphLayout);
@@ -371,6 +358,20 @@ function Shell() {
         : selectedAiProvider?.configured
           ? "Env"
           : "Needs key";
+  const {
+    updateGraphSettings,
+    saveProviderCredential,
+    clearProviderCredential,
+    saveActionCredential,
+    clearActionCredential
+  } = useSettingsMutations({
+    activeProviderId: activeAiProviderId,
+    selectedProviderId: selectedAiProviderId,
+    providerApiKey,
+    llmEnabled,
+    autoCommitThreshold,
+    onClearProviderApiKey: () => setProviderApiKey("")
+  });
   const handleAiProviderChange = (providerId: ApiProviderId) => {
     setSelectedAiProviderId(providerId);
     setProviderApiKey("");
@@ -512,436 +513,67 @@ function Shell() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [graphLayout]);
 
-  const createSource = useMutation({
-    mutationFn: (title: string) =>
-      fetchJson<ApiSource>(graphScopedPath("/sources", selectedGraphId), {
-        method: "POST",
-        body: JSON.stringify({
-          kind: sourceKind,
-          title,
-          uri: `local://${sourceKind}/${title.toLowerCase().replaceAll(" ", "-")}`
-        })
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["insights"] });
-      await queryClient.invalidateQueries({ queryKey: ["neighborhood"] });
-      await queryClient.invalidateQueries({ queryKey: ["path"] });
-      setSourceTitle("");
-    }
+  const { createSource, ingestText, syncConnector, resyncConnectorTarget } = useSourceMutations({
+    selectedGraphId,
+    sourceKind,
+    extractionLensIds: extractionLensList.map((lens) => lens.id),
+    connectorKind,
+    connectorTitle,
+    connectorRemoteId,
+    connectorContent,
+    connectorAccounts: connectorAccountList,
+    llmEnabled,
+    autoCommitThreshold,
+    onSourceCreated: () => setSourceTitle(""),
+    onIngested: () => setIngestionText(""),
+    onGraphChanged: () => invalidateConnectorAndGraphQueries(selectedGraphId)
   });
 
-  const ingestText = useMutation({
-    mutationFn: (payload: { title: string; content: string }) =>
-      fetchJson(graphScopedPath("/ingestion-runs", selectedGraphId), {
-        method: "POST",
-        body: JSON.stringify({
-          kind: sourceKind,
-          title: payload.title,
-          content: payload.content,
-          extraction_lenses: extractionLensList.map((lens) => lens.id)
-        })
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["proposals"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["insights"] });
-      await queryClient.invalidateQueries({ queryKey: ["neighborhood"] });
-      await queryClient.invalidateQueries({ queryKey: ["path"] });
-      setIngestionText("");
-    }
-  });
+  const { createProposal, reviewProposal } = useReviewMutations();
 
-  const syncConnector = useMutation({
-    mutationFn: async () => {
-      const existingAccount = connectorAccountList.find((account) => account.kind === connectorKind);
-      const account =
-        existingAccount ??
-        await fetchJson<ApiConnectorAccount>("/connector-accounts", {
-          method: "POST",
-          body: JSON.stringify({
-            kind: connectorKind,
-            display_name: `${connectorLabel(connectorKind)} connector`,
-            scopes: connectorKind === "google-workspace" ? ["drive.readonly", "documents.readonly"] : connectorKind === "notion" ? ["read_content"] : [],
-            settings: {}
-          })
-        });
-      const target = await fetchJson<ApiConnectorTarget>("/connector-targets", {
-        method: "POST",
-        body: JSON.stringify({
-          account_id: account.id,
-          target_type: targetTypeForConnector(connectorKind),
-          remote_id: connectorRemoteId.trim() || `${connectorKind}-${Date.now()}`,
-          title: connectorTitle.trim() || connectorLabel(connectorKind),
-          sync_settings: connectorSyncSettings(connectorKind, connectorTitle, connectorContent, connectorRemoteId, llmEnabled, autoCommitThreshold)
-        })
-      });
-      return fetchJson("/connector-sync-runs", {
-        method: "POST",
-        body: JSON.stringify({ target_id: target.id })
-      });
-    },
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
+  const { createPlanningSession, sendPlanningMessage, askGraphAgent, runGraphResearch, approveAgentAction } =
+    usePlanningMutations({
+      selectedGraphId,
+      selectedGraphLensId,
+      activeProviderId: activeAiProviderId,
+      selectedGraphNodeId,
+      selectedSourceId,
+      planningGoal,
+      planningMessage,
+      selectedSession: selectedPlanningSession,
+      onSelectSession: setSelectedPlanningSessionId,
+      onClearMessage: () => setPlanningMessage(""),
+      onAnswer: (answer) => {
+        setGraphAnswer(answer);
+        setCitationDrawerOpen(true);
+      },
+      onResearch: (result) => {
+        setResearchResult(result);
+        setCitationDrawerOpen(true);
+      },
+      onGraphChanged: () => invalidateConnectorAndGraphQueries(selectedGraphId)
+    });
 
-  const resyncConnectorTarget = useMutation({
-    mutationFn: (targetId: string) =>
-      fetchJson("/connector-sync-runs", {
-        method: "POST",
-        body: JSON.stringify({ target_id: targetId, force: true })
-      }),
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const updateGraphSettings = useMutation({
-    mutationFn: () =>
-      fetchJson<ApiGraphSettings>("/graph/settings", {
-        method: "PATCH",
-        body: JSON.stringify({
-          llm_enabled: llmEnabled,
-          auto_commit_threshold: autoCommitThreshold,
-          settings: {
-            ai_default_provider: activeAiProviderId
-          }
-        })
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["graph-settings"] });
-    }
-  });
-
-  const saveProviderCredential = useMutation({
-    mutationFn: () =>
-      fetchJson<{ providers: ApiProviderDescriptor[] }>(`/providers/${encodeURIComponent(selectedAiProviderId)}/credentials`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          api_key: providerApiKey.trim(),
-          make_default: true
-        })
-      }),
-    onSuccess: async () => {
-      setProviderApiKey("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["providers"] }),
-        queryClient.invalidateQueries({ queryKey: ["graph-settings"] })
-      ]);
-    }
-  });
-
-  const clearProviderCredential = useMutation({
-    mutationFn: () =>
-      fetchJson<{ providers: ApiProviderDescriptor[] }>(`/providers/${encodeURIComponent(selectedAiProviderId)}/credentials`, {
-        method: "DELETE"
-      }),
-    onSuccess: async () => {
-      setProviderApiKey("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["providers"] }),
-        queryClient.invalidateQueries({ queryKey: ["graph-settings"] })
-      ]);
-    }
-  });
-
-  const createProposal = useMutation({
-    mutationFn: (payload: string | { sourceId: string; label?: string; summary?: string; locator?: string }) => {
-      const sourceId = typeof payload === "string" ? payload : payload.sourceId;
-      const label = typeof payload === "string" ? "Reviewed concept" : payload.label ?? "Reviewed concept";
-      const summary =
-        typeof payload === "string"
-          ? "Candidate concept created from the Graphview evidence workspace."
-          : payload.summary ?? "Candidate concept created from the selected evidence passage.";
-      const locator = typeof payload === "string" ? "web shell" : payload.locator ?? "evidence reader";
-      return fetchJson<ApiProposal>("/proposals", {
-        method: "POST",
-        body: JSON.stringify({
-          source_id: sourceId,
-          kind: "content_node",
-          confidence: 0.82,
-          locator,
-          proposed_value: {
-            label,
-            kind: "concept",
-            summary
-          }
-        })
-      });
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["proposals"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-activity"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph-activity"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-decisions"] });
-      await queryClient.invalidateQueries({ queryKey: ["insights"] });
-      await queryClient.invalidateQueries({ queryKey: ["neighborhood"] });
-      await queryClient.invalidateQueries({ queryKey: ["path"] });
-    }
-  });
-
-  const reviewProposal = useMutation({
-    mutationFn: (payload: { proposalId: string; decision: "accept" | "reject" | "edit" | "defer"; rationale?: string }) =>
-      fetchJson("/review-decisions", {
-        method: "POST",
-        body: JSON.stringify({
-          proposal_id: payload.proposalId,
-          decision: payload.decision,
-          rationale: payload.rationale ?? `${payload.decision} from Graphview review queue`
-        })
-      }),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["proposals"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-queue"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-dashboard"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-activity"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph-activity"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-sources"] });
-      await queryClient.invalidateQueries({ queryKey: ["review-decisions"] });
-      await queryClient.invalidateQueries({ queryKey: ["graph"] });
-      await queryClient.invalidateQueries({ queryKey: ["insights"] });
-      await queryClient.invalidateQueries({ queryKey: ["neighborhood"] });
-      await queryClient.invalidateQueries({ queryKey: ["path"] });
-    }
-  });
-
-  const createPlanningSession = useMutation({
-    mutationFn: () =>
-      fetchJson<ApiPlanningSession>(graphScopedPath("/planning-sessions", selectedGraphId), {
-        method: "POST",
-        body: JSON.stringify({
-          title: planningGoal.split(/[.?!]/)[0]?.slice(0, 96) || "AI planning session",
-          goal: planningGoal,
-          graph_id: selectedGraphId,
-          lens: selectedGraphLensId,
-          provider: activeAiProviderId
-        })
-      }),
-    onSuccess: async (session) => {
-      setSelectedPlanningSessionId(session.id);
-      await queryClient.invalidateQueries({ queryKey: ["planning-sessions"] });
-    }
-  });
-
-  const sendPlanningMessage = useMutation({
-    mutationFn: async () => {
-      const session = selectedPlanningSession ?? await createPlanningSession.mutateAsync();
-      const job = await fetchJson<{ id: string }>(`/ai/planning-sessions/${encodeURIComponent(session.id)}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ content: planningMessage, provider: activeAiProviderId })
-      });
-      return waitForJob<ApiPlanningSession>(job.id);
-    },
-    onSuccess: async (session) => {
-      setSelectedPlanningSessionId(session.id);
-      setPlanningMessage("");
-      await queryClient.invalidateQueries({ queryKey: ["planning-sessions"] });
-    }
-  });
-
-  const askGraphAgent = useMutation({
-    mutationFn: async (question: string) => {
-      const job = await fetchJson<{ id: string }>("/ai/query", {
-        method: "POST",
-        body: JSON.stringify({
-          question,
-          graph_id: selectedGraphId,
-          lens: selectedGraphLensId,
-          node_id: selectedGraphNodeId,
-          source_id: selectedSourceId,
-          provider: activeAiProviderId
-        })
-      });
-      return waitForJob<ApiGraphQueryAnswer>(job.id);
-    },
-    onSuccess: (answer) => {
-      setGraphAnswer(answer);
-      setCitationDrawerOpen(true);
-    }
-  });
-
-  const runGraphResearch = useMutation({
-    mutationFn: async (query: string) => {
-      const job = await fetchJson<{ id: string }>("/ai/research", {
-        method: "POST",
-        body: JSON.stringify({
-          query,
-          graph_id: selectedGraphId,
-          lens: selectedGraphLensId,
-          source_policy: "mixed",
-          provider: activeAiProviderId
-        })
-      });
-      return waitForJob<ApiGraphResearchResult>(job.id);
-    },
-    onSuccess: async (result) => {
-      setResearchResult(result);
-      setCitationDrawerOpen(true);
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const approveAgentAction = useMutation({
-    mutationFn: (action: ApiAgentActionProposal) =>
-      fetchJson<ApiAgentActionProposal>(`/agent-runs/${encodeURIComponent(action.agent_run_id)}/approve-action`, {
-        method: "POST",
-        body: JSON.stringify({ action_proposal_id: action.id, decision: "approve", rationale: "Approved from Graphview AI review." })
-      }),
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const createOperationalSignal = useMutation({
-    mutationFn: () => {
-      const candidateSource = selectedSourceId ?? sources.data?.sources[0]?.id;
-      return fetchJson<ApiSignal>("/signals", {
-        method: "POST",
-        body: JSON.stringify({
-          kind: "source_changed",
-          severity: "medium",
-          source_kind: "manual",
-          source_id: candidateSource,
-          title: candidateSource ? "Source needs attention" : "Graph workspace signal",
-          summary: candidateSource
-            ? "A graph source was flagged from the Attention workspace for owner routing."
-            : "The graph workspace was manually flagged for attention routing.",
-          payload: {
-            graph_id: selectedGraphId,
-            lens: selectedGraphLensId,
-            selected_source_id: candidateSource
-          }
-        })
-      });
-    },
-    onSuccess: async () => {
+  const {
+    createOperationalSignal,
+    createOperationalDecision,
+    createOperationalAction,
+    approveOperationalAction,
+    runOperationalAction,
+    recordOperationalOutcome
+  } = useAttentionMutations({
+    selectedGraphId,
+    selectedGraphLensId,
+    selectedSourceId,
+    fallbackSourceId: sources.data?.sources[0]?.id,
+    actionCredentialStatus,
+    owners: operationalOwnerList,
+    proposals: operationalActionProposalList,
+    onSignalCreated: () => {
       setGraphViewMode("attention");
       setContextPaneTab("review");
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const createOperationalDecision = useMutation({
-    mutationFn: (item: ApiOperationalAttentionItem) =>
-      fetchJson<ApiDecisionRecord>("/decision-records", {
-        method: "POST",
-        body: JSON.stringify({
-          attention_item_id: item.id,
-          alert_id: item.alert_id,
-          decision: "approve",
-          rationale: "Approved from the graph-centered Attention loop."
-        })
-      }),
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const createOperationalAction = useMutation({
-    mutationFn: (item: ApiOperationalAttentionItem) => {
-      const owner = operationalOwnerList.find((candidate) => candidate.id === item.owner_id);
-      const actionType = item.source_id
-        ? "mark_source_stale"
-        : actionCredentialStatus.smtp && owner?.contact
-          ? "create_notification"
-          : "request_owner_confirmation";
-      return fetchJson<ApiOperationalActionProposal>("/action-proposals", {
-        method: "POST",
-        body: JSON.stringify({
-          decision_record_id: item.decision_record_id,
-          alert_id: item.alert_id,
-          attention_item_id: item.id,
-          action_type: actionType,
-          title:
-            actionType === "mark_source_stale"
-              ? "Mark source stale"
-              : actionType === "create_notification"
-                ? "Notify owner"
-                : "Request owner confirmation",
-          summary:
-            actionType === "mark_source_stale"
-              ? "Flag the linked source as stale until it is refreshed."
-              : actionType === "create_notification"
-                ? "Notify the responsible owner that the graph needs attention."
-                : "Keep the action inside Graphview until an owner contact and SMTP credential are configured.",
-          payload:
-            actionType === "mark_source_stale"
-              ? { source_id: item.source_id }
-              : actionType === "create_notification"
-                ? { credential_id: "smtp", to: owner?.contact, attention_item_id: item.id }
-                : { owner_id: item.owner_id, attention_item_id: item.id }
-        })
-      });
     },
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const approveOperationalAction = useMutation({
-    mutationFn: (action: ApiOperationalActionProposal) =>
-      fetchJson<ApiOperationalActionProposal>(`/action-proposals/${encodeURIComponent(action.id)}/approve`, {
-        method: "POST",
-        body: JSON.stringify({ rationale: "Approved from the graph-centered Attention loop." })
-      }),
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const runOperationalAction = useMutation({
-    mutationFn: async (action: ApiOperationalActionProposal) => {
-      if (["create_external_ticket", "create_notification", "trigger_workflow"].includes(action.action_type)) {
-        const job = await fetchJson<{ id: string }>(`/action-proposals/${encodeURIComponent(action.id)}/run`, {
-          method: "POST",
-          body: "{}"
-        });
-        return waitForJob<ApiOperationalActionRun>(job.id);
-      }
-      return fetchJson<ApiOperationalActionRun>("/action-runs", {
-        method: "POST",
-        body: JSON.stringify({ action_proposal_id: action.id })
-      });
-    },
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
-  });
-
-  const recordOperationalOutcome = useMutation({
-    mutationFn: (run: ApiOperationalActionRun) => {
-      const action = operationalActionProposalList.find((proposal) => proposal.id === run.action_proposal_id);
-      return fetchJson<ApiOperationalOutcome>(`/action-runs/${encodeURIComponent(run.id)}/outcome`, {
-        method: "POST",
-        body: JSON.stringify({
-          attention_item_id: action?.attention_item_id,
-          status: run.status === "succeeded" ? "resolved" : "failed",
-          title: run.status === "succeeded" ? "Action outcome resolved" : "Action outcome failed",
-          summary:
-            run.status === "succeeded"
-              ? "The approved operational action completed and the attention item can be resolved."
-              : "The approved operational action failed and needs follow-up.",
-          result: {
-            action_run_id: run.id,
-            action_type: run.action_type,
-            target: run.target
-          }
-        })
-      });
-    },
-    onSuccess: async () => {
-      await invalidateConnectorAndGraphQueries(selectedGraphId);
-    }
+    onChanged: () => invalidateConnectorAndGraphQueries(selectedGraphId)
   });
 
   const graphData = graph.data

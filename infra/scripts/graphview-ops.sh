@@ -110,8 +110,10 @@ case "$operation" in
 UPDATE connector_accounts
 SET encrypted_token_json=NULL, status='error', updated_at=now();
 UPDATE graph_settings
-SET settings_json__jsonb=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb) - 'ai_provider_credentials' - 'llm_api_key'),
-    settings_json=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb) - 'ai_provider_credentials' - 'llm_api_key')::text,
+SET settings_json__jsonb=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb)
+      - 'ai_provider_credentials' - 'action_credentials' - 'llm_api_key'),
+    settings_json=(COALESCE(settings_json__jsonb, settings_json::jsonb, '{}'::jsonb)
+      - 'ai_provider_credentials' - 'action_credentials' - 'llm_api_key')::text,
     updated_at=now();
 UPDATE agent_context_clients
 SET token_hash='restored:revoked', status='revoked', revoked_at=now(), updated_at=now();

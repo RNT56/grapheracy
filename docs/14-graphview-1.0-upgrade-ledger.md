@@ -21,8 +21,8 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, compatibility graph, and all canonical V1 routers pass the 148-test API suite with exact OpenAPI/client parity | Application assembly is capped at 220 lines and V1 assembly is reduced to 30 lines with a 60-line ceiling; every transport has an enforced router-to-service boundary; domain persistence is physically split across source, graph-read, AI/planning, ingestion, nervous-system, active-context, review, operations, connector, action, secret, and serialization modules, reducing the former all-purpose repository from 6,064 to a 1,160-line compatibility composition under a 1,200-line ceiling | Architecture |
-| V1 API and compatibility aliases | implemented | 148 API tests, OpenAPI/client drift gate, and exact 80-path/103-operation alias characterization | The immutable stack proved all prior 78 paths after RFC 7807 normalization; the two action-credential paths await the next full live replay | API |
+| Bounded backend and web architecture | implemented | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, compatibility graph, and all canonical V1 routers pass the 148-test API suite with exact OpenAPI/client parity; web source, review, settings, planning, Attention, and server-query slices pass type/browser gates | Application assembly is capped at 220 lines and V1 assembly at 60; transports have enforced router-to-service boundaries; persistence is physically split across twelve domain modules; all server mutations now live in feature hooks and the web shell is capped at 2,550 lines | Architecture |
+| V1 API and compatibility aliases | implemented | 148 API tests, OpenAPI/client drift gate, and exact 80-path/103-operation alias characterization | The immutable stack proved all 80 paths and 103 operations after RFC 7807 normalization, including the action-credential routes | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | implemented | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, selection-persistence, and renderer-pixel stability browser coverage | Ten-case headed Chromium acceptance passed on ANGLE Metal with an Apple M2 Pro, including both visible-load frame budgets and deterministic reduced-motion Three.js output | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
@@ -35,7 +35,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Vault-backed secrets and encrypted object storage | implemented | Local atomic AEAD and Vault KV v2 create/read/replace/delete tests plus legacy-envelope migration and S3 retained-blob coverage | Stable-reference Vault rotation, legacy database migration, permanent purge, and MinIO-encrypted context production-proven | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and Kind stacks healthy with non-root/read-only services; live Helm install and no-op upgrade proven | Operations |
-| Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | Exact-stack inert restore production-proven; final GitHub-verified signed tag and published Sigstore bundle pending | Release |
+| Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | The expanded action-credential restore canary exposed a physical-restore gap; production SQL stripping and a fast regression invariant are implemented, with the immutable-stack rerun plus final signed tag/Sigstore bundle pending | Release |
 | 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Apple M2 Pro reference run: 178.5 ms overview, 24.8 ms detail, 20.7 ms subgraph, and 6.6 ms search p95 | Performance |
 
 ## Recorded Evidence
@@ -64,8 +64,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   639 kB to 616 kB, and 19 mocked-live desktop/mobile Playwright checks passed with 3 environment-gated checks skipped.
   Primary server-state queries now live in bounded `useGraphQueries`, `useAttentionQueries`, `useConnectorQueries`,
   `usePlanningQueries`, and `useAgentContextQueries` hooks composed by a 39-line `useWorkspaceQueries`, preserving
-  TanStack Query ownership. The action-credential mutations now live in a bounded hook; the fully wired shell is 2,895
-  lines under its 2,900-line ceiling.
+  TanStack Query ownership. Source/connector, review, settings/credentials, planning/AI, and the full nervous-system
+  mutation state machine now live in bounded feature hooks; the fully wired shell is 2,528 lines under its ratcheted
+  2,550-line ceiling.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
@@ -84,10 +85,12 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   rotated as new Vault KV versions without changing their opaque database references, a legacy database AES-GCM
   credential migrated to Vault on restart, API responses remained redacted, and deletion removed Vault metadata and
   all versions.
-- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the ops image verified database and
-  object manifests, survived destructive record/object deletion, restored the complete PostgreSQL/S3 canary set,
-  removed usable connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis,
-  restarted Keycloak/API/worker, and proved the worker did not replay the external action.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the original ops-image proof
+  verified database and object manifests, survived destructive record/object deletion, removed usable
+  connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis, restarted
+  Keycloak/API/worker, and proved the worker did not replay an external action. The expanded action-credential canary
+  then exposed that the physical restore did not remove the new top-level action credential references; the ops SQL,
+  logical-restore regression, and release-readiness invariant now cover that key pending an immutable-runner rerun.
 - `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:performance:live`: the exact production Compose API
   used Keycloak service authentication and a seeded PostgreSQL/pgvector project containing 100,000 nodes and 500,000
   edges. Across 40 measured requests per route, p95 was 178.5 ms for clustered overview, 24.8 ms for concrete viewport

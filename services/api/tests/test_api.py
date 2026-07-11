@@ -3486,6 +3486,18 @@ def test_observability_ready_and_metrics_require_expected_roles() -> None:
 
 def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
     client = make_client()
+    provider_credential = client.patch(
+        "/api/v1/providers/openai/credentials",
+        headers=ADMIN_HEADERS,
+        json={"api_key": "restore-must-discard-provider-key", "make_default": True},
+    )
+    assert provider_credential.status_code == 200
+    action_credential = client.put(
+        "/api/v1/action-credentials/webhook",
+        headers=ADMIN_HEADERS,
+        json={"credentials": {"secret": "restore-must-discard-action-key"}},
+    )
+    assert action_credential.status_code == 200
     source = client.post("/sources", json={"kind": "text", "title": "Backup candidate"}).json()
     proposal = client.post(
         "/proposals",
@@ -3513,6 +3525,8 @@ def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
     assert backup.json()["metadata"]["node_count"] == 1
     assert backup.json()["bundle"]["graph_version"]["node_count"] == 1
     assert backup.json()["bundle"]["graph_layouts"][0]["name"] == "restore-proof"
+    assert "restore-must-discard" not in backup.text
+    assert "gvsecret:" not in backup.text
 
     client.post("/sources", json={"kind": "text", "title": "Transient source"})
     assert len(client.get("/sources").json()["sources"]) == 2
@@ -3532,6 +3546,8 @@ def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
     assert restored.status_code == 200
     assert restored.json()["nodes"][0]["label"] == "Recoverable concept"
     assert [source["title"] for source in restored.json()["sources"]] == ["Backup candidate"]
+    assert "ai_provider_credentials" not in restored.json()["graph_settings"]["settings"]
+    assert "action_credentials" not in restored.json()["graph_settings"]["settings"]
     activity = client.get("/graph/activity", headers=READER_HEADERS).json()["events"]
     assert any(event["event_type"] == "proposal.created" for event in activity)
     assert "Transient source" not in str(activity)
@@ -3555,5 +3571,11 @@ def test_backup_and_restore_preserve_reviewed_graph_state() -> None:
                 db.audit_events.c.action == "project.restore"
             )
         ).one()
+        settings_json = conn.execute(
+            select(db.graph_settings.c.settings_json).where(db.graph_settings.c.project_id == "project-default")
+        ).scalar_one()
     assert outbox_status == "suppressed"
     assert restore_audit == ("user-maintainer", "project.restore")
+    restored_settings = json.loads(settings_json) if isinstance(settings_json, str) else settings_json
+    assert "ai_provider_credentials" not in restored_settings
+    assert "action_credentials" not in restored_settings
