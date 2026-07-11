@@ -11,4 +11,6 @@ owner: codex
   and an architecture check preventing persistence access from returning to its router.
 - Route source CRUD, lineage, and synchronous/durable ingestion selection through a typed SourcesService and
   repository port; make API test object stores session-owned so repeated verification no longer leaks temp folders.
+- Route connector catalog, credential, target, and synchronous/durable sync selection through a typed
+  ConnectorService and repository port while preserving the injectable LLM provider factory.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

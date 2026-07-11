@@ -11,6 +11,7 @@ from graphview_api.ai import create_agent_tools_router, create_planning_router, 
 from graphview_api.attention import create_attention_router
 from graphview_api.api_v1 import create_v1_router
 from graphview_api.connector_routes import create_connector_router
+from graphview_api.connector_service import ConnectorService
 from graphview_api.db import create_app_engine
 from graphview_api.graph import create_graph_activity_router, create_graph_exploration_router
 from graphview_api.graph.service import GraphService
@@ -129,6 +130,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def sources_service() -> SourcesService:
         return SourcesService(repo(), settings)
 
+    def connector_service() -> ConnectorService:
+        return ConnectorService(
+            repo(),
+            settings,
+            llm_provider_factory=build_llm_provider,
+        )
+
     app.include_router(
         create_health_router(
             repo,
@@ -164,7 +172,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_retrieval_router(repo, provider_registry_factory=configured_provider_registry))
 
-    app.include_router(create_connector_router(repo, llm_provider_factory=build_llm_provider))
+    app.include_router(create_connector_router(connector_service))
 
     app.include_router(create_sources_router(sources_service))
 
