@@ -8,6 +8,15 @@ run_id="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 
 required_variables=(
   GRAPHVIEW_SERVICE_CLIENT_SECRET
+  GRAPHVIEW_CANARY_COMMIT
+  GRAPHVIEW_WEB_IMAGE
+  GRAPHVIEW_API_IMAGE
+  GRAPHVIEW_WORKER_IMAGE
+  GRAPHVIEW_OTEL_IMAGE
+  GRAPHVIEW_OPS_IMAGE
+  GRAPHVIEW_KEYCLOAK_IMAGE
+  GRAPHVIEW_CLAMAV_IMAGE
+  GRAPHVIEW_MINIO_IMAGE
   GRAPHVIEW_CANARY_GITHUB_TOKEN
   GRAPHVIEW_CANARY_GITHUB_REPOSITORY
   GRAPHVIEW_CANARY_GOOGLE_CLIENT_ID
@@ -250,7 +259,26 @@ jq -e '.status == "healthy" and (.cursor.cursor | startswith("google:"))' <<<"$g
 jq -e '.status == "healthy" and (.cursor.cursor | startswith("notion:"))' <<<"$notion_delta_health" >/dev/null
 
 mkdir -p "$(dirname "$receipt_path")"
+image_entry() {
+  local reference="$1"
+  docker buildx imagetools inspect "$reference" --format '{{json .Manifest}}' \
+    | jq --arg reference "$reference" '{reference:$reference,digest:.digest}'
+}
+image_manifest="$(
+  jq -n \
+    --argjson web "$(image_entry "$GRAPHVIEW_WEB_IMAGE")" \
+    --argjson api "$(image_entry "$GRAPHVIEW_API_IMAGE")" \
+    --argjson worker "$(image_entry "$GRAPHVIEW_WORKER_IMAGE")" \
+    --argjson otel "$(image_entry "$GRAPHVIEW_OTEL_IMAGE")" \
+    --argjson ops "$(image_entry "$GRAPHVIEW_OPS_IMAGE")" \
+    --argjson keycloak "$(image_entry "$GRAPHVIEW_KEYCLOAK_IMAGE")" \
+    --argjson clamav "$(image_entry "$GRAPHVIEW_CLAMAV_IMAGE")" \
+    --argjson minio "$(image_entry "$GRAPHVIEW_MINIO_IMAGE")" \
+    '{web:$web,api:$api,worker:$worker,otel:$otel,ops:$ops,keycloak:$keycloak,clamav:$clamav,minio:$minio}'
+)"
 jq -n \
+  --arg commit "$GRAPHVIEW_CANARY_COMMIT" \
+  --argjson images "$image_manifest" \
   --arg run_id "$run_id" \
   --arg github_target_id "$github_target_id" \
   --arg google_target_id "$google_target_id" \
@@ -262,7 +290,7 @@ jq -n \
   --arg github_outcome_id "$(jq -er .id <<<"$github_outcome")" \
   --arg smtp_outcome_id "$(jq -er .id <<<"$smtp_outcome")" \
   --arg webhook_outcome_id "$webhook_outcome_id" \
-  '{schema_version:1,run_id:$run_id,connectors:{github:$github_target_id,google:$google_target_id,notion:$notion_target_id},ai_job_id:$ai_job_id,actions:{github:$github_action_run_id,smtp:$smtp_action_run_id,webhook:$webhook_action_run_id},outcomes:{github:$github_outcome_id,smtp:$smtp_outcome_id,webhook:$webhook_outcome_id},status:"passed"}' \
+  '{schema_version:1,commit:$commit,images:$images,run_id:$run_id,connectors:{github:$github_target_id,google:$google_target_id,notion:$notion_target_id},ai_job_id:$ai_job_id,actions:{github:$github_action_run_id,smtp:$smtp_action_run_id,webhook:$webhook_action_run_id},outcomes:{github:$github_outcome_id,smtp:$smtp_outcome_id,webhook:$webhook_outcome_id},status:"passed"}' \
   > "$receipt_path"
 
 echo "Protected external canaries passed: GitHub/Google/Notion sync and cursor replay, cited OpenAI query, GitHub Issue, SMTP, signed webhook callback, outcomes, and feedback."

@@ -110,6 +110,13 @@ for (const required of [
   "release:artifacts:verify",
   "cosign sign-blob",
   ".verification.verified",
+  "git rev-parse origin/main",
+  "candidate-${{ needs.validate-tag.outputs.commit }}",
+  "docker buildx imagetools create",
+  "test \"$release_digest\" = \"$candidate_digest\"",
+  "staging.yml@refs/heads/main",
+  "cosign verify",
+  "--notes-file",
   "subject-path: dist/release/*",
   "image-manifest.json"
 ]) {
@@ -126,6 +133,8 @@ for (const required of [
 for (const required of [
   "workflow_dispatch:",
   "environment: external-canaries",
+  "candidate-$GITHUB_SHA",
+  "Pull the exact staging-tested candidate images",
   "bash scripts/test-live-external-canaries.sh",
   "graphview-external-canary-receipt"
 ]) {
@@ -137,6 +146,11 @@ for (const required of [
   "github.event.pull_request.head.sha || github.sha",
   "helm/kind-action@v1.14.0",
   "kindest/node:v1.35.5@sha256:",
+  "packages: write",
+  "--sbom=true --provenance=mode=max --push",
+  "Enforce fixed HIGH and CRITICAL findings on candidate images",
+  "Sign the scanned candidate digests",
+  "graphview-candidate-image-manifest",
   "bash scripts/test-kind-staging.sh",
   "graphview-staging-smoke-receipt"
 ]) {

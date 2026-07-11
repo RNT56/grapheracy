@@ -121,13 +121,15 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   reduced-motion stability, no-WebGL fallback, context-loss state recovery, the 100k/500k clustered-open budget, both
   raw visible-load FPS gates, and the remaining workspace interaction checks. Three.js now renders on semantic or
   camera changes under reduced motion and preserves its last framebuffer for deterministic export and capture.
-- The manual `external-canaries` protected workflow builds all eight exact candidate images and runs real GitHub,
-  Google Drive, Notion, OpenAI, GitHub Issue, SMTP, and HMAC workflow adapters through the production stack. It records
-  only redacted target/job/run/outcome IDs, closes the GitHub receipt issue, deletes stored action/provider credentials,
-  and destroys the stack. The repository environment requires approval from `RNT56`; its protected secrets and fixture
-  variables are currently empty, so the three external rows remain explicitly blocked rather than being represented as
-  production-proven. Main branch protection now requires its `Secret-backed connector, AI, and action canaries` check
-  in addition to the exact-image staging, live-stack, migration, browser, documentation, security, and image gates.
+- The manual `external-canaries` protected workflow pulls the eight commit-bound manifests already published and
+  exercised by staging, then runs real GitHub, Google Drive, Notion, OpenAI, GitHub Issue, SMTP, and HMAC workflow
+  adapters through the production stack. Its receipt includes the commit and eight immutable digests plus only
+  redacted target/job/run/outcome IDs; the workflow closes the GitHub receipt issue, deletes stored action/provider
+  credentials, and destroys the stack. The repository environment requires approval from `RNT56`; its protected
+  secrets and fixture variables are currently empty, so the three external rows remain explicitly blocked rather than
+  being represented as production-proven. Main branch protection requires its `Secret-backed connector, AI, and action
+  canaries` check in addition to the exact-image staging, live-stack, migration, browser, documentation, security, and
+  image gates.
 
 ## Acceptance Rule
 

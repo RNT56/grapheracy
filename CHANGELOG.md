@@ -35,6 +35,8 @@ No changes yet.
   Vault, migrations, backup, ingress, network policy, autoscaling, disruption budgets, and the Collector.
 - Deterministic gateway TGZ and VS Code/Cursor VSIX packaging, SPDX SBOMs, image vulnerability scans, provenance,
   Cosign signatures, signed checksum manifests, and verified release publication.
+- Provenance-enabled candidate image publication from protected staging, with all eight registry digests retained in
+  the redacted receipt and tag CI promoting those exact tested manifests without rebuilding them.
 
 ### Changed
 
@@ -75,6 +77,8 @@ No changes yet.
   redacted provider errors, secret-reference validation, strict outbound policies, and no side-effect replay on restore.
 - Added frozen lockfile trust/integrity, OSV, Gitleaks, license, all-image SBOM/vulnerability, Kubernetes schema, and
   manifest security gates.
+- Masked generated Compose, Kubernetes, and external-canary credentials before GitHub Actions exports them, enforced
+  the invariant in the security gate, and replaced the fixed staging Vault token with an ephemeral masked value.
 
 [Unreleased]: https://github.com/RNT56/grapheracy/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/RNT56/grapheracy/releases/tag/v1.0.0

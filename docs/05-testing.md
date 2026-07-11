@@ -34,9 +34,11 @@ deployment validation, and deterministic client artifact packaging/verification.
 - CI's production-stack job builds eight exact candidate images, starts PostgreSQL/pgvector, authenticated Redis,
   MinIO, ClamAV, PostgreSQL-backed Keycloak, Vault, OpenTelemetry Collector, API, worker, web, migration, and ops
   services, and then runs every Compose proof below.
-- The protected `Staging acceptance` workflow loads the same commit's eight images into a clean Kubernetes 1.35 Kind
-  cluster, installs the production Helm chart, waits for migrations/workloads, runs authenticated ingestion, performs
-  a no-op upgrade, and retains a redacted receipt.
+- The protected `Staging acceptance` workflow publishes the same commit's eight provenance-enabled candidate images
+  to GHCR, pulls and loads those exact manifests into a clean Kubernetes 1.35 Kind cluster, installs the production
+  Helm chart, waits for migrations/workloads, runs authenticated ingestion, performs a no-op upgrade, and retains a
+  redacted receipt plus the complete commit-bound digest manifest. Fixed HIGH/CRITICAL findings fail before the
+  images are signed, and release accepts only candidates signed by the staging workflow on `main`.
 
 ## API And Domain Coverage
 
@@ -143,9 +145,10 @@ credential redaction, token leakage, secret-reference validation, CSP/CORS, and 
 commit/version manifest, and sorted SHA-256 list. `release:artifacts:verify` validates sizes, digests, archive structure,
 runtime manifests, entrypoints, current commit, and workspace version.
 
-Tag CI refuses an unsigned or GitHub-unverified annotated tag. It builds, pushes, signs, and attests eight immutable
-image digests, attests client artifacts, signs the complete checksum manifest with keyless Sigstore, and publishes the
-verified bundle.
+Tag CI refuses an unsigned or GitHub-unverified annotated tag, a version mismatch, a tag not pointing at the current
+`main` head, or a missing staged candidate manifest. It promotes the eight staging-tested digests without rebuilding,
+signs and attests them, attests client artifacts, signs the complete checksum manifest with keyless Sigstore, and
+publishes the authored release notes with the verified bundle.
 
 ## Evidence Rules
 

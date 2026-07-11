@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: graphview-external-canaries
@@ -40,8 +41,15 @@ jobs:
       GRAPHVIEW_COMPOSE_PROJECT: graphview-external-canaries
       GRAPHVIEW_PUBLIC_URL: http://127.0.0.1:8080
       GRAPHVIEW_CANARY_RECEIPT_PATH: artifacts/external-canary-receipt.json
+      GRAPHVIEW_CANARY_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
       - name: Validate protected fixture configuration
         run: |
           required=(
@@ -77,33 +85,32 @@ jobs:
           export_masked VAULT_DEV_ROOT_TOKEN "$(openssl rand -hex 18)"
           export_masked GRAPHVIEW_SECRET_KEY "$(openssl rand -hex 32)"
           export_masked GRAPHVIEW_SERVICE_CLIENT_SECRET "$(openssl rand -hex 24)"
+          registry_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          candidate_tag="candidate-$GITHUB_SHA"
           {
             echo "MINIO_ROOT_USER=graphviewcanary"
             echo "KEYCLOAK_ADMIN=admin"
             echo "GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS=api.github.com,oauth2.googleapis.com,www.googleapis.com,api.notion.com,$webhook_host"
             echo "GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS=$webhook_host"
-            echo "GRAPHVIEW_WEB_IMAGE=graphview-web:external-canary"
-            echo "GRAPHVIEW_API_IMAGE=graphview-api:external-canary"
-            echo "GRAPHVIEW_WORKER_IMAGE=graphview-worker:external-canary"
-            echo "GRAPHVIEW_OTEL_IMAGE=graphview-otel:external-canary"
-            echo "GRAPHVIEW_OPS_IMAGE=graphview-ops:external-canary"
-            echo "GRAPHVIEW_KEYCLOAK_IMAGE=graphview-keycloak:external-canary"
-            echo "GRAPHVIEW_CLAMAV_IMAGE=graphview-clamav:external-canary"
-            echo "GRAPHVIEW_MINIO_IMAGE=graphview-minio:external-canary"
+            echo "GRAPHVIEW_WEB_IMAGE=ghcr.io/$registry_owner/graphview-web:$candidate_tag"
+            echo "GRAPHVIEW_API_IMAGE=ghcr.io/$registry_owner/graphview-api:$candidate_tag"
+            echo "GRAPHVIEW_WORKER_IMAGE=ghcr.io/$registry_owner/graphview-worker:$candidate_tag"
+            echo "GRAPHVIEW_OTEL_IMAGE=ghcr.io/$registry_owner/graphview-otel:$candidate_tag"
+            echo "GRAPHVIEW_OPS_IMAGE=ghcr.io/$registry_owner/graphview-ops:$candidate_tag"
+            echo "GRAPHVIEW_KEYCLOAK_IMAGE=ghcr.io/$registry_owner/graphview-keycloak:$candidate_tag"
+            echo "GRAPHVIEW_CLAMAV_IMAGE=ghcr.io/$registry_owner/graphview-clamav:$candidate_tag"
+            echo "GRAPHVIEW_MINIO_IMAGE=ghcr.io/$registry_owner/graphview-minio:$candidate_tag"
             echo "GRAPHVIEW_CLAMAV_PLATFORM=linux/amd64"
             echo "GRAPHVIEW_SMTP_PORT=${GRAPHVIEW_SMTP_PORT:-587}"
             echo "GRAPHVIEW_SMTP_STARTTLS=${GRAPHVIEW_SMTP_STARTTLS:-true}"
           } >> "$GITHUB_ENV"
-      - name: Build exact candidate images
+      - name: Pull the exact staging-tested candidate images
         run: |
-          docker build -f infra/docker/api.Dockerfile -t "$GRAPHVIEW_API_IMAGE" .
-          docker build -f infra/docker/worker.Dockerfile -t "$GRAPHVIEW_WORKER_IMAGE" .
-          docker build -f infra/docker/otel-collector.Dockerfile -t "$GRAPHVIEW_OTEL_IMAGE" .
-          docker build -f infra/docker/web.Dockerfile -t "$GRAPHVIEW_WEB_IMAGE" .
-          docker build -f infra/docker/ops.Dockerfile -t "$GRAPHVIEW_OPS_IMAGE" .
-          docker build -f infra/docker/keycloak.Dockerfile -t "$GRAPHVIEW_KEYCLOAK_IMAGE" .
-          docker build -f infra/docker/clamav.Dockerfile -t "$GRAPHVIEW_CLAMAV_IMAGE" .
-          docker build -f infra/docker/minio.Dockerfile -t "$GRAPHVIEW_MINIO_IMAGE" .
+          for image in \
+            "$GRAPHVIEW_API_IMAGE" "$GRAPHVIEW_WORKER_IMAGE" "$GRAPHVIEW_OTEL_IMAGE" "$GRAPHVIEW_WEB_IMAGE" \
+            "$GRAPHVIEW_OPS_IMAGE" "$GRAPHVIEW_KEYCLOAK_IMAGE" "$GRAPHVIEW_CLAMAV_IMAGE" "$GRAPHVIEW_MINIO_IMAGE"; do
+            docker pull --platform linux/amd64 "$image"
+          done
       - name: Start production reference stack
         run: docker compose -p "$GRAPHVIEW_COMPOSE_PROJECT" -f infra/compose/docker-compose.production.yml up -d --wait --wait-timeout 300
       - name: Grant the ephemeral canary service account review authority

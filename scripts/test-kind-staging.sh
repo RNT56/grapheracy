@@ -9,6 +9,7 @@ set -euo pipefail
 : "${GRAPHVIEW_STAGING_KEYCLOAK_IMAGE:?required}"
 : "${GRAPHVIEW_STAGING_CLAMAV_IMAGE:?required}"
 : "${GRAPHVIEW_STAGING_MINIO_IMAGE:?required}"
+: "${GRAPHVIEW_STAGING_IMAGE_MANIFEST:?required}"
 : "${POSTGRES_PASSWORD:?required}"
 : "${REDIS_PASSWORD:?required}"
 : "${MINIO_ROOT_USER:?required}"
@@ -136,6 +137,17 @@ api_request() {
 
 helm upgrade "${helm_arguments[@]}"
 wait_for_release
+actual_images="$(kubectl -n "$namespace" get pods -o json | jq -r '.items[].spec.containers[].image' | sort -u)"
+for expected_image in \
+  "$GRAPHVIEW_STAGING_WEB_IMAGE" "$GRAPHVIEW_STAGING_API_IMAGE" \
+  "$GRAPHVIEW_STAGING_WORKER_IMAGE" "$GRAPHVIEW_STAGING_OTEL_IMAGE" \
+  "$GRAPHVIEW_STAGING_OPS_IMAGE" "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE" \
+  "$GRAPHVIEW_STAGING_CLAMAV_IMAGE" "$GRAPHVIEW_STAGING_MINIO_IMAGE"; do
+  grep -Fx "$expected_image" <<<"$actual_images" >/dev/null || {
+    echo "Expected candidate image did not run in staging: $expected_image" >&2
+    exit 1
+  }
+done
 start_port_forward
 
 curl -fsS "$base_url/health" | jq -e '.status == "ok"' >/dev/null
@@ -181,16 +193,17 @@ curl -fsS "$base_url/ready" | jq -e '.status == "ready"' >/dev/null
 api_request GET "/api/v1/jobs/$job_id" | jq -e '.status == "succeeded"' >/dev/null
 
 mkdir -p "$(dirname "$receipt_path")"
+image_manifest="$(jq -e --arg commit "${GRAPHVIEW_STAGING_COMMIT:-${GITHUB_SHA:-local}}" \
+  '.schema_version == 1 and .commit == $commit and (.images | length == 8) and all(.images[]; (.reference | type == "string") and (.digest | test("^sha256:[0-9a-f]{64}$")))' \
+  "$GRAPHVIEW_STAGING_IMAGE_MANIFEST" >/dev/null && jq -c .images "$GRAPHVIEW_STAGING_IMAGE_MANIFEST")"
 jq -n \
   --arg commit "${GRAPHVIEW_STAGING_COMMIT:-${GITHUB_SHA:-local}}" \
   --arg namespace "$namespace" \
   --arg release "$release" \
   --arg job_id "$job_id" \
   --arg source_title "$source_title" \
-  --arg web_image "$GRAPHVIEW_STAGING_WEB_IMAGE" \
-  --arg api_image "$GRAPHVIEW_STAGING_API_IMAGE" \
-  --arg worker_image "$GRAPHVIEW_STAGING_WORKER_IMAGE" \
-  '{schema_version:1,commit:$commit,namespace:$namespace,release:$release,job_id:$job_id,source_title:$source_title,images:{web:$web_image,api:$api_image,worker:$worker_image},migration:"complete",helm_upgrade:"healthy",credentials_included:false}' \
+  --argjson images "$image_manifest" \
+  '{schema_version:1,commit:$commit,namespace:$namespace,release:$release,job_id:$job_id,source_title:$source_title,images:$images,migration:"complete",helm_upgrade:"healthy",credentials_included:false}' \
   > "$receipt_path"
 
 echo "Kind staging acceptance passed: exact candidate images survived install, authenticated ingestion, and no-op Helm upgrade."
