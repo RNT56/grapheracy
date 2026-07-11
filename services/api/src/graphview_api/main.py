@@ -13,6 +13,7 @@ from graphview_api.api_v1 import create_v1_router
 from graphview_api.connector_routes import create_connector_router
 from graphview_api.db import create_app_engine
 from graphview_api.graph import create_graph_activity_router, create_graph_exploration_router
+from graphview_api.graph.service import GraphService
 from graphview_api.identity import IdentityService
 from graphview_api.identity.router import create_identity_router
 from graphview_api.http_middleware import install_http_middleware
@@ -121,6 +122,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def repo() -> GraphRepository:
         return app.state.repository
 
+    def graph_service() -> GraphService:
+        return GraphService(repo())
+
     app.include_router(
         create_health_router(
             repo,
@@ -140,13 +144,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
 
-    app.include_router(create_graph_activity_router(repo, telemetry=app.state.telemetry))
+    app.include_router(create_graph_activity_router(graph_service, telemetry=app.state.telemetry))
 
     app.include_router(create_attention_router(repo))
 
     app.include_router(create_actions_router(repo))
 
-    app.include_router(create_graph_exploration_router(repo))
+    app.include_router(create_graph_exploration_router(graph_service))
 
     app.include_router(create_planning_router(repo, provider_registry_factory=configured_provider_registry))
 

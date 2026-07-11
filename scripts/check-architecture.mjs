@@ -61,7 +61,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/ai/tools_router.py",
   "services/api/src/graphview_api/attention/router.py",
   "services/api/src/graphview_api/connector_routes.py",
+  "services/api/src/graphview_api/graph/repository.py",
   "services/api/src/graphview_api/graph/router.py",
+  "services/api/src/graphview_api/graph/service.py",
   "services/api/src/graphview_api/operations/data_router.py",
   "services/api/src/graphview_api/operations/readiness.py",
   "services/api/src/graphview_api/review/router.py",
@@ -95,6 +97,11 @@ for (const [moduleName, routePrefixes] of boundedRoutePrefixes) {
   if (routePrefixes.some((routePrefix) => apiAssembly.includes(routePrefix))) {
     failures.push(`${moduleName} routes must remain inside their bounded router module`);
   }
+}
+
+const graphRouter = await read("services/api/src/graphview_api/graph/router.py");
+if (graphRouter.includes("GraphRepository") || graphRouter.includes("repository.")) {
+  failures.push("graph router must call GraphService rather than the persistence repository");
 }
 
 if (failures.length) {
