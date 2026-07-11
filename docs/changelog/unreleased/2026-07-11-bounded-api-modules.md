@@ -83,4 +83,6 @@ owner: codex
   hooks so the workspace query boundary does not become a replacement monolith.
 - Make production-size latency and dependency-outage/lease-recovery proofs required steps in the immutable-image
   live-stack CI job rather than operator-only release checklist commands.
+- Repair remote acceptance bootstrap by resolving Playwright from the web workspace, pin OSV and Trivy to existing
+  upstream action tags, and provide the pull-request token now required by Gitleaks.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

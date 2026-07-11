@@ -31,7 +31,7 @@ jobs:
       - run: pnpm run security:audit
       - run: pnpm run security:signatures
       - name: OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v3
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             scan source -r .
@@ -45,6 +45,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   image-security:
     name: Image SBOM and vulnerability scan (${{ matrix.service }})
@@ -74,7 +76,7 @@ jobs:
           image: graphview-${{ matrix.service }}:security-scan
           artifact-name: graphview-${{ matrix.service }}.spdx.json
           format: spdx-json
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: graphview-${{ matrix.service }}:security-scan
           format: sarif

@@ -107,7 +107,7 @@ jobs:
         with: { version: 10.27.0 }
       - uses: actions/setup-node@v6
         with: { node-version: "24", cache: pnpm }
-      - run: pnpm install --frozen-lockfile && uv python install 3.14.5 && pnpm exec playwright install --with-deps chromium
+      - run: pnpm install --frozen-lockfile && uv python install 3.14.5 && pnpm --filter @graphview/web exec playwright install --with-deps chromium
       - name: Prepare acceptance secrets
         run: |
           {
