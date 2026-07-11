@@ -12,6 +12,8 @@ for (const command of [
   "test:integration",
   "test:e2e",
   "test:performance",
+  "test:performance:live",
+  "test:failure-injection:live",
   "security:full",
   "release:verify"
 ]) {
@@ -69,6 +71,7 @@ for (const file of ["pyproject.toml", "services/api/pyproject.toml", "services/w
 const architecture = await read("docs/02-architecture.md");
 const operations = await read("docs/06-operations.md");
 const ledger = await read("docs/14-graphview-1.0-upgrade-ledger.md");
+const ciWorkflow = await read(".github/workflows/ci.yml");
 const releaseWorkflow = await read(".github/workflows/release.yml");
 for (const required of ["/api/v1", "PostgreSQL", "Redis", "S3", "OIDC", "Sigma", "Graphology"]) {
   if (!`${architecture}\n${operations}\n${ledger}`.includes(required)) failures.push(`1.0 documentation missing ${required}`);
@@ -82,6 +85,13 @@ for (const required of [
   "image-manifest.json"
 ]) {
   if (!releaseWorkflow.includes(required)) failures.push(`release workflow missing ${required}`);
+}
+for (const required of [
+  "pnpm run test:failure-injection:live",
+  "pnpm run test:performance:live",
+  "pnpm run test:backup-restore:live"
+]) {
+  if (!ciWorkflow.includes(required)) failures.push(`live-stack CI workflow missing ${required}`);
 }
 for (const forbidden of ["production stub", "mocked-only critical flow", "seeded authentication fallback in production"]) {
   if (ledger.toLowerCase().includes(`${forbidden}: complete`)) failures.push(`upgrade ledger overclaims ${forbidden}`);
