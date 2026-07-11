@@ -117,7 +117,7 @@ def normalized_json(body: bytes):
             return {
                 key: normalize(entry)
                 for key, entry in item.items()
-                if key not in {"instance", "request_id"}
+                if key not in {"exported_at", "generated_at", "instance", "request_id"}
             }
         return item
 
