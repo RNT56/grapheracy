@@ -81,4 +81,6 @@ owner: codex
   useWorkspaceQueries; keep TanStack Query as the server-state owner; reduce App.tsx to 2,854 lines under a 2,900-line ceiling.
 - Split the query composition into bounded graph/review, Attention, connector/settings, planning, and active-context
   hooks so the workspace query boundary does not become a replacement monolith.
+- Make production-size latency and dependency-outage/lease-recovery proofs required steps in the immutable-image
+  live-stack CI job rather than operator-only release checklist commands.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

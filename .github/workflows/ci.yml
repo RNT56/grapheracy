@@ -169,6 +169,14 @@ jobs:
         run: pnpm run test:secrets:live
         env:
           GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
+      - name: Prove dependency outage and lease recovery behavior
+        run: pnpm run test:failure-injection:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
+      - name: Prove production-size projection latency
+        run: pnpm run test:performance:live
+        env:
+          GRAPHVIEW_COMPOSE_PROJECT: graphview-live-ci
       - name: Prove destructive backup and inert restore
         run: pnpm run test:backup-restore:live
         env:

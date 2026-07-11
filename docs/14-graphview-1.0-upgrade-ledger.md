@@ -98,6 +98,8 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   graph SSE resumed strictly after `Last-Event-ID`; duplicate signed GitHub deliveries reused the original durable job;
   an invalid signature was rejected; and a stopped worker reclaimed an expired lease on attempt 2. The PostgreSQL
   migration rehearsal also forced a lock-timeout, proved revision/schema rollback, then completed normally.
+- The protected live-stack CI job now runs both `test:failure-injection:live` and `test:performance:live` against the
+  exact images it built, alongside OIDC E2E, observability, active-context, Vault, and inert-restore acceptance.
 - The same release images were installed in a local Kind reference cluster; all stateful and application workloads
   became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
   MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.
