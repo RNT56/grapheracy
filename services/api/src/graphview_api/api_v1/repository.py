@@ -173,7 +173,7 @@ class GraphProjectionRepository:
                 "max_y": bounds.max_y,
                 "max_nodes": max_nodes,
                 "max_edges": max_edges,
-                "edge_scan_limit": min(40_000, max(16_000, max_edges * 2)),
+                "edge_scan_limit": min(20_000, max(4_000, max_edges)),
             }
             total_nodes = None
             if zoom >= 1.75:
@@ -185,15 +185,29 @@ class GraphProjectionRepository:
             if zoom < 1.75 or (total_nodes is not None and total_nodes > max_nodes):
                 parameters["cell"] = max(0.04, min(0.8, 0.65 / (2 ** max(0.0, zoom))))
                 clusters = [dict(row) for row in conn.execute(text("""
-                    SELECT concat('cluster:', floor(p.x/:cell)::bigint, ':', floor(p.y/:cell)::bigint) AS id,
-                      concat(count(*), ' related items') AS label, avg(p.x) AS x, avg(p.y) AS y,
-                      count(*) AS node_count, 0 AS edge_count, mode() WITHIN GROUP (ORDER BY n.kind) AS dominant_kind,
-                      sum(count(*)) OVER () AS total_nodes
-                    FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
-                    WHERE p.layout_id=:layout_id AND n.project_id=:project_id
-                      AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
-                    GROUP BY floor(p.x/:cell), floor(p.y/:cell)
-                    ORDER BY count(*) DESC LIMIT :max_nodes
+                    WITH kind_counts AS MATERIALIZED (
+                      SELECT floor(p.x/:cell)::bigint AS cell_x, floor(p.y/:cell)::bigint AS cell_y,
+                        n.kind, count(*) AS kind_count, sum(p.x) AS sum_x, sum(p.y) AS sum_y
+                      FROM graph_layout_positions p JOIN content_nodes n ON n.id=p.node_id
+                      WHERE p.layout_id=:layout_id AND n.project_id=:project_id
+                        AND p.x BETWEEN :min_x AND :max_x AND p.y BETWEEN :min_y AND :max_y
+                      GROUP BY floor(p.x/:cell)::bigint, floor(p.y/:cell)::bigint, n.kind
+                    ), ranked_kinds AS (
+                      SELECT *, row_number() OVER (
+                        PARTITION BY cell_x, cell_y ORDER BY kind_count DESC, kind
+                      ) AS kind_rank
+                      FROM kind_counts
+                    ), cluster_counts AS (
+                      SELECT cell_x, cell_y, sum(kind_count) AS node_count,
+                        sum(sum_x) / nullif(sum(kind_count), 0) AS x,
+                        sum(sum_y) / nullif(sum(kind_count), 0) AS y,
+                        max(kind) FILTER (WHERE kind_rank=1) AS dominant_kind
+                      FROM ranked_kinds GROUP BY cell_x, cell_y
+                    )
+                    SELECT concat('cluster:', cell_x, ':', cell_y) AS id,
+                      concat(node_count, ' related items') AS label, x, y, node_count,
+                      0 AS edge_count, dominant_kind, sum(node_count) OVER () AS total_nodes
+                    FROM cluster_counts ORDER BY node_count DESC LIMIT :max_nodes
                 """), parameters).mappings()]
                 if total_nodes is None:
                     total_nodes = int(clusters[0]["total_nodes"]) if clusters else 0

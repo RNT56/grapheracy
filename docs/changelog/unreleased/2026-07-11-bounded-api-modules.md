@@ -132,6 +132,11 @@ owner: codex
   cited OpenAI query, GitHub Issue, SMTP, signed webhook callback, outcomes, feedback, redacted receipts, and cleanup.
 - Avoid a redundant full-position count for low-zoom cluster projections and join sampled edges directly through the
   indexed layout positions, reducing the shared-runner overview query without changing the 250 ms acceptance limit.
+- Replace ordered-set cluster-kind calculation with bounded per-kind aggregation and cap overview edge sampling at the
+  requested visible budget, adding headroom after shared-runner variance approached the 250 ms server p95 limit.
 - Strip operator action-credential references from both PostgreSQL JSON shadows during physical disaster recovery,
   and fail the fast release gate if production restore stops removing any supported credential class.
+- Add a protected exact-commit Kubernetes 1.35 staging workflow that builds and loads all eight images into clean
+  Kind, installs the production Helm chart, proves authenticated upload through the durable stack, performs a no-op
+  upgrade, and retains a redacted receipt.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

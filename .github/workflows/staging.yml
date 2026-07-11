@@ -1,0 +1,82 @@
+name: Staging acceptance
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graphview-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Exact-image Kind and Helm smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with: { version: v4.2.3 }
+      - name: Prepare immutable image names and ephemeral secrets
+        run: |
+          {
+            echo "GRAPHVIEW_STAGING_WEB_IMAGE=graphview-web:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_API_IMAGE=graphview-api:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_WORKER_IMAGE=graphview-worker:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_OTEL_IMAGE=graphview-otel:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_OPS_IMAGE=graphview-ops:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_KEYCLOAK_IMAGE=graphview-keycloak:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_CLAMAV_IMAGE=graphview-clamav:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_MINIO_IMAGE=graphview-minio:staging-$GITHUB_SHA"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 18)"
+            echo "REDIS_PASSWORD=$(openssl rand -hex 18)"
+            echo "MINIO_ROOT_USER=graphviewstaging"
+            echo "MINIO_ROOT_PASSWORD=$(openssl rand -hex 24)"
+            echo "KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 18)"
+            echo "GRAPHVIEW_SECRET_KEY=$(openssl rand -hex 32)"
+            echo "GRAPHVIEW_SERVICE_CLIENT_SECRET=$(openssl rand -hex 24)"
+          } >> "$GITHUB_ENV"
+      - name: Build exact candidate images
+        run: |
+          docker build -f infra/docker/api.Dockerfile -t "$GRAPHVIEW_STAGING_API_IMAGE" .
+          docker build -f infra/docker/worker.Dockerfile -t "$GRAPHVIEW_STAGING_WORKER_IMAGE" .
+          docker build -f infra/docker/otel-collector.Dockerfile -t "$GRAPHVIEW_STAGING_OTEL_IMAGE" .
+          docker build -f infra/docker/web.Dockerfile -t "$GRAPHVIEW_STAGING_WEB_IMAGE" .
+          docker build -f infra/docker/ops.Dockerfile -t "$GRAPHVIEW_STAGING_OPS_IMAGE" .
+          docker build -f infra/docker/keycloak.Dockerfile -t "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE" .
+          docker build -f infra/docker/clamav.Dockerfile -t "$GRAPHVIEW_STAGING_CLAMAV_IMAGE" .
+          docker build -f infra/docker/minio.Dockerfile -t "$GRAPHVIEW_STAGING_MINIO_IMAGE" .
+      - name: Create clean Kubernetes 1.35 staging cluster
+        uses: helm/kind-action@v1.14.0
+        with:
+          version: v0.32.0
+          kubectl_version: v1.35.5
+          node_image: kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95
+          cluster_name: graphview-staging
+          wait: 120s
+      - name: Load exact candidate images
+        run: |
+          kind load docker-image --name graphview-staging \
+            "$GRAPHVIEW_STAGING_WEB_IMAGE" "$GRAPHVIEW_STAGING_API_IMAGE" \
+            "$GRAPHVIEW_STAGING_WORKER_IMAGE" "$GRAPHVIEW_STAGING_OTEL_IMAGE" \
+            "$GRAPHVIEW_STAGING_OPS_IMAGE" "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE" \
+            "$GRAPHVIEW_STAGING_CLAMAV_IMAGE" "$GRAPHVIEW_STAGING_MINIO_IMAGE"
+      - name: Install, exercise, and upgrade Graphview
+        run: bash scripts/test-kind-staging.sh
+      - name: Upload redacted staging receipt
+        if: ${{ always() && hashFiles('artifacts/staging-smoke-receipt.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: graphview-staging-smoke-receipt
+          path: artifacts/staging-smoke-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Capture failed staging state
+        if: failure()
+        run: |
+          kubectl get all,pvc,jobs -A -o wide
+          kubectl describe pods -n graphview-staging
+          kubectl logs -n graphview-staging -l app.kubernetes.io/part-of=graphview --all-containers --tail=200 --prefix

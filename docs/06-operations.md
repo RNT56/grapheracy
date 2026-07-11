@@ -284,8 +284,8 @@ docker compose -p graphview -f infra/compose/docker-compose.production.yml up -d
 ```
 
 Restore refuses unsafe prefixes, invalid confirmation, missing maintenance acknowledgement, corrupt/incomplete
-archives, or any remaining database client. After the database and object set are restored, it removes connector and AI
-provider credential references, revokes active-context clients, cancels active context sessions, neutralizes unfinished
+archives, or any remaining database client. After the database and object set are restored, it removes connector, AI
+provider, and action-adapter credential references, revokes active-context clients, cancels active context sessions, neutralizes unfinished
 ingestion/connector/AI/action work, marks pending outbox events as suppressed, blocks linked Attention, clears connector
 leases, and requires the authenticated Redis session flush to return `OK`. It never restores Vault itself. Reauthorize
 connectors/providers and create new context clients after validation; never copy credentials from the backup archive.
@@ -384,12 +384,16 @@ attributes, and no injected acceptance secret in Collector output.
    migration rehearsal database to prove interruption rollback.
 7. Run `pnpm run release:artifacts && pnpm run release:artifacts:verify`; inspect the gateway TGZ, installable VSIX,
    SPDX SBOM, commit-bound manifest, and SHA-256 list.
-8. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
-9. Run full CI gates, including moderate audit, integrity, OSV, and secret scans.
-10. Generate SBOMs for all eight release images, including the Graphview-owned non-root Collector image.
-11. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
+8. Dispatch the protected `Staging acceptance` workflow for the exact candidate commit. Retain its redacted receipt
+   proving all eight locally built images were loaded into a clean Kubernetes 1.35 Kind cluster, Helm migrations and
+   workloads became ready, authenticated upload traversed ClamAV/MinIO/Redis/Arq, and a no-op Helm upgrade preserved
+   the succeeded job.
+9. Consolidate fragments from `docs/changelog/unreleased/` into `CHANGELOG.md`.
+10. Run full CI gates, including moderate audit, integrity, OSV, and secret scans.
+11. Generate SBOMs for all eight release images, including the Graphview-owned non-root Collector image.
+12. Review security exceptions, dependency changes, living graph browser QA, digital nervous system action gates,
    observability status, and restore plan.
-12. Create an annotated signed SemVer tag only after staging acceptance. Tag CI verifies GitHub's cryptographic tag
+13. Create an annotated signed SemVer tag only after staging acceptance. Tag CI verifies GitHub's cryptographic tag
     result, signs and attests image digests, signs the full artifact checksum list, and publishes the immutable bundle.
 
 ## Failure Modes
