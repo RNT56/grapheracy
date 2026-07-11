@@ -113,6 +113,7 @@ for (const required of [
   if (!externalCanaryWorkflow.includes(required)) failures.push(`external canary workflow missing ${required}`);
 }
 for (const required of [
+  "pull_request:",
   "environment: staging",
   "helm/kind-action@v1.14.0",
   "kindest/node:v1.35.5@sha256:",
