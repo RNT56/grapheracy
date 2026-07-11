@@ -140,7 +140,7 @@ start_port_forward
 curl -fsS "$base_url/health" | jq -e '.status == "ok"' >/dev/null
 curl -fsS "$base_url/ready" | jq -e '.status == "ready"' >/dev/null
 token="$(service_token)"
-api_request GET /api/v1/project | jq -e '.id == "project-default"' >/dev/null
+api_request GET /api/v1/graphs | jq -e 'any(.[]; .id == "project-default")' >/dev/null
 
 run_id="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 source_title="Kind staging evidence $run_id"

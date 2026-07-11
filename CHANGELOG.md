@@ -62,7 +62,8 @@ No changes yet.
 - Retry, cancellation, lease-reclamation, duplicate webhook, provider timeout/429, object-store outage, Redis outage,
   migration interruption, and SSE reconnect races.
 - Kind/Helm staging selection and readiness for labeled migration Jobs plus both RollingUpdate and OnDelete
-  StatefulSets, with branch-head candidate SHA binding rather than synthetic pull-request merge refs.
+  StatefulSets, branch-head candidate SHA binding rather than synthetic pull-request merge refs, and authenticated
+  smoke through the generated-contract graph catalog.
 - Active-context smoke verification now compares retained content with the exact runtime-selected file range instead of
   obsolete front-door wording.
 
