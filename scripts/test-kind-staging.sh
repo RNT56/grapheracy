@@ -14,6 +14,7 @@ set -euo pipefail
 : "${MINIO_ROOT_USER:?required}"
 : "${MINIO_ROOT_PASSWORD:?required}"
 : "${KEYCLOAK_ADMIN_PASSWORD:?required}"
+: "${VAULT_DEV_ROOT_TOKEN:?required}"
 : "${GRAPHVIEW_SECRET_KEY:?required}"
 : "${GRAPHVIEW_SERVICE_CLIENT_SECRET:?required}"
 
@@ -43,7 +44,7 @@ kubectl -n "$namespace" create secret generic graphview-runtime \
   --from-literal=KEYCLOAK_ADMIN_PASSWORD="$KEYCLOAK_ADMIN_PASSWORD" \
   --from-literal=GRAPHVIEW_SECRET_KEY="$GRAPHVIEW_SECRET_KEY" \
   --from-literal=GRAPHVIEW_SERVICE_CLIENT_SECRET="$GRAPHVIEW_SERVICE_CLIENT_SECRET" \
-  --from-literal=VAULT_DEV_ROOT_TOKEN=graphview-reference-only \
+  --from-literal=VAULT_DEV_ROOT_TOKEN="$VAULT_DEV_ROOT_TOKEN" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 helm_arguments=(

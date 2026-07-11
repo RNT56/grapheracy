@@ -24,7 +24,7 @@ def create_v1_upload_router(service_provider) -> APIRouter:
         except UploadUnavailableError as error:
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
         except UploadValidationError as error:
-            code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if error.too_large else status.HTTP_422_UNPROCESSABLE_ENTITY
+            code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE if error.too_large else status.HTTP_422_UNPROCESSABLE_CONTENT
             raise HTTPException(status_code=code, detail=str(error)) from error
 
     return router

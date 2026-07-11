@@ -103,7 +103,7 @@ def create_sources_router(service_provider: Callable[[], SourcesService]) -> API
         try:
             accepted, result = await service.create_ingestion(payload, actor_id=user.id, graph_id=graph_id)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
         if accepted:
             response.status_code = status.HTTP_202_ACCEPTED
         return result

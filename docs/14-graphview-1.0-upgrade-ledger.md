@@ -34,7 +34,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
 | Vault-backed secrets and encrypted object storage | implemented | Local atomic AEAD and Vault KV v2 create/read/replace/delete tests plus legacy-envelope migration and S3 retained-blob coverage | Stable-reference Vault rotation, legacy database migration, permanent purge, and MinIO-encrypted context production-proven | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
-| Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and prior Kind stacks are healthy with non-root/read-only services; a protected exact-commit Kubernetes 1.35 staging workflow now makes install, authenticated ingestion, receipt, and no-op upgrade proof reproducible pending its candidate run | Operations |
+| Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | The immutable Compose stack is healthy with non-root/read-only services; protected run `29161913481` installed commit `6116f7d` and its eight exact images into clean Kubernetes 1.35, completed migrations and authenticated worker ingestion, retained a credential-free receipt, and remained healthy through a no-op Helm upgrade | Operations |
 | Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | Expanded exact-stack inert restore is production-proven for connector/provider/action/context credentials and side effects; final GitHub-verified signed tag and published Sigstore bundle remain | Release |
 | 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Optimized shared-runner p95: 169.3 ms overview, 36.8 ms detail, 21.2 ms subgraph, and 12.1 ms search; hardware renderer proof remains green on Apple M2 Pro | Performance |
 
@@ -105,9 +105,12 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   migration rehearsal also forced a lock-timeout, proved revision/schema rollback, then completed normally.
 - The protected live-stack CI job now runs both `test:failure-injection:live` and `test:performance:live` against the
   exact images it built, alongside OIDC E2E, observability, active-context, Vault, and inert-restore acceptance.
-- The same release images were installed in a local Kind reference cluster; all stateful and application workloads
-  became ready, the migration Job completed, an authenticated service token succeeded, an upload traversed ClamAV,
-  MinIO, Redis, and the worker, and a subsequent no-op Helm upgrade remained healthy.
+- Protected staging run `29161913481` installed commit `6116f7d` and its eight exact candidate images into a clean
+  Kubernetes 1.35 Kind cluster. All stateful and application workloads became ready, the migration Job completed, an
+  authenticated service token read the canonical V1 graph catalog, an upload traversed ClamAV, MinIO, Redis, and the
+  worker, and a subsequent no-op Helm upgrade remained healthy. Its retained receipt reports the exact commit, release,
+  namespace, bounded job/source identifiers, image tags, completed migration, healthy upgrade, and
+  `credentials_included: false`.
 - `pnpm run test:performance` retained complete 5k/20k and 20k/50k visible projections and bounded a 100k/500k
   project overview well under its 2.5-second budget on the development machine. Chromium browser acceptance separately proved clustered
   overview latency, nonblank WebGL output, the 5k/20k and 20k/50k frame gates, viewport bounds, context recovery,
@@ -123,14 +126,15 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   only redacted target/job/run/outcome IDs, closes the GitHub receipt issue, deletes stored action/provider credentials,
   and destroys the stack. The repository environment requires approval from `RNT56`; its protected secrets and fixture
   variables are currently empty, so the three external rows remain explicitly blocked rather than being represented as
-  production-proven.
+  production-proven. Main branch protection now requires its `Secret-backed connector, AI, and action canaries` check
+  in addition to the exact-image staging, live-stack, migration, browser, documentation, security, and image gates.
 
 ## Acceptance Rule
 
 The final integration branch may merge to `main` only when every row is `implemented`, `integration-tested`, and
-`production-proven`, or explicitly `blocked` solely on a secret-backed external canary whose deterministic contract and
-failure tests pass. No production path may use seeded authentication, an empty worker function list, reversible XOR
-credential storage, simulated external IDs, or mocked-only critical flows.
+`production-proven`. A `blocked` external-canary row keeps the release candidate unmergeable even when its deterministic
+contract and failure tests pass. No production path may use seeded authentication, an empty worker function list,
+reversible XOR credential storage, simulated external IDs, or mocked-only critical flows.
 
 ## Failure Modes
 

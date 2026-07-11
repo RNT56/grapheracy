@@ -43,7 +43,7 @@ def create_retrieval_router(service_provider: Callable[[], RetrievalService]) ->
         try:
             return await service.query(payload, graph_id=graph_id, lens=lens, actor_id=user.id)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.post("/graph/research", response_model=GraphResearchOut, status_code=status.HTTP_201_CREATED)
     async def graph_research(
@@ -56,6 +56,6 @@ def create_retrieval_router(service_provider: Callable[[], RetrievalService]) ->
         try:
             return await service.research(payload, graph_id=graph_id, lens=lens, actor_id=user.id)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     return router

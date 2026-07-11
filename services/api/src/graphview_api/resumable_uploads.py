@@ -98,13 +98,13 @@ def create_resumable_upload_router(repo_provider, object_store, settings) -> API
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload session not found")
         ensure_project_access(user, current["project_id"])
         if upload_offset + len(payload) < current["expected_bytes"] and len(payload) < 5 * 1024 * 1024:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Non-final upload parts must be at least 5 MiB")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Non-final upload parts must be at least 5 MiB")
         try:
             result = uploads(repository).append(upload_id, offset=upload_offset, payload=bytes(payload))
         except RuntimeError as error:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
         response.headers["Upload-Offset"] = str(result["received_bytes"])
         return result
 

@@ -26,7 +26,7 @@ def _http_error(error: V1ConnectorError) -> HTTPException:
     elif isinstance(error, ConnectorPayloadTooLargeError):
         code = status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
     else:
-        code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        code = status.HTTP_422_UNPROCESSABLE_CONTENT
     return HTTPException(status_code=code, detail=str(error))
 
 

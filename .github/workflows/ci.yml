@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with: { version: v4.2.3 }
       - run: helm dependency list infra/helm/graphview | grep -Eq '^vault[[:space:]]+0\.34\.0[[:space:]].*[[:space:]]ok[[:space:]]*$' && helm lint --strict infra/helm/graphview && helm template graphview infra/helm/graphview --namespace graphview --skip-tests > graphview-rendered.yaml
       - name: Kubernetes schema validation
@@ -110,18 +110,24 @@ jobs:
       - run: pnpm install --frozen-lockfile && uv python install 3.14.5 && pnpm --filter @graphview/web exec playwright install --with-deps chromium
       - name: Prepare acceptance secrets
         run: |
+          export_masked() {
+            local name="$1"
+            local value="$2"
+            printf '::add-mask::%s\n' "$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          export_masked POSTGRES_PASSWORD "$(openssl rand -hex 18)"
+          export_masked REDIS_PASSWORD "$(openssl rand -hex 18)"
+          export_masked MINIO_ROOT_PASSWORD "$(openssl rand -hex 24)"
+          export_masked KEYCLOAK_ADMIN_PASSWORD "$(openssl rand -hex 18)"
+          export_masked VAULT_DEV_ROOT_TOKEN "$(openssl rand -hex 18)"
+          export_masked GRAPHVIEW_SECRET_KEY "$(openssl rand -hex 32)"
+          export_masked GRAPHVIEW_SERVICE_CLIENT_SECRET "$(openssl rand -hex 24)"
+          export_masked GRAPHVIEW_LIVE_PASSWORD "$(openssl rand -hex 18)"
           {
-            echo "POSTGRES_PASSWORD=$(openssl rand -hex 18)"
-            echo "REDIS_PASSWORD=$(openssl rand -hex 18)"
             echo "MINIO_ROOT_USER=graphviewci"
-            echo "MINIO_ROOT_PASSWORD=$(openssl rand -hex 24)"
             echo "KEYCLOAK_ADMIN=admin"
-            echo "KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 18)"
-            echo "VAULT_DEV_ROOT_TOKEN=$(openssl rand -hex 18)"
-            echo "GRAPHVIEW_SECRET_KEY=$(openssl rand -hex 32)"
-            echo "GRAPHVIEW_SERVICE_CLIENT_SECRET=$(openssl rand -hex 24)"
             echo "GRAPHVIEW_LIVE_USERNAME=graphview-ci-admin"
-            echo "GRAPHVIEW_LIVE_PASSWORD=$(openssl rand -hex 18)"
             echo "GRAPHVIEW_PUBLIC_URL=http://127.0.0.1:8080"
             echo "GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS=api.github.com,oauth2.googleapis.com,www.googleapis.com,api.notion.com,example.com"
             echo "GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS=example.com"

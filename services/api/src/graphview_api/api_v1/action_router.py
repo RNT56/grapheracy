@@ -51,7 +51,7 @@ def create_v1_action_router(service_provider) -> APIRouter:
         if not callback_secret:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Action callback secret is not configured")
         if not x_graphview_event_id or len(x_graphview_event_id) > 200:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Outcome callback event ID is required")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Outcome callback event ID is required")
         try:
             signed_at = int(x_graphview_timestamp or "")
         except ValueError as error:
@@ -64,7 +64,7 @@ def create_v1_action_router(service_provider) -> APIRouter:
         try:
             outcome = OutcomeCreate.model_validate_json(body)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid outcome callback") from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid outcome callback") from error
         return action_service.enqueue_outcome(action_run, action_run_id, x_graphview_event_id, outcome)
 
     return router

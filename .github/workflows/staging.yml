@@ -24,10 +24,23 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ env.GRAPHVIEW_STAGING_COMMIT }}
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with: { version: v4.2.3 }
       - name: Prepare immutable image names and ephemeral secrets
         run: |
+          export_masked() {
+            local name="$1"
+            local value="$2"
+            printf '::add-mask::%s\n' "$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          export_masked POSTGRES_PASSWORD "$(openssl rand -hex 18)"
+          export_masked REDIS_PASSWORD "$(openssl rand -hex 18)"
+          export_masked MINIO_ROOT_PASSWORD "$(openssl rand -hex 24)"
+          export_masked KEYCLOAK_ADMIN_PASSWORD "$(openssl rand -hex 18)"
+          export_masked VAULT_DEV_ROOT_TOKEN "$(openssl rand -hex 18)"
+          export_masked GRAPHVIEW_SECRET_KEY "$(openssl rand -hex 32)"
+          export_masked GRAPHVIEW_SERVICE_CLIENT_SECRET "$(openssl rand -hex 24)"
           {
             echo "GRAPHVIEW_STAGING_WEB_IMAGE=graphview-web:staging-$GRAPHVIEW_STAGING_COMMIT"
             echo "GRAPHVIEW_STAGING_API_IMAGE=graphview-api:staging-$GRAPHVIEW_STAGING_COMMIT"
@@ -37,13 +50,7 @@ jobs:
             echo "GRAPHVIEW_STAGING_KEYCLOAK_IMAGE=graphview-keycloak:staging-$GRAPHVIEW_STAGING_COMMIT"
             echo "GRAPHVIEW_STAGING_CLAMAV_IMAGE=graphview-clamav:staging-$GRAPHVIEW_STAGING_COMMIT"
             echo "GRAPHVIEW_STAGING_MINIO_IMAGE=graphview-minio:staging-$GRAPHVIEW_STAGING_COMMIT"
-            echo "POSTGRES_PASSWORD=$(openssl rand -hex 18)"
-            echo "REDIS_PASSWORD=$(openssl rand -hex 18)"
             echo "MINIO_ROOT_USER=graphviewstaging"
-            echo "MINIO_ROOT_PASSWORD=$(openssl rand -hex 24)"
-            echo "KEYCLOAK_ADMIN_PASSWORD=$(openssl rand -hex 18)"
-            echo "GRAPHVIEW_SECRET_KEY=$(openssl rand -hex 32)"
-            echo "GRAPHVIEW_SERVICE_CLIENT_SECRET=$(openssl rand -hex 24)"
           } >> "$GITHUB_ENV"
       - name: Build exact candidate images
         run: |

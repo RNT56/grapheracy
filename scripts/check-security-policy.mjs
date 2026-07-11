@@ -44,6 +44,14 @@ const containers = Object.fromEntries(
   )
 );
 const productionCompose = await readFile(path.join(root, "infra/compose/docker-compose.production.yml"), "utf8");
+const acceptanceWorkflows = Object.fromEntries(
+  await Promise.all(
+    ["ci.yml", "staging.yml", "external-canaries.yml"].map(async (file) => [
+      file,
+      await readFile(path.join(root, ".github/workflows", file), "utf8")
+    ])
+  )
+);
 
 const requiredWorkspace = [
   "minimumReleaseAge: 1440",
@@ -111,6 +119,14 @@ for (const required of [
 }
 if (!productionCompose.includes("image: ${GRAPHVIEW_OPS_IMAGE:?required}")) {
   failures.push("production MinIO initialization must reuse the scanned operations image");
+}
+for (const [file, body] of Object.entries(acceptanceWorkflows)) {
+  if (body.includes("openssl rand") && !body.includes("::add-mask::%s")) {
+    failures.push(`${file} must mask generated acceptance credentials before exporting them`);
+  }
+  if (/echo\s+"[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN)=\$\(openssl rand/.test(body)) {
+    failures.push(`${file} exports a generated credential without the masked export helper`);
+  }
 }
 for (const forbidden of [
   "minio/minio:RELEASE.2025-09-07T16-13-09Z",

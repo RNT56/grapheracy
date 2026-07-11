@@ -25,7 +25,7 @@ def create_v1_job_command_router(service_provider) -> APIRouter:
         try:
             project_id = job_service.project_for_create(payload)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
         ensure_project_access(user, project_id)
         return job_service.create(payload, project_id=project_id)
 

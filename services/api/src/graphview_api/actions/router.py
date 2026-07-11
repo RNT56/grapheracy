@@ -44,7 +44,7 @@ def create_actions_router(service_provider: Callable[[], ActionsService]) -> API
         try:
             return service.update_credential(credential_kind, payload.credentials)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.delete("/action-credentials/{credential_kind}", response_model=ActionCredentialOut)
     async def delete_action_credential(
@@ -88,7 +88,7 @@ def create_actions_router(service_provider: Callable[[], ActionsService]) -> API
         try:
             return service.create_proposal(payload, actor_id=user.id)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.post("/action-proposals/{action_proposal_id}/approve", response_model=ActionProposalOut)
     async def approve_action_proposal(

@@ -39,7 +39,7 @@ def create_planning_router(service_provider: Callable[[], PlanningService]) -> A
         try:
             return service.update_provider(provider_id, payload)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.delete("/providers/{provider_id}/credentials")
     async def delete_provider_credentials(
@@ -50,7 +50,7 @@ def create_planning_router(service_provider: Callable[[], PlanningService]) -> A
         try:
             return service.delete_provider(provider_id)
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.post("/planning-sessions", response_model=PlanningSessionOut, status_code=status.HTTP_201_CREATED)
     async def create_planning_session(
@@ -91,7 +91,7 @@ def create_planning_router(service_provider: Callable[[], PlanningService]) -> A
         except KeyError as error:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planning session not found") from error
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.post("/planning-sessions/{session_id}/build-spec", response_model=GraphBuildSpecOut)
     async def create_graph_build_spec(
@@ -116,7 +116,7 @@ def create_planning_router(service_provider: Callable[[], PlanningService]) -> A
         except KeyError as error:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planning session not found") from error
         except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
 
     @router.get("/agent-runs/{agent_run_id}", response_model=AgentRunOut)
     async def agent_run(
