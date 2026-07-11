@@ -51,4 +51,6 @@ owner: codex
   actions into AiPlanningRepositoryMixin; ratchet the remaining compatibility façade below 4,650 lines.
 - Move atomic ingestion, source chunks, proposal/embedding writes, connector deltas, deletion tombstones, and sync-run
   accounting into IngestionRepositoryMixin; ratchet the remaining compatibility façade below 4,200 lines.
+- Move owners, routing policies, signals, observations, Attention, decisions, action proposals/runs, outcomes, and
+  feedback into NervousSystemRepositoryMixin; ratchet the remaining compatibility façade below 3,600 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
