@@ -57,4 +57,7 @@ owner: codex
   retention into AgentContextRepositoryMixin; ratchet the remaining compatibility façade below 3,100 lines.
 - Move proposal writes/projections, review queue/dashboard/activity, provenance coverage, review authority
   transitions, review event shaping, and decision reads into ReviewRepositoryMixin; ratchet the façade below 2,350 lines.
+- Move search, export, complete backup, inert restore, and rollback-safe reconstruction into
+  DataOperationsRepositoryMixin; reduce the former all-purpose repository to a 1,160-line compatibility composition
+  and shared-helper layer with a 1,200-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
