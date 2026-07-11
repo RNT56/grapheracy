@@ -60,4 +60,6 @@ owner: codex
 - Move search, export, complete backup, inert restore, and rollback-safe reconstruction into
   DataOperationsRepositoryMixin; reduce the former all-purpose repository to a 1,160-line compatibility composition
   and shared-helper layer with a 1,200-line ceiling.
+- Move workspace wire/view-model contracts, provider capability metadata, and settings-page descriptors out of the
+  web shell into workspaceTypes; reduce App.tsx from 5,944 to 5,197 lines under a 5,250-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

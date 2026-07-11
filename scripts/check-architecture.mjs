@@ -20,7 +20,7 @@ async function sourceFiles(relativeDir, suffixes) {
 }
 
 const boundedLegacyFiles = {
-  "apps/web/src/App.tsx": 6000,
+  "apps/web/src/App.tsx": 5250,
   "apps/web/src/GraphCanvas.tsx": 1500,
   "services/api/src/graphview_api/main.py": 220,
   "services/api/src/graphview_api/api_v1/router.py": 60,
@@ -54,6 +54,7 @@ for (const relativePath of await sourceFiles("apps/web/src", [".ts", ".tsx"])) {
 const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
+  "apps/web/src/workspaceTypes.ts",
   "services/api/openapi.yaml",
   "services/api/src/graphview_api/api_v1/action_dependencies.py",
   "services/api/src/graphview_api/api_v1/action_router.py",

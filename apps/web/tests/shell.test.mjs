@@ -7,7 +7,7 @@ function assertSourceIncludes(source, pattern, label) {
 }
 
 test("web shell is product-first and wired to API health", async () => {
-  const source = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8")}`;
+  const source = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/apiClient.ts", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}`;
   assert.match(source, /fetchHealth/);
   assert.match(source, /createSource/);
   assert.match(source, /ingestText/);
@@ -175,7 +175,7 @@ test("graph canvas uses bounded render plans for large graphs", async () => {
 });
 
 test("phase 25 digital nervous system routes through Attention mode", async () => {
-  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const appSource = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}`;
   const canvasSource = await readFile(new URL("../src/GraphCanvas.tsx", import.meta.url), "utf8");
   const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
   const graphCore = await readFile(new URL("../../../packages/graph-core/src/index.ts", import.meta.url), "utf8");
@@ -214,7 +214,7 @@ test("phase 25 digital nervous system routes through Attention mode", async () =
 });
 
 test("phase 27 active context workspace and shared contracts are exposed", async () => {
-  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const appSource = `${await readFile(new URL("../src/App.tsx", import.meta.url), "utf8")}\n${await readFile(new URL("../src/workspaceTypes.ts", import.meta.url), "utf8")}`;
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   const sharedTypes = await readFile(new URL("../../../packages/shared-types/src/index.ts", import.meta.url), "utf8");
 

@@ -49,6 +49,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   compatibility, search/backup/import, and every canonical V1 transport out of their respective assembly modules.
   Architecture checks now require those module boundaries, reject direct router persistence access, reject route
   migration back into `main.py`, cap application assembly at 220 lines, and cap V1 assembly at 60 lines.
+- The web decomposition now keeps HTTP/view-model contracts and provider/settings metadata in `workspaceTypes.ts`;
+  `App.tsx` is reduced from 5,944 to 5,197 lines with a 5,250-line architecture ceiling while production typecheck,
+  contract tests, and the Vite build remain green.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph
