@@ -27,4 +27,6 @@ owner: codex
   through a typed PlanningService and AI repository port.
 - Route agent graph-query context, source search/open, review-gated proposal creation, and layout intent through a
   typed AgentToolsService while keeping direct reviewed-graph mutation impossible.
+- Route cited Q&A, research-to-source/proposal derivation, and reviewed agent-action approval through a typed
+  RetrievalService, completing service/port boundaries for every compatibility module.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

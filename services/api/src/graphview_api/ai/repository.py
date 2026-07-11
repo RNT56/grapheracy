@@ -3,12 +3,15 @@ from __future__ import annotations
 from typing import Protocol
 
 from graphview_api.schemas import (
+    AgentActionApprovalCreate,
     AgentRunCreate,
     GraphBuildSpecCreate,
     GraphQueryCreate,
     PlanningMessageCreate,
     PlanningSessionCreate,
     ProposalCreate,
+    GraphResearchCreate,
+    SourceCreate,
 )
 
 
@@ -60,3 +63,32 @@ class AiRepositoryPort(Protocol):
     def list_source_chunks(self, source_id: str | None = None, graph_id: str | None = None) -> list[dict]: ...
 
     def create_proposal(self, payload: ProposalCreate, actor_id: str) -> dict: ...
+
+    def get_agent_action(self, action_id: str) -> dict | None: ...
+
+    def approve_agent_action(self, payload: AgentActionApprovalCreate, reviewer_id: str) -> dict: ...
+
+    def create_ingestion_result(
+        self,
+        *,
+        source_payload: SourceCreate,
+        generated_proposals: list[dict],
+        embedding_model: str,
+        embedding_vector: list[float],
+        actor_id: str,
+        source_text: str,
+        graph_id: str | None = None,
+    ) -> dict: ...
+
+    def create_research_task(
+        self,
+        payload: GraphResearchCreate,
+        *,
+        actor_id: str,
+        provider: str,
+        model: str,
+        agent_run_id: str,
+        result: dict,
+    ) -> dict: ...
+
+    def create_agent_action_proposal(self, **kwargs) -> dict: ...
