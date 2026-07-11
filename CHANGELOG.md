@@ -63,6 +63,8 @@ No changes yet.
   migration interruption, and SSE reconnect races.
 - Kind/Helm staging selection and readiness for labeled migration Jobs plus both RollingUpdate and OnDelete
   StatefulSets, with branch-head candidate SHA binding rather than synthetic pull-request merge refs.
+- Active-context smoke verification now compares retained content with the exact runtime-selected file range instead of
+  obsolete front-door wording.
 
 ### Security
 

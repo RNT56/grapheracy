@@ -51,6 +51,10 @@ try {
   assert(session.id?.startsWith("ctxsession_"), "gateway did not create a context session");
 
   const eventEnv = { ...gatewayEnv, GRAPHVIEW_AGENT_CONTEXT_SESSION_ID: session.id };
+  const expectedReadText = (await readFile(path.join(root, "README.md"), "utf8"))
+    .split(/\r?\n/)
+    .slice(0, 20)
+    .join("\n");
   await gateway("read-file", { sequence: 1, path: "README.md", startLine: 1, endLine: 20, workspaceRoot: root }, eventEnv);
   await gateway("search", { sequence: 2, query: "Phase 27", workspaceRoot: root, maxResults: 5 }, eventEnv);
   await gateway("run-shell", {
@@ -109,7 +113,7 @@ try {
     headers: { "x-graphview-user": "maintainer" }
   });
   assert(
-    maintainerContent.text?.includes("Graphview") && maintainerContent.text?.includes("Phase 27"),
+    maintainerContent.text === expectedReadText,
     "maintainer content read did not return captured README text"
   );
 
