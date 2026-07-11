@@ -43,5 +43,6 @@ owner: codex
   verification/events into V1ConnectorService; reduce the V1 composer to dependency wiring with a 60-line ceiling.
 - Begin physical replacement of the all-purpose persistence façade by moving source CRUD, chunk reads, ingestion-run
   projections, and source/proposal/node/edge lineage traversal into SourceCatalogRepositoryMixin and ratcheting the
-  legacy repository ceiling to 5,900 lines.
+  legacy repository ceiling to 5,700 lines; lineage lookup helpers and provenance aggregation now live with that
+  domain rather than leaking back into the façade.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
