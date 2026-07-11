@@ -109,7 +109,7 @@ export function ThreeGraphScene({
     const camera = new THREE.PerspectiveCamera(48, 1, 1, 3200);
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
     } catch {
       setRendererUnavailable(true);
       onAvailabilityChange(false);
@@ -215,6 +215,7 @@ export function ThreeGraphScene({
     let appliedVisualSignature = visualSignature;
     let metricWindowStartedAt = performance.now();
     let metricFrameCount = 0;
+    let needsRender = true;
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -223,6 +224,7 @@ export function ThreeGraphScene({
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
+      needsRender = true;
     };
 
     const updatePointer = (event: PointerEvent) => {
@@ -239,6 +241,7 @@ export function ThreeGraphScene({
         yaw += deltaX * 0.006;
         pitch = Math.max(-0.9, Math.min(0.9, pitch + deltaY * 0.004));
         orbitRef.current = { yaw, pitch };
+        needsRender = true;
         return;
       }
       updatePointer(event);
@@ -350,6 +353,7 @@ export function ThreeGraphScene({
           material.opacity = opacityForEdge(edge);
         }
         appliedVisualSignature = handlersRef.current.visualSignature;
+        needsRender = true;
       }
       const currentSelectedNodeId = handlersRef.current.selectedNodeId;
       if (currentSelectedNodeId !== lastSelectedNodeId) {
@@ -368,21 +372,27 @@ export function ThreeGraphScene({
           }
         }
         lastSelectedNodeId = currentSelectedNodeId;
+        needsRender = true;
       }
-      root.rotation.y = yaw;
-      root.rotation.x = pitch;
       if (!reducedMotion && semanticNodeObjects.length > 0) {
         const pulse = 1 + Math.sin(performance.now() / 180) * 0.1;
         for (const mesh of semanticNodeObjects) mesh.scale.setScalar(Number(mesh.userData.baseScale || 1) * pulse);
         const edgeOpacity = 0.58 + Math.sin(performance.now() / 140) * 0.2;
         for (const material of semanticEdgeMaterials) material.opacity = edgeOpacity;
+        needsRender = true;
       }
-      root.updateMatrixWorld(true);
-      emitActiveNodePosition();
-      renderer.render(scene, camera);
-      metricFrameCount += 1;
+      if (!reducedMotion) needsRender = true;
+      if (needsRender) {
+        root.rotation.y = yaw;
+        root.rotation.x = pitch;
+        root.updateMatrixWorld(true);
+        emitActiveNodePosition();
+        renderer.render(scene, camera);
+        metricFrameCount += 1;
+        needsRender = false;
+      }
       const now = performance.now();
-      if (now - metricWindowStartedAt >= 1_000) {
+      if (metricFrameCount > 0 && now - metricWindowStartedAt >= 1_000) {
         handlersRef.current.onRenderMetrics({
           kind: "three-3d",
           visibleNodes: nodeObjects.length,

@@ -159,7 +159,7 @@ for template, operations in sorted(legacy_paths.items()):
     if legacy_content_type != successor_content_type:
         raise SystemExit(f"Content type drift for {template}: {legacy_content_type} != {successor_content_type}")
     if not stream and template not in volatile_paths:
-        if legacy_content_type == "application/json":
+        if legacy_content_type == "application/json" or legacy_content_type.endswith("+json"):
             if normalized_json(legacy_body) != normalized_json(successor_body):
                 raise SystemExit(f"Response drift for {template}")
         elif legacy_body != successor_body:

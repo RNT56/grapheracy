@@ -21,10 +21,10 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, compatibility graph, and all canonical V1 routers pass the 146-test API suite with exact OpenAPI/client parity | Application assembly is capped at 220 lines and V1 assembly is reduced to 30 lines with a 60-line ceiling; every transport has an enforced router-to-service boundary; domain persistence is physically split across source, graph-read, AI/planning, ingestion, nervous-system, active-context, review, operations, connector, action, secret, and serialization modules, reducing the former all-purpose repository from 6,064 to a 1,160-line compatibility composition under a 1,200-line ceiling | Architecture |
-| V1 API and compatibility aliases | implemented | 146 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
+| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, compatibility graph, and all canonical V1 routers pass the 147-test API suite with exact OpenAPI/client parity | Application assembly is capped at 220 lines and V1 assembly is reduced to 30 lines with a 60-line ceiling; every transport has an enforced router-to-service boundary; domain persistence is physically split across source, graph-read, AI/planning, ingestion, nervous-system, active-context, review, operations, connector, action, secret, and serialization modules, reducing the former all-purpose repository from 6,064 to a 1,160-line compatibility composition under a 1,200-line ceiling | Architecture |
+| V1 API and compatibility aliases | implemented | 147 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
-| Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
+| Sigma/Graphology 2D and Three.js parity | implemented | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, selection-persistence, and renderer-pixel stability browser coverage | Ten-case headed Chromium acceptance passed on ANGLE Metal with an Apple M2 Pro, including both visible-load frame budgets and deterministic reduced-motion Three.js output | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
 | Arq queues, scheduling, retries, and outbox | implemented | 8 worker tests plus API cancellation, provider timeout/429, and terminal-race coverage | Authenticated upload plus expired-lease recovery after a stopped worker and Redis outage/recovery production-proven | Worker |
 | Upload, URL, GitHub, Google, and Notion connectors | active | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; secret-backed GitHub, Google, and Notion canaries pending | Connectors |
@@ -43,7 +43,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 146 tests and the worker suite reported 8.
+  structure, and production web-build gates passed; the API suite reported 147 tests and the worker suite reported 8.
 - The bounded-router extraction retained the committed OpenAPI and generated TypeScript client byte-for-byte while
   moving connector, source/ingestion, review, Attention, actions/outcomes, all AI planning/tool/retrieval, graph
   compatibility, search/backup/import, and every canonical V1 transport out of their respective assembly modules.
@@ -108,6 +108,11 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   overview latency, nonblank WebGL output, the 5k/20k and 20k/50k frame gates, viewport bounds, context recovery,
   mobile rendering, and a 250-row accessible projection window. The production dataset result above completes the
   matching server-side projection sign-off.
+- A headed Chromium run of all ten `living-graph.spec.ts` cases used `ANGLE (Apple, ANGLE Metal Renderer: Apple M2
+  Pro, Unspecified Version)` rather than SwiftShader. It passed Sigma and Three.js nonblank output, renderer-pixel
+  reduced-motion stability, no-WebGL fallback, context-loss state recovery, the 100k/500k clustered-open budget, both
+  raw visible-load FPS gates, and the remaining workspace interaction checks. Three.js now renders on semantic or
+  camera changes under reduced motion and preserves its last framebuffer for deterministic export and capture.
 
 ## Acceptance Rule
 

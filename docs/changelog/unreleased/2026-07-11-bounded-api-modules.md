@@ -111,4 +111,10 @@ owner: codex
   successor-link, and normalized-response parity checks.
 - Drive authenticated live-stack API assertions through the browser's own `fetch` context so Secure session cookies,
   CSRF uploads, job polling, review reads, and terminal SSE are proven with the same cookie semantics as the product UI.
+- Treat RFC 7807 `application/problem+json` bodies as JSON during the all-alias immutable-stack replay so canonical
+  route-specific `instance` values are normalized without hiding material problem-detail drift.
+- Make reduced-motion Three.js rendering event-driven, preserve its last framebuffer for deterministic export and
+  capture, and compare the renderer's pixels directly so overlapping workspace chrome cannot contaminate motion proof.
+- Complete the ten-case headed Chromium renderer acceptance on the Apple M2 Pro Metal backend, including 2D/3D
+  output, fallback, recovery, clustered opening, both visible-load frame gates, and reduced-motion stability.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

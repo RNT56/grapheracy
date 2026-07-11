@@ -727,9 +727,10 @@ async function expectBrightPixels(locator: Locator, label: string) {
 
 async function expectStablePixels(locator: Locator, label: string) {
   await expect(locator).toBeVisible();
-  const before = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const before = PNG.sync.read(await captureRendererPixels(locator));
   await new Promise((resolve) => setTimeout(resolve, 280));
-  const after = PNG.sync.read(await locator.screenshot({ animations: "disabled" }));
+  const after = PNG.sync.read(await captureRendererPixels(locator));
   expect(after.width).toBe(before.width);
   expect(after.height).toBe(before.height);
   let changedPixels = 0;
@@ -741,6 +742,14 @@ async function expectStablePixels(locator: Locator, label: string) {
     if (difference > 8) changedPixels += 1;
   }
   expect(changedPixels, `${label} should not use continuous semantic motion`).toBeLessThanOrEqual(12);
+}
+
+async function captureRendererPixels(locator: Locator) {
+  const canvasDataUrl = await locator.evaluate((element) =>
+    element instanceof HTMLCanvasElement ? element.toDataURL("image/png") : undefined
+  );
+  if (canvasDataUrl) return Buffer.from(canvasDataUrl.slice(canvasDataUrl.indexOf(",") + 1), "base64");
+  return locator.screenshot({ animations: "disabled" });
 }
 
 async function measureZoomFps(page: Page) {
