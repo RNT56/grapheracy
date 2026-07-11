@@ -66,4 +66,6 @@ owner: codex
   App.tsx further to 4,852 lines under a 4,900-line ceiling while contract tests follow the bounded model module.
 - Move provider selection, credential management, automation guardrails, runtime readouts, and capability matrices
   into SettingsWorkspace; reduce App.tsx to 4,350 lines under a 4,400-line ceiling.
+- Move planning sessions, conversation/tool traces, build-spec blueprints, artifact preview, and research actions into
+  PlanningWorkspace; reduce App.tsx to 4,013 lines under a 4,050-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
