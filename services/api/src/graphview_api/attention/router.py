@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, REVIEW_PERMISSION, WRITE_PERMISSION, CurrentUser, require_permission
-from graphview_api.repository import GraphRepository
+from graphview_api.attention.service import AttentionService
 from graphview_api.schemas import (
     AlertAssign,
     AlertOut,
@@ -25,7 +24,7 @@ from graphview_api.schemas import (
 )
 
 
-def create_attention_router(repo_provider: Callable[[], GraphRepository]) -> APIRouter:
+def create_attention_router(service_provider: Callable[[], AttentionService]) -> APIRouter:
     router = APIRouter()
 
     @router.get("/signals")
@@ -34,45 +33,45 @@ def create_attention_router(repo_provider: Callable[[], GraphRepository]) -> API
         status: str | None = Query(default=None),
         limit: int = Query(default=50, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict[str, list[SignalOut]]:
-        return {"signals": repository.list_signals(kind=kind, status=status, limit=limit)}
+        return service.signals(kind=kind, status=status, limit=limit)
 
     @router.get("/signals/{signal_id}", response_model=SignalOut)
     async def signal(
         signal_id: str,
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        item = repository.get_signal(signal_id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signal not found")
-        return item
+        try:
+            return service.signal(signal_id)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signal not found") from error
 
     @router.post("/signals", response_model=SignalOut, status_code=status.HTTP_201_CREATED)
     async def create_signal(
         payload: SignalCreate,
         user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        return repository.create_signal(payload, user.id)
+        return service.create_signal(payload, actor_id=user.id)
 
     @router.get("/observations")
     async def observations(
         signal_id: str | None = Query(default=None),
         limit: int = Query(default=50, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict[str, list[ObservationOut]]:
-        return {"observations": repository.list_observations(signal_id=signal_id, limit=limit)}
+        return service.observations(signal_id=signal_id, limit=limit)
 
     @router.post("/observations", response_model=ObservationOut, status_code=status.HTTP_201_CREATED)
     async def create_observation(
         payload: ObservationCreate,
         user: CurrentUser = Depends(require_permission(WRITE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        return repository.create_observation(payload, user.id)
+        return service.create_observation(payload, actor_id=user.id)
 
     @router.get("/alerts")
     async def alerts(
@@ -80,21 +79,21 @@ def create_attention_router(repo_provider: Callable[[], GraphRepository]) -> API
         severity: str | None = Query(default=None),
         limit: int = Query(default=50, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict[str, list[AlertOut]]:
-        return {"alerts": repository.list_alerts(status=status_filter, severity=severity, limit=limit)}
+        return service.alerts(status_filter=status_filter, severity=severity, limit=limit)
 
     @router.post("/alerts/{alert_id}/assign", response_model=AlertOut)
     async def assign_alert(
         alert_id: str,
         payload: AlertAssign,
         user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        item = repository.assign_alert(alert_id, payload, user.id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
-        return item
+        try:
+            return service.assign_alert(alert_id, payload, actor_id=user.id)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found") from error
 
     @router.get("/attention", response_model=AttentionOut)
     async def attention(
@@ -103,78 +102,78 @@ def create_attention_router(repo_provider: Callable[[], GraphRepository]) -> API
         owner_id: str | None = Query(default=None),
         limit: int = Query(default=50, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        return repository.list_attention(status=status_filter, severity=severity, owner_id=owner_id, limit=limit)
+        return service.attention(status_filter=status_filter, severity=severity, owner_id=owner_id, limit=limit)
 
     @router.post("/attention/{attention_item_id}/transition", response_model=AttentionOut)
     async def transition_attention(
         attention_item_id: str,
         payload: AttentionTransition,
         user: CurrentUser = Depends(require_permission(REVIEW_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        item = repository.transition_attention(attention_item_id, payload, user.id)
-        if item is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attention item not found")
-        return {"generated_at": datetime.now(timezone.utc), "returned_count": 1, "items": [item]}
+        try:
+            return service.transition(attention_item_id, payload, actor_id=user.id)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attention item not found") from error
 
     @router.get("/owners")
     async def owners(
         scope_kind: str | None = Query(default=None),
         limit: int = Query(default=100, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict[str, list[OwnerOut]]:
-        return {"owners": repository.list_owners(scope_kind=scope_kind, limit=limit)}
+        return service.owners(scope_kind=scope_kind, limit=limit)
 
     @router.post("/owners", response_model=OwnerOut, status_code=status.HTTP_201_CREATED)
     async def create_owner(
         payload: OwnerCreate,
         _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        return repository.create_owner(payload)
+        return service.create_owner(payload)
 
     @router.patch("/owners/{owner_id}", response_model=OwnerOut)
     async def update_owner(
         owner_id: str,
         payload: OwnerUpdate,
         _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        owner = repository.update_owner(owner_id, payload)
-        if owner is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found")
-        return owner
+        try:
+            return service.update_owner(owner_id, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Owner not found") from error
 
     @router.get("/routing-policies")
     async def routing_policies(
         enabled: bool | None = Query(default=None),
         limit: int = Query(default=100, ge=1, le=100),
         _: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict[str, list[RoutingPolicyOut]]:
-        return {"routing_policies": repository.list_routing_policies(enabled=enabled, limit=limit)}
+        return service.policies(enabled=enabled, limit=limit)
 
     @router.post("/routing-policies", response_model=RoutingPolicyOut, status_code=status.HTTP_201_CREATED)
     async def create_routing_policy(
         payload: RoutingPolicyCreate,
         _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        return repository.create_routing_policy(payload)
+        return service.create_policy(payload)
 
     @router.patch("/routing-policies/{policy_id}", response_model=RoutingPolicyOut)
     async def update_routing_policy(
         policy_id: str,
         payload: RoutingPolicyUpdate,
         _: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
+        service: AttentionService = Depends(service_provider),
     ) -> dict:
-        policy = repository.update_routing_policy(policy_id, payload)
-        if policy is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routing policy not found")
-        return policy
+        try:
+            return service.update_policy(policy_id, payload)
+        except KeyError as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Routing policy not found") from error
 
     return router

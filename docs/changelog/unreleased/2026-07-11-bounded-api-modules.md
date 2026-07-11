@@ -17,4 +17,6 @@ owner: codex
   a typed ReviewService and repository port.
 - Route decisions, action proposals, approval/rejection, action runs, outcomes, and feedback through a typed
   ActionsService and repository port while preserving reviewer and worker authority.
+- Route signals, observations, alerts, Attention transitions, ownership, and routing policies through a typed
+  AttentionService and repository port, completing explicit boundaries across the nervous-system loop.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
