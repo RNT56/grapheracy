@@ -85,4 +85,9 @@ owner: codex
   live-stack CI job rather than operator-only release checklist commands.
 - Repair remote acceptance bootstrap by resolving Playwright from the web workspace, pin OSV and Trivy to existing
   upstream action tags, and provide the pull-request token now required by Gitleaks.
+- Remove the agent-context gateway's undeclared ripgrep runtime dependency by using a bounded native workspace search
+  that skips generated/vendor directories, rejects denied paths before reads, ignores symlinks and binary or oversized
+  files, caps traversal and results, preserves line numbers, and redacts matched text.
+- Permit the production-stack browser's loopback Keycloak callback and origin in the reference realm, with a release
+  readiness regression check that keeps the CI OIDC route configured.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

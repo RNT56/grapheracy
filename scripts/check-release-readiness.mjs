@@ -73,6 +73,7 @@ const operations = await read("docs/06-operations.md");
 const ledger = await read("docs/14-graphview-1.0-upgrade-ledger.md");
 const ciWorkflow = await read(".github/workflows/ci.yml");
 const releaseWorkflow = await read(".github/workflows/release.yml");
+const composeRealm = JSON.parse(await read("infra/compose/keycloak/graphview-realm.json"));
 for (const required of ["/api/v1", "PostgreSQL", "Redis", "S3", "OIDC", "Sigma", "Graphology"]) {
   if (!`${architecture}\n${operations}\n${ledger}`.includes(required)) failures.push(`1.0 documentation missing ${required}`);
 }
@@ -92,6 +93,12 @@ for (const required of [
   "pnpm run test:backup-restore:live"
 ]) {
   if (!ciWorkflow.includes(required)) failures.push(`live-stack CI workflow missing ${required}`);
+}
+const webClient = composeRealm.clients?.find((client) => client.clientId === "graphview-web");
+const ciCallback = "http://127.0.0.1:8080/api/v1/auth/callback";
+if (!webClient?.redirectUris?.includes(ciCallback)) failures.push(`reference Keycloak realm missing ${ciCallback}`);
+if (!webClient?.webOrigins?.includes("http://127.0.0.1:8080")) {
+  failures.push("reference Keycloak realm missing the live-stack browser origin");
 }
 for (const forbidden of ["production stub", "mocked-only critical flow", "seeded authentication fallback in production"]) {
   if (ledger.toLowerCase().includes(`${forbidden}: complete`)) failures.push(`upgrade ledger overclaims ${forbidden}`);

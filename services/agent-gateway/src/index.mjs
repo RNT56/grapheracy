@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, relative, resolve } from "node:path";
+import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -10,6 +10,9 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 
 const execFileAsync = promisify(execFile);
 const defaultDeniedFragments = [".env", "id_rsa", "id_ed25519", ".pem", ".p12"];
+const defaultSearchSkippedDirectories = new Set([".git", ".venv", "coverage", "dist", "node_modules"]);
+const maxSearchFileBytes = 1024 * 1024;
+const maxSearchVisitedFiles = 10_000;
 const secretPatterns = [
   /(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*([^\s'"`]+)/gi,
   /bearer\s+[a-z0-9._~+/=-]{12,}/gi,
@@ -277,28 +280,50 @@ export async function readFileRange({ path, startLine = 1, endLine, workspaceRoo
 }
 
 export async function searchWorkspace({ query, workspaceRoot = process.cwd(), maxResults = 20 }) {
-  const { stdout } = await execFileAsync("rg", ["--line-number", "--fixed-strings", "--", query, workspaceRoot], {
-    maxBuffer: 1024 * 1024
-  }).catch((error) => ({ stdout: error.stdout || "" }));
-  return stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [path, lineNumber, ...rest] = line.split(":");
-      const relativePath = relative(workspaceRoot, path);
+  const normalizedQuery = String(query ?? "");
+  const limit = Math.max(1, Math.min(100, Number(maxResults) || 20));
+  if (!normalizedQuery) return [];
+
+  const root = resolve(workspaceRoot);
+  const pendingDirectories = [root];
+  const results = [];
+  let visitedFiles = 0;
+
+  while (pendingDirectories.length > 0 && results.length < limit && visitedFiles < maxSearchVisitedFiles) {
+    const directory = pendingDirectories.pop();
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      if (results.length >= limit || visitedFiles >= maxSearchVisitedFiles) break;
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory() && defaultSearchSkippedDirectories.has(entry.name)) continue;
+
+      const absolutePath = join(directory, entry.name);
+      const relativePath = relative(root, absolutePath);
       try {
-        assertAllowedPath(relativePath, workspaceRoot);
+        assertAllowedPath(relativePath, root);
       } catch {
-        return null;
+        continue;
       }
-      return {
-        path: relativePath,
-        lineNumber: Number(lineNumber),
-        text: redactedText(rest.join(":"))
-      };
-    })
-    .filter(Boolean)
-    .slice(0, maxResults);
+      if (entry.isDirectory()) {
+        pendingDirectories.push(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+
+      visitedFiles += 1;
+      const metadata = await stat(absolutePath).catch(() => undefined);
+      if (!metadata || metadata.size > maxSearchFileBytes) continue;
+      const content = await readFile(absolutePath, "utf8").catch(() => undefined);
+      if (content === undefined || content.includes("\u0000")) continue;
+      const lines = content.split(/\r?\n/);
+      for (let index = 0; index < lines.length && results.length < limit; index += 1) {
+        if (!lines[index].includes(normalizedQuery)) continue;
+        results.push({ path: relativePath, lineNumber: index + 1, text: redactedText(lines[index]) });
+      }
+    }
+  }
+  return results;
 }
 
 export async function runShellCapture({ command, args = [], workspaceRoot = process.cwd(), timeoutMs = 30_000 }) {
