@@ -35,4 +35,6 @@ owner: codex
 - Split canonical V1 ingestion and AI enqueue commands plus job pagination, status, SSE, cancellation, and retry
   into dedicated transports backed by JobService, preserving queue validation, idempotency, project scope, and the
   committed wire contract.
+- Split canonical streamed upload acceptance into UploadService, retaining normalized filenames, byte limits,
+  checksum-bound idempotency, object storage, HTTP/ClamAV screening, cleanup, and durable ingestion dispatch.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

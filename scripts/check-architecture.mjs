@@ -59,6 +59,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/api_v1/job_dependencies.py",
   "services/api/src/graphview_api/api_v1/job_router.py",
   "services/api/src/graphview_api/api_v1/job_service.py",
+  "services/api/src/graphview_api/api_v1/upload_dependencies.py",
+  "services/api/src/graphview_api/api_v1/upload_router.py",
+  "services/api/src/graphview_api/api_v1/upload_service.py",
   "services/api/src/graphview_api/actions/repository.py",
   "services/api/src/graphview_api/actions/router.py",
   "services/api/src/graphview_api/actions/service.py",
@@ -135,6 +138,11 @@ if (v1GraphRouter.includes("GraphRepository") || v1GraphRouter.includes("reposit
 const v1JobRouter = await read("services/api/src/graphview_api/api_v1/job_router.py");
 if (v1JobRouter.includes("GraphRepository") || v1JobRouter.includes("JobRepository") || v1JobRouter.includes("repository.")) {
   failures.push("V1 job routers must call JobService rather than persistence repositories");
+}
+
+const v1UploadRouter = await read("services/api/src/graphview_api/api_v1/upload_router.py");
+if (v1UploadRouter.includes("GraphRepository") || v1UploadRouter.includes("JobRepository") || v1UploadRouter.includes("repository.")) {
+  failures.push("V1 upload router must call UploadService rather than persistence repositories");
 }
 
 const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");

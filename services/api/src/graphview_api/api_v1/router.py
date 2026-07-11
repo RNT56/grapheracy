@@ -3,27 +3,22 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
-import re
-import tempfile
 import time
-from pathlib import Path
-from uuid import uuid4
 
-import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from graphview_api.api_v1.graph_dependencies import create_graph_projection_service_provider
 from graphview_api.api_v1.graph_router import create_v1_graph_router
 from graphview_api.api_v1.job_dependencies import create_job_service_provider
 from graphview_api.api_v1.job_router import create_v1_job_command_router, create_v1_job_lifecycle_router
-from graphview_api.api_v1.schemas import ConnectorHealthOut, UploadAccepted
+from graphview_api.api_v1.schemas import ConnectorHealthOut
+from graphview_api.api_v1.upload_dependencies import create_upload_service_provider
+from graphview_api.api_v1.upload_router import create_v1_upload_router
 from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, CurrentUser, ensure_project_access, require_permission
 from graphview_api.jobs.repository import JobRepository
 from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.jobs.schemas import JobCreate, JobOut
-from graphview_api.malware import scan_with_clamd
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import OutcomeCreate
 from graphview_api.resumable_uploads import create_resumable_upload_router
@@ -33,85 +28,7 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
     router = APIRouter(prefix="/api/v1", tags=["Graphview V1"])
     if object_store is not None and settings is not None:
         router.include_router(create_resumable_upload_router(repo_provider, object_store, settings))
-
-    @router.post("/uploads", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
-    async def upload_source(
-        file: UploadFile = File(),
-        title: str | None = Form(default=None),
-        graph_id: str | None = Form(default=None),
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        if object_store is None or settings is None:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Object storage is unavailable")
-        filename = re.sub(r"[^A-Za-z0-9._-]+", "-", Path(file.filename or "upload.bin").name).strip(".-") or "upload.bin"
-        digest = hashlib.sha256()
-        size = 0
-        descriptor, temporary_name = tempfile.mkstemp(prefix="graphview-upload-")
-        try:
-            with os.fdopen(descriptor, "wb") as temporary:
-                while chunk := await file.read(1024 * 1024):
-                    size += len(chunk)
-                    if size > settings.upload_max_bytes:
-                        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Upload exceeds configured size limit")
-                    digest.update(chunk)
-                    temporary.write(chunk)
-            if size == 0:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Upload is empty")
-            content_type = file.content_type or "application/octet-stream"
-            if settings.malware_scan_url:
-                async with httpx.AsyncClient(timeout=60) as client:
-                    with open(temporary_name, "rb") as upload_stream:
-                        scan = await client.post(
-                            settings.malware_scan_url,
-                            files={"file": (filename, upload_stream, content_type)},
-                        )
-                    scan.raise_for_status()
-                    if not bool(scan.json().get("clean")):
-                        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Upload failed malware screening")
-            elif settings.malware_scan_clamd_host:
-                try:
-                    await scan_with_clamd(
-                        Path(temporary_name),
-                        settings.malware_scan_clamd_host,
-                        settings.malware_scan_clamd_port,
-                    )
-                except ValueError as error:
-                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
-            checksum = digest.hexdigest()
-            project_id = (graph_id or "project-default").split(":", 1)[0]
-            ensure_project_access(user, project_id)
-            object_key = f"{project_id}/uploads/{uuid4().hex}/{filename}"
-            object_store.put_file(object_key, Path(temporary_name), content_type=content_type, checksum=checksum)
-        finally:
-            Path(temporary_name).unlink(missing_ok=True)
-            await file.close()
-        job = JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="upload.ingest",
-                queue="ingestion",
-                idempotency_key=f"upload:{project_id}:{checksum}",
-                payload={
-                    "project_id": project_id,
-                    "graph_id": graph_id,
-                    "actor_id": user.id,
-                    "object_key": object_key,
-                    "filename": filename,
-                    "title": title or filename,
-                    "content_type": content_type,
-                    "checksum": checksum,
-                },
-            ),
-            project_id=project_id,
-        )
-        return {
-            "object_key": object_key,
-            "filename": filename,
-            "content_type": content_type,
-            "size_bytes": size,
-            "checksum": checksum,
-            "job_id": job["id"],
-        }
+    router.include_router(create_v1_upload_router(create_upload_service_provider(repo_provider, object_store, settings)))
 
     router.include_router(create_v1_graph_router(create_graph_projection_service_provider(repo_provider)))
 
