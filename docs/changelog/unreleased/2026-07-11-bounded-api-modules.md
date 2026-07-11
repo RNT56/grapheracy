@@ -29,4 +29,7 @@ owner: codex
   typed AgentToolsService while keeping direct reviewed-graph mutation impossible.
 - Route cited Q&A, research-to-source/proposal derivation, and reviewed agent-action approval through a typed
   RetrievalService, completing service/port boundaries for every compatibility module.
+- Split canonical V1 viewport, subgraph, hybrid search, persisted layouts, activity pagination, and resumable SSE
+  into a dedicated graph transport backed by GraphProjectionService, with exact OpenAPI/client parity and an
+  architecture check preventing direct persistence access.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

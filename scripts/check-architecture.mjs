@@ -54,6 +54,8 @@ const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
+  "services/api/src/graphview_api/api_v1/graph_dependencies.py",
+  "services/api/src/graphview_api/api_v1/graph_router.py",
   "services/api/src/graphview_api/actions/repository.py",
   "services/api/src/graphview_api/actions/router.py",
   "services/api/src/graphview_api/actions/service.py",
@@ -120,6 +122,11 @@ for (const [moduleName, routePrefixes] of boundedRoutePrefixes) {
 const graphRouter = await read("services/api/src/graphview_api/graph/router.py");
 if (graphRouter.includes("GraphRepository") || graphRouter.includes("repository.")) {
   failures.push("graph router must call GraphService rather than the persistence repository");
+}
+
+const v1GraphRouter = await read("services/api/src/graphview_api/api_v1/graph_router.py");
+if (v1GraphRouter.includes("GraphRepository") || v1GraphRouter.includes("repository.")) {
+  failures.push("V1 graph router must call GraphProjectionService rather than the persistence repository");
 }
 
 const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");

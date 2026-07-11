@@ -12,20 +12,12 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from graphview_api.api_v1.repository import GraphProjectionRepository
-from graphview_api.api_v1.schemas import (
-    GraphActivityPage,
-    GraphBounds,
-    GraphSearchOut,
-    GraphSubgraphOut,
-    GraphViewportOut,
-    ConnectorHealthOut,
-    UploadAccepted,
-)
-from graphview_api.api_v1.service import GraphProjectionService
+from graphview_api.api_v1.graph_dependencies import create_graph_projection_service_provider
+from graphview_api.api_v1.graph_router import create_v1_graph_router
+from graphview_api.api_v1.schemas import ConnectorHealthOut, UploadAccepted
 from graphview_api.auth import OPERATE_PERMISSION, READ_PERMISSION, WRITE_PERMISSION, CurrentUser, ensure_project_access, require_permission
 from graphview_api.jobs.repository import JobRepository
 from graphview_api.connector_state import ConnectorStateRepository
@@ -35,8 +27,6 @@ from graphview_api.observability import observe_sse_stream
 from graphview_api.repository import GraphRepository
 from graphview_api.schemas import (
     AgentRunCreate,
-    GraphLayoutOut,
-    GraphLayoutUpsert,
     GraphQueryCreate,
     GraphResearchCreate,
     IngestionCreate,
@@ -63,9 +53,6 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
     router = APIRouter(prefix="/api/v1", tags=["Graphview V1"])
     if object_store is not None and settings is not None:
         router.include_router(create_resumable_upload_router(repo_provider, object_store, settings))
-
-    def service(repository: GraphRepository = Depends(repo_provider)) -> GraphProjectionService:
-        return GraphProjectionService(GraphProjectionRepository(repository), repository)
 
     @router.post("/uploads", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
     async def upload_source(
@@ -146,164 +133,7 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
             "job_id": job["id"],
         }
 
-    def event_envelope(event: dict, graph_id: str) -> dict:
-        return {
-            "id": event["id"],
-            "event_type": event["event_type"],
-            "schema_version": 1,
-            "project_id": event["project_id"],
-            "graph_id": graph_id,
-            "trace_id": event.get("payload", {}).get("trace_id") or f"activity:{event['id']}",
-            "actor": {"id": event.get("actor_id"), "authority": event.get("payload", {}).get("authority", "graphview")},
-            "occurred_at": event["created_at"],
-            "received_at": event["created_at"],
-            "replay_cursor": event["id"],
-            "payload": event.get("payload", {}),
-            "object_refs": event.get("object_refs", []),
-        }
-
-    @router.get("/graphs/{graph_id}/viewport", response_model=GraphViewportOut)
-    async def graph_viewport(
-        graph_id: str,
-        response: Response,
-        zoom: float = Query(default=0.75, ge=0, le=16),
-        min_x: float = Query(default=-1),
-        min_y: float = Query(default=-1),
-        max_x: float = Query(default=1),
-        max_y: float = Query(default=1),
-        layout: str = Query(default="default", min_length=1, max_length=160),
-        max_nodes: int = Query(default=2_000, ge=1, le=20_000),
-        max_edges: int = Query(default=8_000, ge=1, le=50_000),
-        if_none_match: str | None = Header(default=None),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        graph_service: GraphProjectionService = Depends(service),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        try:
-            result = graph_service.viewport(
-                graph_id,
-                zoom=zoom,
-                bounds=GraphBounds(min_x=min_x, min_y=min_y, max_x=max_x, max_y=max_y),
-                layout_name=layout,
-                max_nodes=max_nodes,
-                max_edges=max_edges,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error)) from error
-        response.headers["ETag"] = result["etag"]
-        response.headers["Cache-Control"] = "private, no-cache"
-        if if_none_match == result["etag"]:
-            response.status_code = status.HTTP_304_NOT_MODIFIED
-            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=dict(response.headers))
-        return result
-
-    @router.get("/graphs/{graph_id}/subgraph", response_model=GraphSubgraphOut)
-    async def graph_subgraph(
-        graph_id: str,
-        focus_node_id: str | None = Query(default=None),
-        depth: int = Query(default=1, ge=1, le=2),
-        max_nodes: int = Query(default=100, ge=1, le=2_000),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        graph_service: GraphProjectionService = Depends(service),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        result = graph_service.subgraph(graph_id, focus_node_id=focus_node_id, depth=depth, max_nodes=max_nodes)
-        if result is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus node not found")
-        return result
-
-    @router.get("/graphs/{graph_id}/search", response_model=GraphSearchOut)
-    async def graph_search(
-        graph_id: str,
-        q: str = Query(min_length=1, max_length=500),
-        limit: int = Query(default=25, ge=1, le=100),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        graph_service: GraphProjectionService = Depends(service),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        return graph_service.search(graph_id, q, limit=limit, actor_id=user.id)
-
-    @router.get("/graphs/{graph_id}/layouts", response_model=list[GraphLayoutOut])
-    async def list_layouts(
-        graph_id: str,
-        include_positions: bool = Query(default=False),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        projection = GraphProjectionRepository(repository)
-        return projection.list_layouts(graph_id.split(":", 1)[0], include_positions=include_positions)
-
-    @router.put("/graphs/{graph_id}/layouts/{layout_name}", response_model=GraphLayoutOut)
-    async def put_layout(
-        graph_id: str,
-        layout_name: str,
-        payload: GraphLayoutUpsert,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        if payload.name != layout_name:
-            payload = payload.model_copy(update={"name": layout_name})
-        try:
-            return GraphProjectionRepository(repository).upsert_layout(graph_id.split(":", 1)[0], payload, actor_id=user.id)
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
-
-    @router.get("/graphs/{graph_id}/activity", response_model=GraphActivityPage)
-    async def graph_activity_page(
-        graph_id: str,
-        cursor: str | None = Query(default=None),
-        limit: int = Query(default=50, ge=1, le=200),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        raw_events = (
-            repository.list_graph_activity_events_after(graph_id=graph_id, cursor=cursor, limit=limit)
-            if cursor
-            else list(reversed(repository.list_graph_activity_events(graph_id=graph_id, limit=limit)))
-        )
-        events = [event_envelope(event, graph_id) for event in raw_events]
-        next_cursor = events[-1]["id"] if len(events) == limit else None
-        return {
-            "graph_id": graph_id,
-            "events": events,
-            "page": {"next_cursor": next_cursor, "returned_count": len(events), "total_count": None},
-        }
-
-    @router.get("/graphs/{graph_id}/stream", response_class=StreamingResponse)
-    async def graph_activity_stream(
-        graph_id: str,
-        request: Request,
-        last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
-        limit: int = Query(default=100, ge=1, le=200),
-        user: CurrentUser = Depends(require_permission(READ_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        ensure_project_access(user, graph_id.split(":", 1)[0])
-        async def stream():
-            cursor = last_event_id
-            while not await request.is_disconnected():
-                events = (
-                    repository.list_graph_activity_events_after(graph_id=graph_id, cursor=cursor, limit=limit)
-                    if cursor
-                    else list(reversed(repository.list_graph_activity_events(graph_id=graph_id, limit=limit)))
-                )
-                if events:
-                    for event in events:
-                        envelope = event_envelope(event, graph_id)
-                        cursor = envelope["id"]
-                        yield f"id: {cursor}\nevent: {envelope['event_type']}\ndata: {json.dumps(envelope, sort_keys=True, default=str)}\n\n"
-                else:
-                    yield ": heartbeat\n\n"
-                await asyncio.sleep(10)
-
-        return StreamingResponse(
-            observe_sse_stream(stream(), request.app.state.telemetry, stream_kind="graph.activity"),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
-        )
+    router.include_router(create_v1_graph_router(create_graph_projection_service_provider(repo_provider)))
 
     @router.post("/jobs", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
     async def create_job(

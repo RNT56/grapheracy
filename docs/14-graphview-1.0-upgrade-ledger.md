@@ -21,8 +21,8 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, and graph routers pass the 135-test API suite with exact OpenAPI/client parity; every compatibility module now has an enforced router-to-service-to-repository-port boundary | Route assembly reduced from 1,486 to 194 lines with a 220-line regression ceiling; canonical V1 transport decomposition remains | Architecture |
-| V1 API and compatibility aliases | implemented | 135 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
+| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, compatibility graph, and canonical V1 graph routers pass the 137-test API suite with exact OpenAPI/client parity | Route assembly reduced from 1,486 to 219 lines with a 220-line regression ceiling; every compatibility module and the canonical graph projection now have enforced router-to-service-to-repository boundaries; remaining V1 transport groups are being decomposed | Architecture |
+| V1 API and compatibility aliases | implemented | 137 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
@@ -43,11 +43,12 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 135 tests and the worker suite reported 8.
+  structure, and production web-build gates passed; the API suite reported 137 tests and the worker suite reported 8.
 - The bounded-router extraction retained the committed OpenAPI and generated TypeScript client byte-for-byte while
   moving connector, source/ingestion, review, Attention, actions/outcomes, all AI planning/tool/retrieval, graph
-  compatibility, and search/backup/import endpoints out of application assembly. Architecture checks now require
-  those module boundaries, reject route migration back into `main.py`, and cap assembly at 220 lines.
+  compatibility, search/backup/import, and canonical V1 graph projection endpoints out of their respective assembly
+  modules. Architecture checks now require those module boundaries, reject direct router persistence access, reject
+  route migration back into `main.py`, and cap application assembly at 220 lines.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph

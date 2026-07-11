@@ -7,6 +7,24 @@ from collections import Counter, defaultdict
 from graphview_api.api_v1.repository import GraphProjectionRepository
 from graphview_api.api_v1.schemas import GraphBounds
 from graphview_api.repository import GraphRepository
+from graphview_api.schemas import GraphLayoutUpsert
+
+
+def event_envelope(event: dict, graph_id: str) -> dict:
+    return {
+        "id": event["id"],
+        "event_type": event["event_type"],
+        "schema_version": 1,
+        "project_id": event["project_id"],
+        "graph_id": graph_id,
+        "trace_id": event.get("payload", {}).get("trace_id") or f"activity:{event['id']}",
+        "actor": {"id": event.get("actor_id"), "authority": event.get("payload", {}).get("authority", "graphview")},
+        "occurred_at": event["created_at"],
+        "received_at": event["created_at"],
+        "replay_cursor": event["id"],
+        "payload": event.get("payload", {}),
+        "object_refs": event.get("object_refs", []),
+    }
 
 
 class GraphProjectionService:
@@ -16,6 +34,30 @@ class GraphProjectionService:
 
     def project_id(self, graph_id: str) -> str:
         return graph_id.split(":", 1)[0]
+
+    def list_layouts(self, graph_id: str, *, include_positions: bool) -> list[dict]:
+        return self.projection.list_layouts(self.project_id(graph_id), include_positions=include_positions)
+
+    def put_layout(self, graph_id: str, layout_name: str, payload: GraphLayoutUpsert, *, actor_id: str) -> dict:
+        if payload.name != layout_name:
+            payload = payload.model_copy(update={"name": layout_name})
+        return self.projection.upsert_layout(self.project_id(graph_id), payload, actor_id=actor_id)
+
+    def activity_events(self, graph_id: str, *, cursor: str | None, limit: int) -> list[dict]:
+        return (
+            self.legacy.list_graph_activity_events_after(graph_id=graph_id, cursor=cursor, limit=limit)
+            if cursor
+            else list(reversed(self.legacy.list_graph_activity_events(graph_id=graph_id, limit=limit)))
+        )
+
+    def activity_page(self, graph_id: str, *, cursor: str | None, limit: int) -> dict:
+        events = [event_envelope(event, graph_id) for event in self.activity_events(graph_id, cursor=cursor, limit=limit)]
+        next_cursor = events[-1]["id"] if len(events) == limit else None
+        return {
+            "graph_id": graph_id,
+            "events": events,
+            "page": {"next_cursor": next_cursor, "returned_count": len(events), "total_count": None},
+        }
 
     def viewport(
         self,
