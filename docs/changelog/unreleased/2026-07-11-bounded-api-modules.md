@@ -45,4 +45,6 @@ owner: codex
   projections, and source/proposal/node/edge lineage traversal into SourceCatalogRepositoryMixin and ratcheting the
   legacy repository ceiling to 5,700 lines; lineage lookup helpers and provenance aggregation now live with that
   domain rather than leaking back into the façade.
+- Move graph view/scoping, lens filtering, neighborhood and path traversal, and insight projections into
+  GraphReadRepositoryMixin; ratchet the remaining compatibility façade below 5,250 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

@@ -24,7 +24,7 @@ const boundedLegacyFiles = {
   "apps/web/src/GraphCanvas.tsx": 1500,
   "services/api/src/graphview_api/main.py": 220,
   "services/api/src/graphview_api/api_v1/router.py": 60,
-  "services/api/src/graphview_api/repository.py": 5700
+  "services/api/src/graphview_api/repository.py": 5250
 };
 
 for (const [relativePath, maximumLines] of Object.entries(boundedLegacyFiles)) {
@@ -99,6 +99,7 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/review/router.py",
   "services/api/src/graphview_api/review/service.py",
   "services/api/src/graphview_api/repository_sources.py",
+  "services/api/src/graphview_api/repository_graph.py",
   "services/api/src/graphview_api/sources/repository.py",
   "services/api/src/graphview_api/sources/router.py",
   "services/api/src/graphview_api/sources/service.py",
