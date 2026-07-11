@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from graphview_api.schemas import ExportBundle, ProposalCreate, SourceCreate
+
+
+class DataOperationsRepositoryPort(Protocol):
+    def search(self, query: str, graph_id: str | None = None) -> dict[str, list[object]]: ...
+
+    def export_bundle(self, graph_id: str | None = None) -> dict: ...
+
+    def backup_bundle(self, *, actor_id: str, include_agent_context_content: bool = False) -> dict: ...
+
+    def restore_bundle(self, payload: ExportBundle, *, actor_id: str) -> dict: ...
+
+    def create_source(self, payload: SourceCreate, graph_id: str | None = None) -> dict: ...
+
+    def create_proposal(self, payload: ProposalCreate, actor_id: str) -> dict: ...

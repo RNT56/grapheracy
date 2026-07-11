@@ -19,4 +19,6 @@ owner: codex
   ActionsService and repository port while preserving reviewer and worker authority.
 - Route signals, observations, alerts, Attention transitions, ownership, and routing policies through a typed
   AttentionService and repository port, completing explicit boundaries across the nervous-system loop.
+- Route search, export, backup, inert restore, and review-gated import through a typed DataOperationsService and
+  repository port while preserving operator authority and agent-context content policy.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

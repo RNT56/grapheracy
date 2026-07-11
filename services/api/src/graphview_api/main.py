@@ -24,6 +24,7 @@ from graphview_api.llm import build_llm_provider, build_provider_registry
 from graphview_api.observability import RequestMetrics, configure_telemetry
 from graphview_api.object_store import build_object_store
 from graphview_api.operations import create_data_operations_router, create_health_router, create_operations_router
+from graphview_api.operations.service import DataOperationsService
 from graphview_api.repository import GraphRepository
 from graphview_api.review import create_review_router
 from graphview_api.review.service import ReviewService
@@ -129,7 +130,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def graph_service() -> GraphService:
         return GraphService(repo())
-
     def sources_service() -> SourcesService:
         return SourcesService(repo(), settings)
 
@@ -141,9 +141,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def actions_service() -> ActionsService:
         return ActionsService(repo())
-
     def attention_service() -> AttentionService:
         return AttentionService(repo())
+    def data_operations_service() -> DataOperationsService:
+        return DataOperationsService(repo())
 
     app.include_router(
         create_health_router(
@@ -186,7 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(create_review_router(review_service))
 
-    app.include_router(create_data_operations_router(repo))
+    app.include_router(create_data_operations_router(data_operations_service))
 
     app.include_router(create_v1_router(repo, object_store=app.state.object_store, settings=settings))
     legacy_routes = [

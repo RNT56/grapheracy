@@ -71,7 +71,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/graph/router.py",
   "services/api/src/graphview_api/graph/service.py",
   "services/api/src/graphview_api/operations/data_router.py",
+  "services/api/src/graphview_api/operations/repository.py",
   "services/api/src/graphview_api/operations/readiness.py",
+  "services/api/src/graphview_api/operations/service.py",
   "services/api/src/graphview_api/review/repository.py",
   "services/api/src/graphview_api/review/router.py",
   "services/api/src/graphview_api/review/service.py",
@@ -137,6 +139,11 @@ if (actionsRouter.includes("GraphRepository") || actionsRouter.includes("reposit
 const attentionRouter = await read("services/api/src/graphview_api/attention/router.py");
 if (attentionRouter.includes("GraphRepository") || attentionRouter.includes("repository.")) {
   failures.push("attention router must call AttentionService rather than the persistence repository");
+}
+
+const dataOperationsRouter = await read("services/api/src/graphview_api/operations/data_router.py");
+if (dataOperationsRouter.includes("GraphRepository") || dataOperationsRouter.includes("repository.")) {
+  failures.push("data operations router must call DataOperationsService rather than the persistence repository");
 }
 
 if (failures.length) {
