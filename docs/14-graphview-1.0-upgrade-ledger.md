@@ -56,8 +56,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   `PlanningWorkspace.tsx`; active-context sessions, retained-content inspection, authority badges, and event timelines
   live in `AgentContextWorkspace.tsx`. Source inspection and graph-native evidence fan-out now live in
   `sourceContentModel.ts` and `contentExpansionModel.ts`, using the shared `GraphRenderEdge` visual contract rather
-  than importing renderer UI types. The shell is now 3,357 lines under a 3,400-line ceiling while production
-  typecheck, contract tests, and the Vite build remain green.
+  than importing renderer UI types. Navigation/graph-control presentation lives in `WorkspaceChrome.tsx`, and
+  connector descriptors plus sync-settings projection live in `connectorWorkspaceModel.ts`. The shell is now 3,033
+  lines under a 3,075-line ceiling while production typecheck, contract tests, and the Vite build remain green.
 - `pnpm run test:deployment`: Helm rendered 39 valid Kubernetes 1.35 resources and Trivy reported zero HIGH or
   CRITICAL manifest findings.
 - `GRAPHVIEW_LIVE_STACK=1 pnpm run test:e2e:live`: a browser completed Keycloak PKCE login, loaded the real graph

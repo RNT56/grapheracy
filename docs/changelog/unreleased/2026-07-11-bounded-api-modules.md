@@ -73,4 +73,6 @@ owner: codex
 - Move source-content inspection and evidence/proposal/planning fan-out into pure sourceContentModel and
   contentExpansionModel boundaries; promote GraphRenderEdge to the shared visual contracts; reduce App.tsx to 3,357
   lines under a 3,400-line ceiling.
+- Move graph selection, lens, dock, and mobile-navigation presentation into WorkspaceChrome and connector setup
+  projections into connectorWorkspaceModel; reduce App.tsx to 3,033 lines under a 3,075-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
