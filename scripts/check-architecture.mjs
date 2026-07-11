@@ -57,7 +57,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/actions/repository.py",
   "services/api/src/graphview_api/actions/router.py",
   "services/api/src/graphview_api/actions/service.py",
+  "services/api/src/graphview_api/agent_context/repository.py",
   "services/api/src/graphview_api/agent_context/router.py",
+  "services/api/src/graphview_api/agent_context/service.py",
   "services/api/src/graphview_api/ai/retrieval_router.py",
   "services/api/src/graphview_api/ai/router.py",
   "services/api/src/graphview_api/ai/tools_router.py",
@@ -144,6 +146,11 @@ if (attentionRouter.includes("GraphRepository") || attentionRouter.includes("rep
 const dataOperationsRouter = await read("services/api/src/graphview_api/operations/data_router.py");
 if (dataOperationsRouter.includes("GraphRepository") || dataOperationsRouter.includes("repository.")) {
   failures.push("data operations router must call DataOperationsService rather than the persistence repository");
+}
+
+const agentContextRouter = await read("services/api/src/graphview_api/agent_context/router.py");
+if (agentContextRouter.includes("GraphRepository") || agentContextRouter.includes("repository.")) {
+  failures.push("agent context router must call AgentContextService rather than the persistence repository");
 }
 
 if (failures.length) {

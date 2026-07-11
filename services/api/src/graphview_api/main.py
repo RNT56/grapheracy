@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from fastapi.exceptions import RequestValidationError
 from graphview_api.agent_context import create_agent_context_router
+from graphview_api.agent_context.service import AgentContextService
 from graphview_api.actions import create_actions_router
 from graphview_api.actions.service import ActionsService
 from graphview_api.ai import create_agent_tools_router, create_planning_router, create_retrieval_router
@@ -145,6 +146,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return AttentionService(repo())
     def data_operations_service() -> DataOperationsService:
         return DataOperationsService(repo())
+    def agent_context_service() -> AgentContextService:
+        return AgentContextService(repo())
 
     app.include_router(
         create_health_router(
@@ -166,16 +169,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(create_graph_activity_router(graph_service, telemetry=app.state.telemetry))
-
     app.include_router(create_attention_router(attention_service))
-
     app.include_router(create_actions_router(actions_service))
-
     app.include_router(create_graph_exploration_router(graph_service))
 
     app.include_router(create_planning_router(repo, provider_registry_factory=configured_provider_registry))
 
-    app.include_router(create_agent_context_router(repo, telemetry=app.state.telemetry))
+    app.include_router(create_agent_context_router(agent_context_service, telemetry=app.state.telemetry))
 
     app.include_router(create_agent_tools_router(repo))
 
