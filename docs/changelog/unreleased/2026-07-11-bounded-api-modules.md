@@ -41,6 +41,7 @@ owner: codex
   callback secret references, replay-resistant event idempotency, timestamp windows, and durable outcome recording.
 - Split canonical connector sync, health, GitHub delivery verification, Google watch callbacks, and Notion
   verification/events into V1ConnectorService; reduce the V1 composer to dependency wiring with a 60-line ceiling.
-- Begin physical replacement of the all-purpose persistence façade by moving source CRUD, chunk reads, and ingestion
-  run projections into SourceCatalogRepositoryMixin and ratcheting the legacy repository ceiling to 6,000 lines.
+- Begin physical replacement of the all-purpose persistence façade by moving source CRUD, chunk reads, ingestion-run
+  projections, and source/proposal/node/edge lineage traversal into SourceCatalogRepositoryMixin and ratcheting the
+  legacy repository ceiling to 5,900 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
