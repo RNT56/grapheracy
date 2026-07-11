@@ -23,6 +23,7 @@ from graphview_api.repository_actions import ActionRepositoryMixin
 from graphview_api.repository_connectors import ConnectorRepositoryMixin
 from graphview_api.repository_serialization import RepositorySerializationMixin
 from graphview_api.repository_secrets import SecretRepositoryMixin
+from graphview_api.repository_sources import SourceCatalogRepositoryMixin
 from graphview_api.redaction import redact_sensitive_text
 from graphview_api.schemas import (
     AgentActionApprovalCreate,
@@ -54,7 +55,6 @@ from graphview_api.schemas import (
     ReviewDecisionCreate,
     SignalCreate,
     SourceCreate,
-    SourceUpdate,
 )
 
 DEFAULT_PROJECT_ID = "project-default"
@@ -138,6 +138,7 @@ class GraphRepository(
     ActionRepositoryMixin,
     ConnectorRepositoryMixin,
     SecretRepositoryMixin,
+    SourceCatalogRepositoryMixin,
     RepositorySerializationMixin,
 ):
     def __init__(
@@ -666,76 +667,6 @@ class GraphRepository(
             "proposal_statuses": self._count_by(proposals, "status"),
             "top_nodes": top_nodes,
         }
-
-    def list_sources(self, query: str | None = None, graph_id: str | None = None) -> list[dict]:
-        spec = self._graph_view_spec(graph_id)
-        stmt = select(db.sources).where(db.sources.c.project_id == spec.project_id)
-        if spec.source_ids:
-            stmt = stmt.where(db.sources.c.id.in_(spec.source_ids))
-        if query:
-            like = f"%{query}%"
-            stmt = stmt.where(or_(db.sources.c.title.like(like), db.sources.c.uri.like(like)))
-        stmt = stmt.order_by(db.sources.c.created_at.desc())
-        with self.engine.begin() as conn:
-            return [self._source_from_row(row) for row in conn.execute(stmt).mappings()]
-
-    def create_source(self, payload: SourceCreate, graph_id: str | None = None) -> dict:
-        spec = self._graph_view_spec(graph_id)
-        timestamp = now()
-        source = {
-            "id": new_id("src"),
-            "project_id": spec.project_id,
-            **self._source_values_from_payload(payload),
-            "created_at": timestamp,
-            "updated_at": timestamp,
-        }
-        with self.engine.begin() as conn:
-            conn.execute(insert(db.sources).values(**source))
-            self._record_activity_event(
-                conn,
-                project_id=spec.project_id,
-                event_type="source.created",
-                actor_id=None,
-                summary=f"Added source {source['title']}.",
-                object_refs=[self._activity_ref("source", source["id"], source["title"])],
-                payload={"source_id": source["id"], "kind": source["kind"]},
-                timestamp=timestamp,
-            )
-        return self._source_from_row(source)
-
-    def update_source(self, source_id: str, payload: SourceUpdate) -> dict | None:
-        values = self._source_values_from_payload(payload, exclude_unset=True)
-        if not values:
-            return self.get_source(source_id)
-        values["updated_at"] = now()
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                update(db.sources)
-                .where(and_(db.sources.c.id == source_id, db.sources.c.project_id == DEFAULT_PROJECT_ID))
-                .values(**values)
-            )
-            if result.rowcount == 0:
-                return None
-        return self.get_source(source_id)
-
-    def get_source(self, source_id: str, project_id: str | None = None) -> dict | None:
-        conditions = [db.sources.c.id == source_id]
-        if project_id is not None:
-            conditions.append(db.sources.c.project_id == project_id)
-        with self.engine.begin() as conn:
-            row = conn.execute(
-                select(db.sources).where(and_(*conditions))
-            ).mappings().first()
-            return self._source_from_row(row) if row else None
-
-    def delete_source(self, source_id: str) -> bool:
-        with self.engine.begin() as conn:
-            result = conn.execute(
-                delete(db.sources).where(
-                    and_(db.sources.c.id == source_id, db.sources.c.project_id == DEFAULT_PROJECT_ID)
-                )
-            )
-            return result.rowcount > 0
 
     def create_planning_session(self, payload: PlanningSessionCreate, actor_id: str) -> dict:
         spec = self._graph_view_spec(payload.graph_id)
@@ -1337,28 +1268,6 @@ class GraphRepository(
                 select(db.agent_action_proposals).where(db.agent_action_proposals.c.id == action_id)
             ).mappings().first()
             return self._agent_action_proposal_from_row(row) if row else None
-
-    def list_source_chunks(self, source_id: str | None = None, graph_id: str | None = None) -> list[dict]:
-        spec = self._graph_view_spec(graph_id)
-        stmt = select(db.source_chunks).where(db.source_chunks.c.project_id == spec.project_id)
-        if spec.source_ids:
-            stmt = stmt.where(db.source_chunks.c.source_id.in_(spec.source_ids))
-        if source_id:
-            stmt = stmt.where(db.source_chunks.c.source_id == source_id)
-        stmt = stmt.order_by(db.source_chunks.c.source_id, db.source_chunks.c.ordinal, db.source_chunks.c.id)
-        with self.engine.begin() as conn:
-            return [self._source_chunk_from_row(row) for row in conn.execute(stmt).mappings()]
-
-    def list_ingestion_runs(self) -> list[dict]:
-        with self.engine.begin() as conn:
-            return [
-                normalize_json_row(row)
-                for row in conn.execute(
-                    select(db.ingestion_runs)
-                    .where(db.ingestion_runs.c.project_id == DEFAULT_PROJECT_ID)
-                    .order_by(db.ingestion_runs.c.started_at.desc())
-                ).mappings()
-            ]
 
     def create_ingestion_result(
         self,
