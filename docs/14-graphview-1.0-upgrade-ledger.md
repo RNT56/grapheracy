@@ -21,8 +21,8 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 
 | Capability | Implementation | Integration proof | Production proof | Owner |
 | --- | --- | --- | --- | --- |
-| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, and graph routers pass the 129-test API suite with exact OpenAPI/client parity; graph, connectors, sources/ingestion, review, Attention, actions/outcomes, data operations, agent context, and AI planning now have enforced router-to-service-to-repository-port boundaries | Route assembly reduced from 1,486 to 194 lines with a 220-line regression ceiling; remaining AI retrieval/tools and canonical V1 application-service/repository-port decomposition remains | Architecture |
-| V1 API and compatibility aliases | implemented | 129 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
+| Bounded backend architecture | active | Identity, operations/readiness/data, connector, sources/ingestion, review, Attention, actions/outcomes, AI/planning/tools/retrieval, agent-context, and graph routers pass the 132-test API suite with exact OpenAPI/client parity; graph, connectors, sources/ingestion, review, Attention, actions/outcomes, data operations, agent context, AI planning, and agent tools now have enforced router-to-service-to-repository-port boundaries | Route assembly reduced from 1,486 to 194 lines with a 220-line regression ceiling; remaining AI retrieval and canonical V1 application-service/repository-port decomposition remains | Architecture |
+| V1 API and compatibility aliases | implemented | 132 API tests, OpenAPI/client drift gate, and alias parity tests | Canonical session, upload, job, review, connector, readiness, and graph replay routes proven through the live stack; full alias-stack replay pending | API |
 | Graph viewport, LOD, layouts, and replay | implemented | V1 projection tests plus browser bounds, zoom, visible-budget, accessible-equivalent, and compatibility coverage | OIDC-authenticated 100k/500k PostgreSQL overview, concrete zoom expansion, indexed subgraph, and hybrid-search p95 production-proven | Graph |
 | Sigma/Graphology 2D and Three.js parity | active | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, and selection-persistence browser coverage | Reference GPU parity sign-off pending | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
@@ -43,7 +43,7 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphview-1-0`:
 
 - `pnpm run quality:fast`: architecture, security policy, license, changelog, generated-client drift, type, test, release
-  structure, and production web-build gates passed; the API suite reported 129 tests and the worker suite reported 8.
+  structure, and production web-build gates passed; the API suite reported 132 tests and the worker suite reported 8.
 - The bounded-router extraction retained the committed OpenAPI and generated TypeScript client byte-for-byte while
   moving connector, source/ingestion, review, Attention, actions/outcomes, all AI planning/tool/retrieval, graph
   compatibility, and search/backup/import endpoints out of application assembly. Architecture checks now require

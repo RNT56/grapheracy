@@ -25,4 +25,6 @@ owner: codex
   projection, and retention through a typed AgentContextService and repository port.
 - Route provider credentials, planning sessions/messages, review-gated build specs, agent runs, and the tool catalog
   through a typed PlanningService and AI repository port.
+- Route agent graph-query context, source search/open, review-gated proposal creation, and layout intent through a
+  typed AgentToolsService while keeping direct reviewed-graph mutation impossible.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

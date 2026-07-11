@@ -5,8 +5,10 @@ from typing import Protocol
 from graphview_api.schemas import (
     AgentRunCreate,
     GraphBuildSpecCreate,
+    GraphQueryCreate,
     PlanningMessageCreate,
     PlanningSessionCreate,
+    ProposalCreate,
 )
 
 
@@ -48,3 +50,13 @@ class AiRepositoryPort(Protocol):
     ) -> dict: ...
 
     def get_agent_run(self, agent_run_id: str) -> dict | None: ...
+
+    def graph_query_context(self, payload: GraphQueryCreate) -> dict: ...
+
+    def list_sources(self, query: str | None = None, graph_id: str | None = None) -> list[dict]: ...
+
+    def get_source(self, source_id: str, project_id: str | None = None) -> dict | None: ...
+
+    def list_source_chunks(self, source_id: str | None = None, graph_id: str | None = None) -> list[dict]: ...
+
+    def create_proposal(self, payload: ProposalCreate, actor_id: str) -> dict: ...
