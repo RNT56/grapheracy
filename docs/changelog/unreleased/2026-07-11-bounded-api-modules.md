@@ -37,4 +37,6 @@ owner: codex
   committed wire contract.
 - Split canonical streamed upload acceptance into UploadService, retaining normalized filenames, byte limits,
   checksum-bound idempotency, object storage, HTTP/ClamAV screening, cleanup, and durable ingestion dispatch.
+- Split canonical approved-action dispatch and signed workflow outcome callbacks into V1ActionService, preserving
+  callback secret references, replay-resistant event idempotency, timestamp windows, and durable outcome recording.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

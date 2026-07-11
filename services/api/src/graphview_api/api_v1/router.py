@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import time
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from graphview_api.api_v1.action_dependencies import create_v1_action_service_provider
+from graphview_api.api_v1.action_router import create_v1_action_router
 from graphview_api.api_v1.graph_dependencies import create_graph_projection_service_provider
 from graphview_api.api_v1.graph_router import create_v1_graph_router
 from graphview_api.api_v1.job_dependencies import create_job_service_provider
@@ -20,7 +21,6 @@ from graphview_api.jobs.repository import JobRepository
 from graphview_api.connector_state import ConnectorStateRepository
 from graphview_api.jobs.schemas import JobCreate, JobOut
 from graphview_api.repository import GraphRepository
-from graphview_api.schemas import OutcomeCreate
 from graphview_api.resumable_uploads import create_resumable_upload_router
 
 
@@ -235,91 +235,7 @@ def create_v1_router(repo_provider, *, object_store=None, settings=None) -> APIR
             project_id=target["project_id"],
         )
 
-    @router.post("/action-proposals/{action_proposal_id}/run", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def enqueue_action_run(
-        action_proposal_id: str,
-        user: CurrentUser = Depends(require_permission(OPERATE_PERMISSION)),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        proposal = repository.get_action_proposal(action_proposal_id)
-        if proposal is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action proposal not found")
-        ensure_project_access(user, proposal["project_id"])
-        if proposal["status"] != "approved":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Action proposal must be approved")
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="action.run",
-                queue="actions",
-                idempotency_key=f"action-run:{action_proposal_id}",
-                payload={"project_id": proposal["project_id"], "action_proposal_id": action_proposal_id, "actor_id": user.id},
-            ),
-            project_id=proposal["project_id"],
-        )
-
-    @router.post("/action-runs/{action_run_id}/callback", response_model=JobOut, status_code=status.HTTP_202_ACCEPTED)
-    async def action_outcome_callback(
-        action_run_id: str,
-        request: Request,
-        x_graphview_event_id: str | None = Header(default=None, alias="X-Graphview-Event-Id"),
-        x_graphview_timestamp: str | None = Header(default=None, alias="X-Graphview-Timestamp"),
-        x_graphview_signature: str | None = Header(default=None, alias="X-Graphview-Signature"),
-        repository: GraphRepository = Depends(repo_provider),
-    ):
-        body = await request.body()
-        if not body or len(body) > 1_048_576:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Invalid outcome callback size")
-        action_run = repository.get_action_run(action_run_id)
-        if action_run is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action run not found")
-        bundle = repository.action_proposal_execution_bundle(
-            action_run["action_proposal_id"],
-            project_id=action_run["project_id"],
-        )
-        if bundle is None or bundle[0]["action_type"] != "trigger_workflow":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Action run does not accept workflow callbacks")
-        _, action_payload = bundle
-        credential_ref = str(action_payload.get("credential_ref") or "")
-        if not credential_ref or repository.secret_store is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Action callback secret is not configured")
-        credential = repository.secret_store.get(credential_ref)
-        callback_secret = str(credential.get("callback_secret") or credential.get("secret") or "")
-        if not callback_secret:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Action callback secret is not configured")
-        if not x_graphview_event_id or len(x_graphview_event_id) > 200:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Outcome callback event ID is required")
-        try:
-            signed_at = int(x_graphview_timestamp or "")
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid outcome callback timestamp") from error
-        if abs(int(time.time()) - signed_at) > 300:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Expired outcome callback timestamp")
-        expected = "v1=" + hmac.new(
-            callback_secret.encode(),
-            f"{signed_at}.".encode() + body,
-            hashlib.sha256,
-        ).hexdigest()
-        if not x_graphview_signature or not hmac.compare_digest(expected, x_graphview_signature):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid outcome callback signature")
-        try:
-            outcome = OutcomeCreate.model_validate_json(body)
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid outcome callback") from error
-        return JobRepository(repository.engine).enqueue(
-            JobCreate(
-                kind="outcome.record",
-                queue="outcomes",
-                idempotency_key=f"action-outcome:{action_run_id}:{x_graphview_event_id}",
-                payload={
-                    "project_id": action_run["project_id"],
-                    "action_run_id": action_run_id,
-                    "actor_id": "workflow-callback",
-                    "outcome": outcome.model_dump(mode="json"),
-                    "callback_event_id": x_graphview_event_id,
-                },
-            ),
-            project_id=action_run["project_id"],
-        )
+    router.include_router(create_v1_action_router(create_v1_action_service_provider(repo_provider)))
 
     router.include_router(create_v1_job_lifecycle_router(job_service_provider))
 

@@ -54,6 +54,9 @@ const requiredBoundaries = [
   "packages/shared-types/src/index.ts",
   "packages/graph-core/src/index.ts",
   "services/api/openapi.yaml",
+  "services/api/src/graphview_api/api_v1/action_dependencies.py",
+  "services/api/src/graphview_api/api_v1/action_router.py",
+  "services/api/src/graphview_api/api_v1/action_service.py",
   "services/api/src/graphview_api/api_v1/graph_dependencies.py",
   "services/api/src/graphview_api/api_v1/graph_router.py",
   "services/api/src/graphview_api/api_v1/job_dependencies.py",
@@ -143,6 +146,11 @@ if (v1JobRouter.includes("GraphRepository") || v1JobRouter.includes("JobReposito
 const v1UploadRouter = await read("services/api/src/graphview_api/api_v1/upload_router.py");
 if (v1UploadRouter.includes("GraphRepository") || v1UploadRouter.includes("JobRepository") || v1UploadRouter.includes("repository.")) {
   failures.push("V1 upload router must call UploadService rather than persistence repositories");
+}
+
+const v1ActionRouter = await read("services/api/src/graphview_api/api_v1/action_router.py");
+if (v1ActionRouter.includes("GraphRepository") || v1ActionRouter.includes("JobRepository") || v1ActionRouter.includes("repository.")) {
+  failures.push("V1 action router must call V1ActionService rather than persistence repositories");
 }
 
 const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");
