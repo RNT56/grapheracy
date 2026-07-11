@@ -9,4 +9,6 @@ owner: codex
 - Preserve the committed OpenAPI and generated TypeScript client exactly, including compatibility operation IDs.
 - Route the graph module through a typed application service and repository port, with focused domain-service tests
   and an architecture check preventing persistence access from returning to its router.
+- Route source CRUD, lineage, and synchronous/durable ingestion selection through a typed SourcesService and
+  repository port; make API test object stores session-owned so repeated verification no longer leaks temp folders.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

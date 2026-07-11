@@ -67,7 +67,9 @@ const requiredBoundaries = [
   "services/api/src/graphview_api/operations/data_router.py",
   "services/api/src/graphview_api/operations/readiness.py",
   "services/api/src/graphview_api/review/router.py",
+  "services/api/src/graphview_api/sources/repository.py",
   "services/api/src/graphview_api/sources/router.py",
+  "services/api/src/graphview_api/sources/service.py",
   "docs/14-graphview-1.0-upgrade-ledger.md"
 ];
 for (const relativePath of requiredBoundaries) {
@@ -102,6 +104,11 @@ for (const [moduleName, routePrefixes] of boundedRoutePrefixes) {
 const graphRouter = await read("services/api/src/graphview_api/graph/router.py");
 if (graphRouter.includes("GraphRepository") || graphRouter.includes("repository.")) {
   failures.push("graph router must call GraphService rather than the persistence repository");
+}
+
+const sourcesRouter = await read("services/api/src/graphview_api/sources/router.py");
+if (sourcesRouter.includes("GraphRepository") || sourcesRouter.includes("repository.")) {
+  failures.push("sources router must call SourcesService rather than the persistence repository");
 }
 
 if (failures.length) {

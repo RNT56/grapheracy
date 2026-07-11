@@ -20,14 +20,28 @@ from graphview_api.main import create_app
 from graphview_api.schemas import IngestionCreate
 from graphview_api.settings import Settings
 
+_TEST_ARTIFACTS = tempfile.TemporaryDirectory(prefix="graphview-api-tests-")
+
 
 def make_client(settings: Settings | None = None) -> TestClient:
     resolved = settings or Settings(database_url="sqlite://")
     if resolved.object_store_provider == "local" and resolved.object_store_path == "./.graphview/objects":
-        resolved = resolved.model_copy(update={"object_store_path": tempfile.mkdtemp(prefix="graphview-test-objects-")})
+        resolved = resolved.model_copy(
+            update={
+                "object_store_path": tempfile.mkdtemp(
+                    prefix="objects-",
+                    dir=_TEST_ARTIFACTS.name,
+                )
+            }
+        )
     if resolved.secret_provider == "local-aead" and resolved.local_secret_store_path == "./.graphview/secrets":
         resolved = resolved.model_copy(
-            update={"local_secret_store_path": tempfile.mkdtemp(prefix="graphview-test-secrets-")}
+            update={
+                "local_secret_store_path": tempfile.mkdtemp(
+                    prefix="secrets-",
+                    dir=_TEST_ARTIFACTS.name,
+                )
+            }
         )
     return TestClient(create_app(resolved))
 
