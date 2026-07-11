@@ -49,4 +49,6 @@ owner: codex
   GraphReadRepositoryMixin; ratchet the remaining compatibility façade below 5,250 lines.
 - Move planning sessions/messages, build specs, agent runs, graph-query context, research tasks, and reviewed agent
   actions into AiPlanningRepositoryMixin; ratchet the remaining compatibility façade below 4,650 lines.
+- Move atomic ingestion, source chunks, proposal/embedding writes, connector deltas, deletion tombstones, and sync-run
+  accounting into IngestionRepositoryMixin; ratchet the remaining compatibility façade below 4,200 lines.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
