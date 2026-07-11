@@ -68,4 +68,6 @@ owner: codex
   into SettingsWorkspace; reduce App.tsx to 4,350 lines under a 4,400-line ceiling.
 - Move planning sessions, conversation/tool traces, build-spec blueprints, artifact preview, and research actions into
   PlanningWorkspace; reduce App.tsx to 4,013 lines under a 4,050-line ceiling.
+- Move active-context session navigation, retained-content inspection, authority presentation, and event timelines into
+  AgentContextWorkspace; reduce App.tsx to 3,808 lines under a 3,850-line ceiling.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
