@@ -139,4 +139,6 @@ owner: codex
 - Add a protected exact-commit Kubernetes 1.35 staging workflow that builds and loads all eight images into clean
   Kind, installs the production Helm chart, proves authenticated upload through the durable stack, performs a no-op
   upgrade, and retains a redacted receipt.
+- Label migration Jobs for deterministic staging selection and build PR staging images from the branch-head candidate
+  SHA rather than GitHub's synthetic merge ref.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

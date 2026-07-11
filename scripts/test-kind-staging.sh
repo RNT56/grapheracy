@@ -167,7 +167,7 @@ api_request GET "/api/v1/jobs/$job_id" | jq -e '.status == "succeeded"' >/dev/nu
 
 mkdir -p "$(dirname "$receipt_path")"
 jq -n \
-  --arg commit "${GITHUB_SHA:-local}" \
+  --arg commit "${GRAPHVIEW_STAGING_COMMIT:-${GITHUB_SHA:-local}}" \
   --arg namespace "$namespace" \
   --arg release "$release" \
   --arg job_id "$job_id" \

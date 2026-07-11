@@ -1,5 +1,9 @@
 # Digital Nervous System Phase 25 Plan
 
+> Historical plan: this records the Phase 25 design and includes intentionally conservative stub-era language. The
+> Graphview 1.0 implementation replaces those external-action stubs with reviewed GitHub Issue, SMTP, and signed
+> webhook adapters; current evidence lives in `14-graphview-1.0-upgrade-ledger.md`.
+
 ## Purpose
 
 Phase 25 completes the product plan beyond the living graph UI. Phase 24 makes the graph feel alive and makes agent
@@ -873,4 +877,3 @@ Phase 25 is complete when:
 - Backup/restore preserves every Phase 25 record without re-running side effects.
 - Security gates prevent unauthorized external actions and redact sensitive payloads.
 - Docs, contracts, tests, release checks, and operational runbooks cover the complete loop.
-

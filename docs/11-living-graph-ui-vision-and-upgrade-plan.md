@@ -1,5 +1,8 @@
 # Living Graph UI Vision And Upgrade Plan
 
+> Historical vision and implementation record. Current Sigma/Graphology, Three.js, LOD, accessibility, hardware, and
+> production-size acceptance evidence is tracked in `14-graphview-1.0-upgrade-ledger.md` and `05-testing.md`.
+
 ## Purpose
 
 This document upgrades Graphview's product vision around the visual knowledge graph as the center of the user

@@ -18,21 +18,25 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: staging
+    env:
+      GRAPHVIEW_STAGING_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.GRAPHVIEW_STAGING_COMMIT }}
       - uses: azure/setup-helm@v4
         with: { version: v4.2.3 }
       - name: Prepare immutable image names and ephemeral secrets
         run: |
           {
-            echo "GRAPHVIEW_STAGING_WEB_IMAGE=graphview-web:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_API_IMAGE=graphview-api:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_WORKER_IMAGE=graphview-worker:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_OTEL_IMAGE=graphview-otel:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_OPS_IMAGE=graphview-ops:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_KEYCLOAK_IMAGE=graphview-keycloak:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_CLAMAV_IMAGE=graphview-clamav:staging-$GITHUB_SHA"
-            echo "GRAPHVIEW_STAGING_MINIO_IMAGE=graphview-minio:staging-$GITHUB_SHA"
+            echo "GRAPHVIEW_STAGING_WEB_IMAGE=graphview-web:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_API_IMAGE=graphview-api:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_WORKER_IMAGE=graphview-worker:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_OTEL_IMAGE=graphview-otel:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_OPS_IMAGE=graphview-ops:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_KEYCLOAK_IMAGE=graphview-keycloak:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_CLAMAV_IMAGE=graphview-clamav:staging-$GRAPHVIEW_STAGING_COMMIT"
+            echo "GRAPHVIEW_STAGING_MINIO_IMAGE=graphview-minio:staging-$GRAPHVIEW_STAGING_COMMIT"
             echo "POSTGRES_PASSWORD=$(openssl rand -hex 18)"
             echo "REDIS_PASSWORD=$(openssl rand -hex 18)"
             echo "MINIO_ROOT_USER=graphviewstaging"

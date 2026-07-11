@@ -77,6 +77,14 @@ for (const file of ["pyproject.toml", "services/api/pyproject.toml", "services/w
 const architecture = await read("docs/02-architecture.md");
 const operations = await read("docs/06-operations.md");
 const ledger = await read("docs/14-graphview-1.0-upgrade-ledger.md");
+const publicDocs = [
+  await read("README.md"),
+  await read("docs/00-start-here.md"),
+  await read("docs/04-development.md"),
+  await read("docs/05-testing.md"),
+  operations,
+  await read("docs/13-active-agent-context-connectors.md")
+].join("\n");
 const ciWorkflow = await read(".github/workflows/ci.yml");
 const releaseWorkflow = await read(".github/workflows/release.yml");
 const externalCanaryWorkflow = await read(".github/workflows/external-canaries.yml");
@@ -115,6 +123,7 @@ for (const required of [
 for (const required of [
   "pull_request:",
   "environment: staging",
+  "github.event.pull_request.head.sha || github.sha",
   "helm/kind-action@v1.14.0",
   "kindest/node:v1.35.5@sha256:",
   "bash scripts/test-kind-staging.sh",
@@ -130,6 +139,9 @@ if (!webClient?.webOrigins?.includes("http://127.0.0.1:8080")) {
 }
 for (const forbidden of ["production stub", "mocked-only critical flow", "seeded authentication fallback in production"]) {
   if (ledger.toLowerCase().includes(`${forbidden}: complete`)) failures.push(`upgrade ledger overclaims ${forbidden}`);
+}
+if (/pnpm run phase\d+:(?:check|smoke)/.test(publicDocs)) {
+  failures.push("public/current documentation references a removed phase-number gate");
 }
 for (const credentialKey of ["ai_provider_credentials", "action_credentials", "llm_api_key"]) {
   if (!operationsScript.includes(`- '${credentialKey}'`)) {

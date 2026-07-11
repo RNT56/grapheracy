@@ -100,8 +100,9 @@ The API exposes connector-backed graph building endpoints:
   inspect manual sync/resync runs.
 - `GET /source-chunks` lists normalized source chunks with heading paths, block locators, links, mentions, and checksums.
 
-Connector token JSON is protected locally with `GRAPHVIEW_SECRET_KEY`; production deployments should replace that with
-KMS-backed secret handling. LLM extraction is disabled by default and can be enabled through project or target settings.
+Development connector token JSON uses authenticated local AEAD storage keyed by `GRAPHVIEW_SECRET_KEY`. Production
+stores only opaque Vault references in PostgreSQL and resolves the secret inside the API or worker at the point of use;
+read responses expose rotation/configuration metadata only. LLM extraction is disabled by default and can be enabled through project or target settings.
 Auto-commit uses the inherited confidence threshold and records `system-autocommit` review decisions.
 
 ## Full Graph Workspace

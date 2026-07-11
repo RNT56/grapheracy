@@ -2,105 +2,99 @@
 
 ## Purpose
 
-Define the documented setup path, commands, environment variables, and local development expectations.
+Define the supported setup path, stable commands, development adapters, and contribution boundaries for Graphview 1.0.
 
 ## Required Tools
 
-- Node 24 Active LTS.
+- Node 24.
 - pnpm 10.27 or newer.
-- Python 3.14.
-- uv.
-- Docker and Docker Compose.
+- Python 3.14 managed through uv.
+- Docker and Docker Compose for production-reference verification.
+- Helm for deployment validation; Kind is installed by the staging workflow.
 
 ## Setup
-
-Install dependencies and run the current local acceptance gate:
 
 ```sh
 pnpm install --frozen-lockfile
 uv python install 3.14.5
-pnpm run phase27:check
+pnpm run quality:fast
 ```
 
-## Root Commands
+Use `.env.example` only for local development. SQLite and the authenticated local AEAD secret store are limited
+developer adapters; production and acceptance use PostgreSQL, Redis, S3, OIDC, and Vault.
 
-| Command | Status | Purpose |
-| --- | --- | --- |
-| `pnpm run setup` | Runnable | Install with the committed lockfile. |
-| `pnpm run lint` | Runnable | Check markdown links, docs freshness, and workspace metadata. |
-| `pnpm run docs:check` | Runnable | Run documentation hygiene checks. |
-| `pnpm run changelog:check` | Runnable | Validate changelog and unreleased fragments. |
-| `pnpm run security:local` | Runnable | Check repository security policy configuration. |
-| `pnpm run security:licenses` | Runnable | Check license policy metadata. |
-| `pnpm run security:audit` | Runnable after install | Run pnpm audit at moderate severity. |
-| `pnpm run security:signatures` | CI gate | Enforce pnpm release-age/trust policies, sha512-pinned registry resolutions, no exotic dependencies, and a frozen offline lockfile verification. |
-| `pnpm run security:osv` | CI gate | Run OSV-Scanner against the source tree and lockfiles. |
-| `pnpm run security:secrets` | CI gate | Run Gitleaks secret scanning with an installed binary or Go module fallback. |
-| `pnpm run typecheck` | Runnable placeholder | Runs package type checks as implementations appear. |
-| `pnpm run test` | Runnable placeholder | Runs package tests as implementations appear. |
-| `pnpm run phase1:check` | Runnable | Runs the local Phase 1 acceptance checks. |
-| `pnpm run phase2:check` | Runnable | Runs local Phase 2 checks and builds the web app. |
-| `pnpm run phase3:check` | Runnable | Runs local Phase 3 checks, API workflow tests, and the web build. |
-| `pnpm run phase4:check` | Runnable | Runs local Phase 4 ingestion checks, API/worker tests, and the web build. |
-| `pnpm run phase5:check` | Runnable | Runs local Phase 5 hardening checks, release readiness validation, and the web build. |
-| `pnpm run phase6:check` | Runnable | Runs local Phase 6 mode checks, release readiness validation, and the web build. |
-| `pnpm run phase7:check` | Runnable | Runs local Phase 7 relationship proposal checks, release readiness validation, and the web build. |
-| `pnpm run phase8:check` | Runnable | Runs local Phase 8 lineage trace checks, release readiness validation, and the web build. |
-| `pnpm run phase9:check` | Runnable | Runs local Phase 9 graph insight checks, release readiness validation, and the web build. |
-| `pnpm run phase10:check` | Runnable | Runs local Phase 10 neighborhood explorer checks, release readiness validation, and the web build. |
-| `pnpm run phase11:check` | Runnable | Runs local Phase 11 path finder checks, release readiness validation, and the web build. |
-| `pnpm run phase12:check` | Runnable | Runs local Phase 12 review worklist checks, release readiness validation, and the web build. |
-| `pnpm run phase13:check` | Runnable | Runs local Phase 13 review dashboard checks, release readiness validation, and the web build. |
-| `pnpm run phase14:check` | Runnable | Runs local Phase 14 review activity checks, release readiness validation, and the web build. |
-| `pnpm run phase15:check` | Runnable | Runs local Phase 15 source review coverage checks, release readiness validation, and the web build. |
-| `pnpm run phase16:check` | Runnable | Runs local Phase 16 full graph workspace UI checks, release readiness validation, and the web build. |
-| `pnpm run phase17:check` | Runnable | Runs local Phase 17 connector ingestion checks, release readiness validation, and the web build. |
-| `pnpm run phase18:check` | Runnable | Runs AI foundation checks, release readiness validation, and the web build. |
-| `pnpm run phase19:check` | Runnable | Runs Planning Mode checks, release readiness validation, and the web build. |
-| `pnpm run phase20:check` | Runnable | Runs graph query agent checks, release readiness validation, and the web build. |
-| `pnpm run phase21:check` | Runnable | Runs research extension checks, release readiness validation, and the web build. |
-| `pnpm run phase22:check` | Runnable | Runs full AI V1 provider/UI/docs checks, release readiness validation, and the web build. |
-| `pnpm run phase23:check` | Runnable | Runs AI-native graph workspace checks, release readiness validation, and the web build. |
-| `pnpm run phase24:check` | Runnable | Runs living graph source contracts, Playwright browser QA, release readiness validation, and the web build. |
-| `pnpm run phase25:check` | Runnable | Runs digital nervous system checks, web build, and browser graph QA. |
-| `pnpm run phase26:check` | Runnable | Runs release hardening checks, web build, browser graph QA, and artifact cleanup. |
-| `pnpm run phase27:smoke` | Runnable | Starts a temporary local API and verifies active context token normalization, gateway capture, checksums, redaction, content permissions, graph projection, and `end-session` PATCH behavior. |
-| `pnpm run phase27:check` | Runnable | Runs active agent context connector checks, web build, browser graph QA, and artifact cleanup. |
-| `pnpm run release:check` | Runnable | Validates release readiness docs, commands, mode discovery, lineage, insights, neighborhoods, paths, review worklists, review dashboards, review activity, source review coverage, full graph workspace, backup/restore, and observability references. |
-| `pnpm --filter @graphview/web dev` | Runnable | Starts the Vite web app on `127.0.0.1:5173`. |
-| `pnpm --filter @graphview/api-contract dev` | Runnable | Starts the FastAPI service on `127.0.0.1:8000`. |
-| `pnpm --filter @graphview/worker-contract dev` | Runnable | Runs the worker scaffold and prints the stage plan. |
-| `pnpm --filter @graphview/agent-gateway test` | Runnable | Tests the local agent context gateway, MCP-compatible manifest, redaction, and outbox behavior. |
-| `pnpm --filter @graphview/vscode-extension test` | Runnable | Tests the VS Code/Cursor passive reconciliation adapter mapping. |
-| `pnpm --filter @graphview/web test:browser` | Runnable | Runs browser smoke tests for nonblank 2D/3D graph rendering and tooltip URL behavior. |
+## Stable Commands
 
-## Environment Variables
+| Command | Scope |
+| --- | --- |
+| `pnpm run quality:fast` | Docs, metadata, Python lint, security policy, licenses, changelog, architecture, generated API drift, types, unit/integration suites, release structure, and production web build. |
+| `pnpm run quality:full` | Fast quality plus smoke, integration, browser E2E, performance planning, and artifact cleanup. |
+| `pnpm run test:integration` | API, worker, agent gateway, and editor extension contract suites. |
+| `pnpm run test:e2e` | Desktop/mobile Playwright coverage, renderer pixels, accessibility, interaction persistence, and screenshot safety. |
+| `pnpm run test:performance` | 5k/20k and 20k/50k visible budgets plus 100k/500k client overview planning. |
+| `pnpm run security:full` | Policy, license, dependency audit, OSV, secret, and npm integrity/signature checks. |
+| `pnpm run release:verify` | Full local quality, security, deployment schema/security, and client artifact verification. |
+| `pnpm run test:deployment` | Strict Helm lint, Kubernetes 1.35 schema validation, and manifest security scan. |
+| `pnpm run test:migrations:postgres` | Real PostgreSQL migration chain and interrupted-migration rollback rehearsal. |
+| `pnpm run test:e2e:live` | Unmocked browser flow against an already running production reference stack. |
+| `pnpm run test:compatibility:live` | Exact unversioned and `/api/v1` alias parity replay. |
+| `pnpm run test:observability:live` | API-to-worker trace continuity, metric coverage, and telemetry redaction. |
+| `pnpm run test:agent-context:live` | Service auth, offline replay, encrypted context, SSE resume, retention, and terminal state. |
+| `pnpm run test:secrets:live` | Vault rotation, migration, redaction, and permanent deletion. |
+| `pnpm run test:failure-injection:live` | Redis/MinIO loss, readiness, SSE reconnect, webhook replay, and lease recovery. |
+| `pnpm run test:performance:live` | OIDC-authenticated PostgreSQL 100k/500k projection p95 proof. |
+| `pnpm run test:backup-restore:live` | Destructive physical backup/restore with credential and side-effect neutralization. |
+| `pnpm run test:staging:live` | Clean Kind/Helm install, authenticated ingestion, no-op upgrade, and redacted receipt. |
+| `pnpm run test:external-canaries` | Protected, secret-backed GitHub/Google/Notion/OpenAI/SMTP/webhook canaries. |
 
-Use `.env.example` as the local template. Production values must come from external secret management.
+The `*:live` commands require their documented reference environment. CI owns the Compose stack, PostgreSQL service,
+and Kind cluster used for authoritative release evidence; do not point destructive or external canaries at production
+data.
 
-The API defaults to `GRAPHVIEW_DATABASE_URL=sqlite:///./.graphview/graphview.sqlite` for local development. Use a
-Postgres URL for shared development or production-like environments.
+## Development Surfaces
 
-## Package Additions
+```sh
+pnpm --filter @graphview/web dev
+pnpm --filter @graphview/api-contract dev
+pnpm --filter @graphview/worker-contract dev
+```
 
-Do not run casual package installs. Use a dedicated dependency PR, update the lockfile, and complete the checklist in
-`03-security.md`.
+Focused package tests are available through pnpm filters. The MCP gateway and VS Code/Cursor adapter are validated with:
 
-## Direct Dependencies
+```sh
+pnpm --filter @graphview/agent-gateway test
+pnpm --filter @graphview/vscode-extension test
+```
 
-JavaScript direct dependencies are pinned through `pnpm-workspace.yaml`: React, React DOM, React Router, TanStack Query,
-Zustand, Vite, the Vite React plugin, React type packages, TypeScript, Three.js, Playwright, and PNGJS. Python direct
-dependencies are locked through uv for the API and worker: FastAPI, Pydantic Settings, SQLAlchemy, Alembic, Uvicorn,
-Arq, HTTPX, PyPDF, and Pytest.
+## Architecture Boundaries
 
-HTTPX is a runtime API dependency for backend URL fetch during ingestion. PyPDF is a runtime API and worker dependency
-for PDF extraction. Both are covered by `uv.lock` and service tests. Three.js powers the explicit 3D graph mode, while
-`@types/three`, `@playwright/test`, and `pngjs` remain development-only QA dependencies.
+- FastAPI routers authenticate, validate, and call application services; routers do not issue SQL.
+- Backend modules own router, service, repository port, schema, and transitions for their domain.
+- PostgreSQL is the system of record; durable jobs enter Redis/Arq through the transactional outbox.
+- Pydantic/OpenAPI is the HTTP source of truth. Run `pnpm run api:generate` only for an intentional contract change and
+  commit both `services/api/openapi.yaml` and `packages/api-client/src/schema.ts`.
+- TanStack Query owns server state. Zustand owns only ephemeral graph selection, camera, filter, layout, and replay state.
+- Feature slices do not import across workspace boundaries; domain-only visual contracts live in shared packages.
+- Production source code may not import preserved prototype or demo fixtures.
+
+`pnpm run architecture:check` enforces these constraints, module size ceilings, API assembly ceilings, circular domain
+dependencies, generated-client drift boundaries, and forbidden fixture imports.
+
+## Dependency Changes
+
+Do not run casual package upgrades. Use an intentional dependency change, update the pnpm/uv lockfiles, verify current
+supported runtimes and security advisories, document new production dependencies in `03-security.md`, and run
+`security:full` plus the relevant image scan.
+
+Primary browser dependencies are React, React Router, TanStack Query, Zustand, Graphology, Sigma, and lazy Three.js.
+Primary service dependencies are FastAPI/Pydantic, SQLAlchemy/Alembic, Arq, HTTPX, extraction libraries, OpenTelemetry,
+and the selected storage/identity clients. Versions are pinned by the workspace catalogs and lockfiles.
 
 ## Failure Modes
 
-- Local Node or pnpm version below policy.
-- Missing lockfile review after dependency changes.
-- Root commands added without documentation.
-- Feature implementation added before Phase 2 scaffolding.
-- Browser QA or dependency approval notes drifting from the committed lockfile and phase check scripts.
+- A documented command no longer exists in `package.json`.
+- Generated API artifacts change without an intentional wire-contract change.
+- A router reaches persistence directly or a UI feature becomes a replacement monolith.
+- SQLite, seeded-header authentication, local AEAD, Vite preview, or demo fixtures enter a production path.
+- A live check is reported from mocked fixtures or from images other than the candidate commit.
+- Dependency or runtime changes land without lockfile, security, and image verification.

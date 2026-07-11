@@ -102,7 +102,8 @@ Phase 27 adds active agent context capture and approved connector dependencies:
 
 Lifecycle scripts remain denied by `.npmrc`. No package-specific lifecycle allowlist is added. Release requires the
 normal security, license, changelog, typecheck, test, browser, and release-readiness gates through `pnpm run
-phase27:check`; external audit, OSV, lockfile integrity/trust, and secret scans remain CI/release gates.
+release:verify`; external audit, OSV, lockfile integrity/trust, secret scans, image scans, and signed provenance remain
+CI/release gates.
 
 ## Required Gates
 

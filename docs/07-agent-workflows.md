@@ -25,7 +25,7 @@ The coordinator owns `docs/08-roadmap.md`, `CHANGELOG.md`, conflict resolution, 
 | Coordinator | Gates, OpenAPI merge, migrations, roadmap, changelog, final acceptance. | `CHANGELOG.md`, `docs/08-roadmap.md`, `services/api/openapi.yaml`, migration order. |
 | A | AI contracts, schema, migrations, export/restore. | `packages/shared-types/src/index.ts`, `services/api/src/graphview_api/db.py`, `services/api/src/graphview_api/schemas.py`, `services/api/migrations/versions/`. |
 | B | Agent runtime API, repository persistence, authorization, graph retrieval. | `services/api/src/graphview_api/main.py`, `services/api/src/graphview_api/repository.py`, API tests. |
-| C | Provider registry and OpenAI, Anthropic, Gemini adapters with mocked tests. | `services/api/src/graphview_api/llm.py`, `services/api/src/graphview_api/settings.py`, provider tests. |
+| C | Provider registry and OpenAI, Anthropic, Gemini adapters with deterministic contract tests; real OpenAI proof remains a protected external canary. | `services/api/src/graphview_api/llm.py`, `services/api/src/graphview_api/settings.py`, provider tests. |
 | D | Research orchestration and worker stage contract. | `services/worker/src/graphview_worker/`, `services/worker/worker-contract.md`, worker tests. |
 | E | Planning Mode and embedded graph AI UI. | `apps/web/src/App.tsx`, `apps/web/src/styles.css`, `apps/web/tests/`. |
 | F | Docs, security, QA, release checks. | `docs/`, `README.md`, `.env.example`, `package.json`, release/changelog checks. |

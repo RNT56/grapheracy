@@ -27,16 +27,16 @@ secrets. The operational graph surface uses Sigma with Graphology for 2D and a l
 | Sigma/Graphology 2D and Three.js parity | implemented | Nonblank 2D/3D, lazy-load, semantic-state, mobile, reduced-motion, injected WebGL-loss recovery in both renderers, selection-persistence, and renderer-pixel stability browser coverage | Ten-case headed Chromium acceptance passed on ANGLE Metal with an Apple M2 Pro, including both visible-load frame budgets and deterministic reduced-motion Three.js output | Web |
 | PostgreSQL/pgvector persistence and migration | implemented | Alembic rehearsal and real PostgreSQL repository tests | Compose and Kubernetes schema `20260710_0017`, persisted source/object, transactional lock-timeout interruption rollback, and no-op Helm upgrade proven | Persistence |
 | Arq queues, scheduling, retries, and outbox | implemented | 8 worker tests plus API cancellation, provider timeout/429, and terminal-race coverage | Authenticated upload plus expired-lease recovery after a stopped worker and Redis outage/recovery production-proven | Worker |
-| Upload, URL, GitHub, Google, and Notion connectors | blocked | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; protected exact-image GitHub/Google/Notion canary is implemented but blocked on the unprovisioned `external-canaries` environment | Connectors |
-| Cited AI planning, query, and research | blocked | Durable query/research, required citation, retrieval audit, provider timeout/429, cancellation, and redaction coverage | Live PostgreSQL/S3/worker local-provider query and research proven; protected cited OpenAI canary is implemented but blocked on an external provider credential and model fixture | AI |
-| Attention, actions, outcomes, and feedback | blocked | Internal nervous-system loop plus operator-only Vault-backed GitHub/SMTP/webhook credential create/rotate/delete, worker-only resolution, GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, callback, outcome, feedback, and redaction tests | Protected exact-image GitHub Issue, SMTP, signed-webhook callback, outcome, and feedback canary is implemented but blocked on the unprovisioned `external-canaries` environment | Actions |
+| Upload, URL, GitHub, Google, and Notion connectors | blocked | Upload extraction/security plus GitHub compare, Google changes/watch, and Notion 2026 data-source/OAuth/webhook cursor, deletion, signature, replay, and retry tests | Upload/ClamAV/MinIO production-proven; the owner-approved `external-canaries` environment exists, but its dedicated GitHub/Google/Notion fixture values are not provisioned | Connectors |
+| Cited AI planning, query, and research | blocked | Durable query/research, required citation, retrieval audit, provider timeout/429, cancellation, and redaction coverage | Live PostgreSQL/S3/worker local-provider query and research proven; the owner-approved environment lacks its OpenAI credential and model fixture | AI |
+| Attention, actions, outcomes, and feedback | blocked | Internal nervous-system loop plus operator-only Vault-backed GitHub/SMTP/webhook credential create/rotate/delete, worker-only resolution, GitHub App, templated SMTP, signed webhook, durable retry/cancel/lease, receipt, suppression, callback, outcome, feedback, and redaction tests | The exact-image GitHub Issue, SMTP, signed-webhook callback, outcome, and feedback canary is implemented; its owner-approved environment lacks the dedicated action fixtures | Actions |
 | Active agent context capture and retention | implemented | API lifecycle/replay/retention tests plus gateway and extension offline-outbox tests | OIDC service auth, ordered offline replay, MinIO-encrypted capture, resumable SSE, redaction, purge, and metadata preservation production-proven | Context |
 | OIDC, sessions, RBAC, CSRF, and service tokens | implemented | Identity/RBAC/CSRF tests and live service-token exchange | Browser Authorization Code + PKCE, Redis session, CSRF upload, and Keycloak group mapping production-proven | Identity |
 | Vault-backed secrets and encrypted object storage | implemented | Local atomic AEAD and Vault KV v2 create/read/replace/delete tests plus legacy-envelope migration and S3 retained-blob coverage | Stable-reference Vault rotation, legacy database migration, permanent purge, and MinIO-encrypted context production-proven | Security |
 | OpenTelemetry metrics and traces | implemented | API request/SSE and worker queue/job/outbox unit coverage, pinned Collector config validation, and Helm schema/security gates | Authenticated Compose upload proves W3C API-to-worker trace continuity, API/worker/SSE metrics, query-free URLs, and acceptance-secret redaction in Collector output | Operations |
 | Compose and Kubernetes/Helm deployment | implemented | 39-resource Helm render passes lint, Kubernetes 1.35 schema validation, and HIGH/CRITICAL Trivy gate | Compose and prior Kind stacks are healthy with non-root/read-only services; a protected exact-commit Kubernetes 1.35 staging workflow now makes install, authenticated ingestion, receipt, and no-op upgrade proof reproducible pending its candidate run | Operations |
-| Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | The expanded action-credential restore canary exposed a physical-restore gap; production SQL stripping and a fast regression invariant are implemented, with the immutable-stack rerun plus final signed tag/Sigstore bundle pending | Release |
-| 100k-node/500k-edge acceptance | active | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Apple M2 Pro proof remains green; a shared runner varied from a passing 178.5 ms to 258.5 ms overview p95, so ordered-set cluster aggregation was replaced by bounded per-kind aggregation and the overview edge sample was halved pending immutable-stack rerun | Performance |
+| Backup, restore, rollback, SBOM, and signed release | active | Destructive recovery proof plus verified gateway TGZ, installable VSIX, SPDX SBOM, checksums, eight-image SBOM/signing matrix, and provenance workflows | Expanded exact-stack inert restore is production-proven for connector/provider/action/context credentials and side effects; final GitHub-verified signed tag and published Sigstore bundle remain | Release |
+| 100k-node/500k-edge acceptance | implemented | 100k/500k clustered overview under 2.5 seconds, 5k/20k at or above 45 FPS, 20k/50k at or above 30 FPS, and bounded 100k/500k planning contract | Optimized shared-runner p95: 169.3 ms overview, 36.8 ms detail, 21.2 ms subgraph, and 12.1 ms search; hardware renderer proof remains green on Apple M2 Pro | Performance |
 
 ## Recorded Evidence
 
@@ -85,17 +85,18 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
   rotated as new Vault KV versions without changing their opaque database references, a legacy database AES-GCM
   credential migrated to Vault on restart, API responses remained redacted, and deletion removed Vault metadata and
   all versions.
-- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the original ops-image proof
-  verified database and object manifests, survived destructive record/object deletion, removed usable
-  connector/provider/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis, restarted
-  Keycloak/API/worker, and proved the worker did not replay an external action. The expanded action-credential canary
-  then exposed that the physical restore did not remove the new top-level action credential references; the ops SQL,
-  logical-restore regression, and release-readiness invariant now cover that key pending an immutable-runner rerun.
+- `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:backup-restore:live`: the ops image verified database and
+  object manifests, survived destructive record/object deletion, restored the PostgreSQL/S3 canary set, removed usable
+  connector/provider/action/context credentials, suppressed unfinished jobs/outbox/actions, flushed Redis, restarted
+  Keycloak/API/worker, and proved the worker did not replay the external action.
 - `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:performance:live`: the exact production Compose API
   used Keycloak service authentication and a seeded PostgreSQL/pgvector project containing 100,000 nodes and 500,000
   edges. Across 40 measured requests per route, p95 was 178.5 ms for clustered overview, 24.8 ms for concrete viewport
   expansion, 20.7 ms for depth-two subgraph, and 6.6 ms for hybrid search. The run used an Apple M2 Pro MacBook Pro
   with 12 CPU cores and 16 GB host memory; Docker had 12 CPUs and 8 GB memory.
+- The optimized immutable Linux runner repeated the same 40-request route matrix at 169.3 ms overview, 36.8 ms detail,
+  21.2 ms subgraph, and 12.1 ms hybrid-search p95 after replacing ordered-set cluster aggregation with bounded per-kind
+  aggregation and limiting edge sampling to the visible budget.
 - `GRAPHVIEW_COMPOSE_PROJECT=graphview-acceptance pnpm run test:failure-injection:live`: stopping MinIO made readiness
   fail while liveness remained healthy, a real upload returned redacted RFC 7807 output without creating a job, and
   recovery required no API restart. Stopping Redis produced the same readiness/liveness separation and recovered;
@@ -120,8 +121,9 @@ The following evidence was rerun on 2026-07-10 and 2026-07-11 from `codex/graphv
 - The manual `external-canaries` protected workflow builds all eight exact candidate images and runs real GitHub,
   Google Drive, Notion, OpenAI, GitHub Issue, SMTP, and HMAC workflow adapters through the production stack. It records
   only redacted target/job/run/outcome IDs, closes the GitHub receipt issue, deletes stored action/provider credentials,
-  and destroys the stack. The repository currently has no protected environment values, so the three external rows
-  remain explicitly blocked rather than being represented as production-proven.
+  and destroys the stack. The repository environment requires approval from `RNT56`; its protected secrets and fixture
+  variables are currently empty, so the three external rows remain explicitly blocked rather than being represented as
+  production-proven.
 
 ## Acceptance Rule
 

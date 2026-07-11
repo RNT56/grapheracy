@@ -1,5 +1,10 @@
 # Roadmap
 
+This document is the historical delivery record for phases 1-27. A phase marked complete means its scoped capability
+landed at that time; it does not independently prove current production readiness. Graphview 1.0 status is governed by
+`14-graphview-1.0-upgrade-ledger.md`, stable commands in `04-development.md`, and executable evidence in
+`05-testing.md`.
+
 ## Phase 1: Project Preparation
 
 Status: complete.
@@ -23,7 +28,7 @@ Status: complete.
 - Scaffold FastAPI API service.
 - Scaffold async worker service.
 - Add typed shared contracts to API and web.
-- Add health checks, auth stub, DB migrations, and UI shell informed by the prototype.
+- Add health checks, a development-only seeded auth adapter, DB migrations, and UI shell informed by the prototype.
 
 ## Phase 3: Core Graph Product
 
@@ -195,7 +200,8 @@ Status: complete.
 
 Status: complete.
 
-- Add OpenAI Responses, Anthropic Messages, and Gemini generate-content adapters with mocked tests.
+- Add OpenAI Responses, Anthropic Messages, and Gemini generate-content adapters with deterministic provider contract
+  tests; real-provider acceptance is tracked separately by the Graphview 1.0 protected canaries.
 - Add deterministic local provider behavior for local development and CI.
 - Document provider configuration, data-transfer policy, review gates, and release checks.
 
@@ -231,7 +237,7 @@ Status: complete.
 - Preserved reduced-motion support, graph-size performance budgets, and 2D/3D interaction parity.
 - Added Phase 24 source-contract and Playwright browser QA scaffolds for graph activity routes, nonblank 2D/3D rendering,
   tethered tooltip source URL behavior, and reduced-motion expectations.
-- Wired `phase24:check` through package scripts, web build, and browser QA.
+- Wired the then-current release gate through package scripts, web build, and browser QA.
 - Use `11-living-graph-ui-vision-and-upgrade-plan.md` as the implementation record for this phase.
 
 ## Phase 25: Digital Nervous System Loop
@@ -246,7 +252,8 @@ Status: complete.
   anomalies, connector issues, action follow-up, and outcome review.
 - Added ownership, assignment, severity, SLA, escalation, blockers, evidence links, graph links, and suggested actions.
 - Added safe action execution boundaries for approved side effects such as proposal creation, connector sync, source
-  freshness updates, research tasks, notifications, tickets, and internal workflow stubs.
+  freshness updates, research tasks, notifications, tickets, and signed workflows. The original internal adapters were
+  subsequently replaced by the Graphview 1.0 GitHub, SMTP, and HMAC webhook implementations.
 - Added outcome tracking and feedback loops that can update graph freshness, confidence, routing policy, and future
   prioritization through review-gated or policy-gated records.
 - Added temporal memory for source freshness, repeated signals, state changes, graph change timelines, recurring review
@@ -265,7 +272,7 @@ Status: complete.
 
 - Lazy-load the Three.js 3D graph renderer so the default 2D workspace does not eagerly load the 3D dependency path.
 - Add WebGL initialization fallback handling inside the Three.js renderer adapter.
-- Add browser QA artifact cleanup and wire `phase26:check` through lint, security local checks, license checks,
+- Add browser QA artifact cleanup and wire the then-current release gate through lint, security local checks, license checks,
   changelog checks, typecheck, tests, release readiness, web build, browser QA, and cleanup.
 - Make the Phase 25 safe-action execution allowlist configurable through settings and environment configuration.
 - Scope source freshness actions to the proposal project and report missing targets as failed action runs.

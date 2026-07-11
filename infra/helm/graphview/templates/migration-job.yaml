@@ -2,6 +2,10 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: {{ .Release.Name }}-migrate-{{ .Release.Revision }}
+  labels:
+    app.kubernetes.io/name: graphview-migrate
+    app.kubernetes.io/part-of: graphview
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   backoffLimit: 3
   activeDeadlineSeconds: 900

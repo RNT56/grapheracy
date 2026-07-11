@@ -153,6 +153,6 @@ PYTHONPATH=src uv run --group dev pytest tests/test_api.py -q
 Run the release gate before handoff:
 
 ```sh
-pnpm run phase27:smoke
-pnpm run phase27:check
+pnpm run test:smoke
+pnpm run quality:full
 ```
