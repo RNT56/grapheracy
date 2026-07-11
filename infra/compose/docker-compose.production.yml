@@ -135,14 +135,14 @@ services:
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     healthcheck:
-      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      test: [CMD, /usr/bin/minio-healthcheck]
       interval: 10s
       timeout: 5s
       retries: 10
 
   minio-init:
-    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
-    user: "1000:1000"
+    image: ${GRAPHVIEW_OPS_IMAGE:?required}
+    user: "10001:10001"
     entrypoint: [/bin/sh, -c]
     command:
       - mc alias set graphview http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing graphview/graphview

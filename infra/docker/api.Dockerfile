@@ -1,4 +1,4 @@
-FROM python:3.14.5-slim-bookworm AS build
+FROM python:3.14.6-slim-bookworm AS build
 COPY --from=ghcr.io/astral-sh/uv:0.11.18 /uv /uvx /bin/
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
@@ -7,8 +7,13 @@ COPY services/api /app/services/api
 COPY services/worker /app/services/worker
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --project services/api --frozen --no-dev
 
-FROM python:3.14.5-slim-bookworm AS runtime
-RUN groupadd --system --gid 10001 graphview && useradd --system --uid 10001 --gid graphview --home-dir /nonexistent --shell /usr/sbin/nologin graphview
+FROM python:3.14.6-slim-bookworm AS runtime
+RUN apt-get update \
+    && apt-get upgrade --yes \
+    && python -m pip install --no-cache-dir --upgrade pip==26.1.2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 10001 graphview \
+    && useradd --system --uid 10001 --gid graphview --home-dir /nonexistent --shell /usr/sbin/nologin graphview
 WORKDIR /app
 COPY --from=build --chown=graphview:graphview /app/.venv /app/.venv
 COPY --from=build --chown=graphview:graphview /app/services/api /app/services/api

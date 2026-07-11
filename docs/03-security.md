@@ -175,6 +175,11 @@ Completed external receipts remain audit evidence and are never enqueued again.
 - Run as non-root users.
 - Use minimal base images.
 - Pin major runtime image lines.
+- Fetch remote build inputs only by immutable commit or version and verified SHA-256 checksum. MinIO and `mc` are
+  rebuilt from their latest official source commits with an explicitly patched module set and the current fixed Go
+  toolchain; the Collector is a minimal component allowlist built with the same toolchain.
+- Upgrade final Debian/Alpine package sets during the candidate build, remove unused vulnerable helpers and database
+  drivers, and reuse the scanned operations image for object-bucket initialization instead of an unscanned client.
 - Do not bake secrets into image layers.
 - Generate SBOMs for all eight release images plus the packaged gateway and editor extension before release.
 - Tag publication requires GitHub's cryptographic annotated-tag verification, digest-pinned image signatures and

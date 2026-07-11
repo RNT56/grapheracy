@@ -8,7 +8,9 @@ ARG VITE_GRAPHVIEW_API_BASE_URL=""
 ENV VITE_GRAPHVIEW_API_BASE_URL=${VITE_GRAPHVIEW_API_BASE_URL}
 RUN pnpm install --frozen-lockfile && pnpm --filter @graphview/web build
 
-FROM nginxinc/nginx-unprivileged:1.29.5-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.30.3-alpine3.23 AS runtime
+USER 0:0
+RUN apk upgrade --no-cache
 ENV NGINX_ENVSUBST_FILTER="GRAPHVIEW_DNS_RESOLVER|GRAPHVIEW_API_UPSTREAM_HOST|GRAPHVIEW_IDENTITY_UPSTREAM_HOST" \
     GRAPHVIEW_API_UPSTREAM_HOST=api \
     GRAPHVIEW_IDENTITY_UPSTREAM_HOST=keycloak

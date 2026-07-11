@@ -294,6 +294,9 @@ docker compose -f infra/compose/docker-compose.dev.yml up web api worker postgre
 Production images are multi-stage, non-root, and read-only at runtime. Start the exact reference images with generated
 secrets and `docker compose -p graphview -f infra/compose/docker-compose.production.yml up -d --wait`; do not reuse the
 Vault development token, Keycloak bootstrap account, or MinIO root credentials outside an isolated reference stack.
+The MinIO server and client are checksum-pinned builds from their official upstream commits with patched Go modules;
+the server uses a scratch runtime and a dedicated static HTTP health probe. Compose and Helm bucket initialization
+reuse `graphview-ops`, so no additional unscanned MinIO client image enters the production graph.
 
 ## OpenTelemetry
 
@@ -305,10 +308,11 @@ latency, active-job, terminal-status, execution-duration, and outbox-dispatch me
 
 Graphview never captures request or response headers. Server query strings are replaced with `<redacted>`, outbound
 HTTP span URLs discard queries and fragments, provider exception text is redacted, and metric dimensions exclude
-project IDs and job IDs. The reference Collector exposes Prometheus metrics on loopback port `8889` and keeps bounded
-JSON trace and metric evidence in its non-root `/var/lib/otel` volume. Helm uses the same non-root image and an
-ephemeral bounded volume. Production operators should replace or extend the reference file/debug exporters with their
-chosen durable OTLP backend; the application contract remains vendor-neutral.
+project IDs and job IDs. The reference Collector contains only the OTLP receiver, memory/batch processors,
+debug/file/Prometheus exporters, and health extension required by this configuration. It exposes Prometheus metrics on
+loopback port `8889` and keeps bounded JSON trace and metric evidence in its non-root `/var/lib/otel` volume. Helm uses
+the same non-root image and an ephemeral bounded volume. Production operators should replace or extend the reference
+file/debug exporters with their chosen durable OTLP backend; the application contract remains vendor-neutral.
 
 After the unmocked live browser workflow, prove the emitted contract with:
 

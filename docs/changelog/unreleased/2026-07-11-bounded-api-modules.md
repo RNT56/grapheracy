@@ -90,4 +90,14 @@ owner: codex
   files, caps traversal and results, preserves line numbers, and redacts matched text.
 - Permit the production-stack browser's loopback Keycloak callback and origin in the reference realm, with a release
   readiness regression check that keeps the CI OIDC route configured.
+- Harden all release-image build paths against the current HIGH/CRITICAL scan findings: refresh Python, Nginx,
+  PostgreSQL, ClamAV, Keycloak, and OpenTelemetry inputs; upgrade final OS packages; patch Keycloak's Jackson runtime;
+  remove unused vulnerable Keycloak and PostgreSQL helper artifacts; and retain non-root, read-only runtimes.
+- Replace stale upstream MinIO and `mc` binaries with checksum-pinned builds from their latest official source commits,
+  using Go 1.26.5 and explicit fixed dependency versions; ship MinIO from scratch with a dedicated static health probe,
+  and reuse the scanned operations image for Compose and Helm bucket initialization.
+- Build a minimal scratch-based OpenTelemetry Collector containing only Graphview's OTLP receiver, batch and memory
+  processors, debug/file/Prometheus exporters, and health extension instead of the full contrib distribution.
+- Extend the local security policy gate to reject mutable image tags, unchecked remote build inputs, vulnerable legacy
+  production pins, missing patched toolchains/dependencies, or an unscanned MinIO initialization image.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.
