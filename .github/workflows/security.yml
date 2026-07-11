@@ -79,15 +79,24 @@ jobs:
           image: graphview-${{ matrix.service }}:security-scan
           artifact-name: graphview-${{ matrix.service }}.spdx.json
           format: spdx-json
-      - uses: aquasecurity/trivy-action@v0.36.0
+      - name: Generate all-severity image SARIF
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: graphview-${{ matrix.service }}:security-scan
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
-          severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
       - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
+      - name: Enforce fixed HIGH and CRITICAL image findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: graphview-${{ matrix.service }}:security-scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true

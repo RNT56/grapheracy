@@ -100,10 +100,15 @@ owner: codex
   processors, debug/file/Prometheus exporters, and health extension instead of the full contrib distribution.
 - Extend the local security policy gate to reject mutable image tags, unchecked remote build inputs, vulnerable legacy
   production pins, missing patched toolchains/dependencies, or an unscanned MinIO initialization image.
+- Split image scanning into an all-severity SARIF upload and a separate fixed HIGH/CRITICAL blocking scan, preserving
+  medium/low visibility without allowing SARIF's intentionally broad report to fail the release gate; patch the fixed
+  medium MinIO modules and Jackson runtime identified by that broader report.
 - Preserve the complete response metadata when generating the one-release V1 compatibility contracts, including SSE
   response classes and explicit responses, and add a characterization test covering every legacy operation rather
   than one representative graph route.
 - Add an immutable-stack compatibility proof that compares all 78 legacy OpenAPI paths and operations, then replays
   every safe read through both unversioned and `/api/v1` routes with status, content-type, deprecation, sunset,
   successor-link, and normalized-response parity checks.
+- Drive authenticated live-stack API assertions through the browser's own `fetch` context so Secure session cookies,
+  CSRF uploads, job polling, review reads, and terminal SSE are proven with the same cookie semantics as the product UI.
 - Ratchet API assembly to 220 lines and prevent bounded routes from migrating back into the monolith.

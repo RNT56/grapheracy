@@ -91,12 +91,15 @@ for (const file of ["web.Dockerfile", "clamav.Dockerfile"]) {
 for (const file of ["minio.Dockerfile", "ops.Dockerfile", "otel-collector.Dockerfile"]) {
   if (!containers[file].includes("golang:1.26.5-bookworm")) failures.push(`${file} must use the patched Go toolchain`);
 }
-for (const required of ["jackson-databind/2.21.4", "mssql-jdbc/13.4.0.jre11", "keycloak-admin-cli-*.jar"]) {
+for (const required of ["jackson-databind/2.21.5", "mssql-jdbc/13.4.0.jre11", "keycloak-admin-cli-*.jar"]) {
   if (!containers["keycloak.Dockerfile"].includes(required)) failures.push(`keycloak.Dockerfile missing ${required}`);
 }
 for (const required of [
   "github.com/apache/thrift@v0.23.0",
+  "filippo.io/edwards25519@v1.1.1",
+  "github.com/Azure/go-ntlmssp@v0.1.1",
   "github.com/buger/jsonparser@v1.1.2",
+  "github.com/eclipse/paho.mqtt.golang@v1.5.1",
   "github.com/go-jose/go-jose/v4@v4.1.4",
   "github.com/prometheus/prometheus@v0.311.3",
   "go.opentelemetry.io/otel/sdk@v1.43.0",

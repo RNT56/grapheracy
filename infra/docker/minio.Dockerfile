@@ -6,7 +6,10 @@ WORKDIR /src
 RUN tar --extract --gzip --file=/tmp/minio.tar.gz --strip-components=1 \
     && rm /tmp/minio.tar.gz \
     && go get github.com/apache/thrift@v0.23.0 \
+        filippo.io/edwards25519@v1.1.1 \
+        github.com/Azure/go-ntlmssp@v0.1.1 \
         github.com/buger/jsonparser@v1.1.2 \
+        github.com/eclipse/paho.mqtt.golang@v1.5.1 \
         github.com/go-jose/go-jose/v4@v4.1.4 \
         github.com/prometheus/prometheus@v0.311.3 \
         go.opentelemetry.io/otel/sdk@v1.43.0 \

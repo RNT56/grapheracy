@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const liveStackEnabled = process.env.GRAPHVIEW_LIVE_STACK === "1";
 const username = process.env.GRAPHVIEW_LIVE_USERNAME ?? "";
@@ -23,33 +23,44 @@ test.describe("production reference stack", () => {
     await expect(page.locator('[data-testid="graph-canvas-root"], .graph-canvas-wrap').first()).toBeVisible();
     await expect(page.getByRole("img", { name: /rendered graph nodes/i })).toBeVisible();
 
-    const session = await page.request.get("/api/v1/auth/session");
-    expect(session.ok()).toBeTruthy();
-    const csrfToken = String((await session.json()).csrf_token);
+    const session = await browserGet(page, "/api/v1/auth/session");
+    expect(session.ok).toBeTruthy();
+    const csrfToken = String(session.json.csrf_token);
     expect(csrfToken).not.toBe("");
 
-    const accepted = await page.request.post("/api/v1/uploads", {
-      headers: { "X-CSRF-Token": csrfToken },
-      multipart: {
-        title: sourceTitle,
-        graph_id: "project-default",
-        file: {
-          name: "live-stack.md",
-          mimeType: "text/markdown",
-          buffer: Buffer.from(`# ${sourceTitle}\nGraphview persists provenance through a real browser, API, object store, queue, and worker.`),
-        },
-      },
-    });
-    expect(accepted.status()).toBe(202);
-    expect(accepted.headers()["x-graphview-trace-id"]).toMatch(/^[0-9a-f]{32}$/);
-    const jobId = String((await accepted.json()).job_id);
+    const accepted = await page.evaluate(async ({ csrfToken, sourceTitle }) => {
+      const form = new FormData();
+      form.append("title", sourceTitle);
+      form.append("graph_id", "project-default");
+      form.append(
+        "file",
+        new File(
+          [`# ${sourceTitle}\nGraphview persists provenance through a real browser, API, object store, queue, and worker.`],
+          "live-stack.md",
+          { type: "text/markdown" },
+        ),
+      );
+      const response = await fetch("/api/v1/uploads", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrfToken },
+        body: form,
+      });
+      return {
+        status: response.status,
+        traceId: response.headers.get("x-graphview-trace-id"),
+        json: await response.json(),
+      };
+    }, { csrfToken, sourceTitle });
+    expect(accepted.status).toBe(202);
+    expect(accepted.traceId).toMatch(/^[0-9a-f]{32}$/);
+    const jobId = String(accepted.json.job_id);
 
     await expect
       .poll(
         async () => {
-          const response = await page.request.get(`/api/v1/jobs/${encodeURIComponent(jobId)}`);
-          expect(response.ok()).toBeTruthy();
-          return response.json();
+          const response = await browserGet(page, `/api/v1/jobs/${encodeURIComponent(jobId)}`);
+          expect(response.ok).toBeTruthy();
+          return response.json;
         },
         { timeout: 60_000, intervals: [250, 500, 1_000] },
       )
@@ -62,14 +73,31 @@ test.describe("production reference stack", () => {
         },
       });
 
-    const review = await page.request.get("/api/v1/review-queue?graph_id=project-default&limit=100");
-    expect(review.ok()).toBeTruthy();
-    const reviewQueue = await review.json();
+    const review = await browserGet(page, "/api/v1/review-queue?graph_id=project-default&limit=100");
+    expect(review.ok).toBeTruthy();
+    const reviewQueue = review.json as {
+      pending_count: number;
+      items: Array<{ source?: { title?: string } }>;
+    };
     expect(reviewQueue.pending_count).toBeGreaterThan(0);
     expect(reviewQueue.items.some((item: { source?: { title?: string } }) => item.source?.title === sourceTitle)).toBeTruthy();
 
-    const jobStream = await page.request.get(`/api/v1/jobs/${encodeURIComponent(jobId)}/stream`);
-    expect(jobStream.ok()).toBeTruthy();
-    expect(await jobStream.text()).toContain("event: job.succeeded");
+    const jobStream = await browserGet(page, `/api/v1/jobs/${encodeURIComponent(jobId)}/stream`);
+    expect(jobStream.ok).toBeTruthy();
+    expect(jobStream.text).toContain("event: job.succeeded");
   });
 });
+
+async function browserGet(page: Page, path: string) {
+  return page.evaluate(async (requestPath) => {
+    const response = await fetch(requestPath);
+    const text = await response.text();
+    let json: Record<string, unknown> = {};
+    try {
+      json = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      // SSE and other non-JSON responses are asserted through text.
+    }
+    return { ok: response.ok, status: response.status, text, json };
+  }, path);
+}
