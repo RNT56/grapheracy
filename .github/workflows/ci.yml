@@ -51,7 +51,7 @@ jobs:
         with: { node-version: "24", cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - run: uv python install 3.14.5
-      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm --filter @graphview/web exec playwright install --with-deps chromium
       - run: pnpm run test:smoke
       - run: pnpm run test:e2e
         env: { PLAYWRIGHT_WORKERS: "2" }
