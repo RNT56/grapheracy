@@ -141,8 +141,8 @@ for (const [file, body] of Object.entries(acceptanceWorkflows)) {
   }
 }
 for (const file of ["staging.yml", "external-canaries.yml", "release.yml"]) {
-  if (!acceptanceWorkflows[file].includes("sigstore/cosign-installer@v4")) {
-    failures.push(`${file} must use the current cosign installer action`);
+  if (!acceptanceWorkflows[file].includes("sigstore/cosign-installer@v4.1.2")) {
+    failures.push(`${file} must use the pinned current cosign installer action`);
   }
 }
 for (const required of [
