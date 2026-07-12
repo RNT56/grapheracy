@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -34,10 +35,10 @@ jobs:
       GRAPHVIEW_CANARY_SMTP_RECIPIENT: ${{ vars.GRAPHVIEW_CANARY_SMTP_RECIPIENT }}
       GRAPHVIEW_CANARY_WEBHOOK_URL: ${{ vars.GRAPHVIEW_CANARY_WEBHOOK_URL }}
       GRAPHVIEW_CANARY_WEBHOOK_SECRET: ${{ secrets.GRAPHVIEW_CANARY_WEBHOOK_SECRET }}
-      GRAPHVIEW_SMTP_HOST: ${{ vars.GRAPHVIEW_CANARY_SMTP_HOST }}
-      GRAPHVIEW_SMTP_PORT: ${{ vars.GRAPHVIEW_CANARY_SMTP_PORT }}
-      GRAPHVIEW_SMTP_STARTTLS: ${{ vars.GRAPHVIEW_CANARY_SMTP_STARTTLS }}
-      GRAPHVIEW_SMTP_FROM_ADDRESS: ${{ vars.GRAPHVIEW_CANARY_SMTP_FROM_ADDRESS }}
+      GRAPHVIEW_CANARY_SMTP_HOST: ${{ vars.GRAPHVIEW_CANARY_SMTP_HOST }}
+      GRAPHVIEW_CANARY_SMTP_PORT: ${{ vars.GRAPHVIEW_CANARY_SMTP_PORT }}
+      GRAPHVIEW_CANARY_SMTP_STARTTLS: ${{ vars.GRAPHVIEW_CANARY_SMTP_STARTTLS }}
+      GRAPHVIEW_CANARY_SMTP_FROM_ADDRESS: ${{ vars.GRAPHVIEW_CANARY_SMTP_FROM_ADDRESS }}
       GRAPHVIEW_COMPOSE_PROJECT: graphview-external-canaries
       GRAPHVIEW_PUBLIC_URL: http://127.0.0.1:8080
       GRAPHVIEW_CANARY_RECEIPT_PATH: artifacts/external-canary-receipt.json
@@ -50,24 +51,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/setup-buildx-action@v4
+      - uses: sigstore/cosign-installer@v4
       - name: Validate protected fixture configuration
-        run: |
-          required=(
-            GRAPHVIEW_CANARY_GITHUB_TOKEN GRAPHVIEW_CANARY_GITHUB_REPOSITORY
-            GRAPHVIEW_CANARY_GOOGLE_CLIENT_ID GRAPHVIEW_CANARY_GOOGLE_CLIENT_SECRET
-            GRAPHVIEW_CANARY_GOOGLE_REFRESH_TOKEN GRAPHVIEW_CANARY_GOOGLE_FOLDER_ID
-            GRAPHVIEW_CANARY_NOTION_TOKEN GRAPHVIEW_CANARY_NOTION_TARGET_ID
-            GRAPHVIEW_CANARY_OPENAI_API_KEY GRAPHVIEW_CANARY_OPENAI_MODEL
-            GRAPHVIEW_CANARY_SMTP_RECIPIENT GRAPHVIEW_CANARY_WEBHOOK_URL
-            GRAPHVIEW_CANARY_WEBHOOK_SECRET GRAPHVIEW_SMTP_HOST GRAPHVIEW_SMTP_FROM_ADDRESS
-          )
-          for variable in "${required[@]}"; do
-            if [[ -z "${!variable:-}" ]]; then
-              echo "Protected environment value $variable is not configured." >&2
-              exit 1
-            fi
-          done
-          case "${GRAPHVIEW_CANARY_NOTION_TARGET_TYPE:-page}" in page|database) ;; *) exit 1 ;; esac
+        run: node scripts/manage-external-canaries.mjs validate-env
+      - name: Resolve, verify, and pin the staging-signed candidate
+        run: bash scripts/prepare-external-canary-candidate.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Prepare ephemeral production stack
         run: |
           webhook_host="$(python3 -c 'import os,urllib.parse; print(urllib.parse.urlparse(os.environ["GRAPHVIEW_CANARY_WEBHOOK_URL"]).hostname or "")')"
@@ -85,26 +75,18 @@ jobs:
           export_masked VAULT_DEV_ROOT_TOKEN "$(openssl rand -hex 18)"
           export_masked GRAPHVIEW_SECRET_KEY "$(openssl rand -hex 32)"
           export_masked GRAPHVIEW_SERVICE_CLIENT_SECRET "$(openssl rand -hex 24)"
-          registry_owner="${GITHUB_REPOSITORY_OWNER,,}"
-          candidate_tag="candidate-$GITHUB_SHA"
           {
             echo "MINIO_ROOT_USER=graphviewcanary"
             echo "KEYCLOAK_ADMIN=admin"
             echo "GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS=api.github.com,oauth2.googleapis.com,www.googleapis.com,api.notion.com,$webhook_host"
             echo "GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS=$webhook_host"
-            echo "GRAPHVIEW_WEB_IMAGE=ghcr.io/$registry_owner/graphview-web:$candidate_tag"
-            echo "GRAPHVIEW_API_IMAGE=ghcr.io/$registry_owner/graphview-api:$candidate_tag"
-            echo "GRAPHVIEW_WORKER_IMAGE=ghcr.io/$registry_owner/graphview-worker:$candidate_tag"
-            echo "GRAPHVIEW_OTEL_IMAGE=ghcr.io/$registry_owner/graphview-otel:$candidate_tag"
-            echo "GRAPHVIEW_OPS_IMAGE=ghcr.io/$registry_owner/graphview-ops:$candidate_tag"
-            echo "GRAPHVIEW_KEYCLOAK_IMAGE=ghcr.io/$registry_owner/graphview-keycloak:$candidate_tag"
-            echo "GRAPHVIEW_CLAMAV_IMAGE=ghcr.io/$registry_owner/graphview-clamav:$candidate_tag"
-            echo "GRAPHVIEW_MINIO_IMAGE=ghcr.io/$registry_owner/graphview-minio:$candidate_tag"
             echo "GRAPHVIEW_CLAMAV_PLATFORM=linux/amd64"
-            echo "GRAPHVIEW_SMTP_PORT=${GRAPHVIEW_SMTP_PORT:-587}"
-            echo "GRAPHVIEW_SMTP_STARTTLS=${GRAPHVIEW_SMTP_STARTTLS:-true}"
+            echo "GRAPHVIEW_SMTP_HOST=$GRAPHVIEW_CANARY_SMTP_HOST"
+            echo "GRAPHVIEW_SMTP_PORT=$GRAPHVIEW_CANARY_SMTP_PORT"
+            echo "GRAPHVIEW_SMTP_STARTTLS=$GRAPHVIEW_CANARY_SMTP_STARTTLS"
+            echo "GRAPHVIEW_SMTP_FROM_ADDRESS=$GRAPHVIEW_CANARY_SMTP_FROM_ADDRESS"
           } >> "$GITHUB_ENV"
-      - name: Pull the exact staging-tested candidate images
+      - name: Pull the digest-pinned staging-tested candidate images
         run: |
           for image in \
             "$GRAPHVIEW_API_IMAGE" "$GRAPHVIEW_WORKER_IMAGE" "$GRAPHVIEW_OTEL_IMAGE" "$GRAPHVIEW_WEB_IMAGE" \
@@ -121,9 +103,41 @@ jobs:
           curl -fsS -X PUT "$GRAPHVIEW_PUBLIC_URL/identity/admin/realms/graphview/users/$service_user_id/groups/$admin_group_id" -H "authorization: Bearer $master_token"
       - name: Execute protected external canaries
         run: bash scripts/test-live-external-canaries.sh
+      - name: Validate receipt provenance and redaction
+        run: |
+          receipt="$GRAPHVIEW_CANARY_RECEIPT_PATH"
+          manifest=artifacts/candidate-image-manifest.json
+          jq -e --arg commit "$GITHUB_SHA" --argjson staging_run "$GRAPHVIEW_CANARY_STAGING_RUN_ID" \
+            --arg manifest_sha "$GRAPHVIEW_CANARY_CANDIDATE_MANIFEST_SHA256" '
+              .schema_version == 2
+              and .commit == $commit
+              and .status == "passed"
+              and .provenance.staging_run_id == $staging_run
+              and .provenance.candidate_manifest_sha256 == $manifest_sha
+              and ((.images | keys | length) == 8)
+              and ([.images[].digest | test("^sha256:[0-9a-f]{64}$")] | all)
+              and ([paths(scalars) | map(tostring) | join(".") | test("token|password|secret|credential"; "i")] | any | not)
+            ' "$receipt" >/dev/null
+          jq -S '.images | map_values(.digest)' "$manifest" > artifacts/staging-digests.json
+          jq -S '.images | map_values(.digest)' "$receipt" > artifacts/canary-digests.json
+          cmp artifacts/staging-digests.json artifacts/canary-digests.json
+          for name in \
+            GRAPHVIEW_CANARY_GITHUB_TOKEN GRAPHVIEW_CANARY_GOOGLE_CLIENT_ID \
+            GRAPHVIEW_CANARY_GOOGLE_CLIENT_SECRET GRAPHVIEW_CANARY_GOOGLE_REFRESH_TOKEN \
+            GRAPHVIEW_CANARY_NOTION_TOKEN GRAPHVIEW_CANARY_OPENAI_API_KEY \
+            GRAPHVIEW_CANARY_SMTP_USERNAME GRAPHVIEW_CANARY_SMTP_PASSWORD \
+            GRAPHVIEW_CANARY_WEBHOOK_SECRET POSTGRES_PASSWORD REDIS_PASSWORD \
+            MINIO_ROOT_PASSWORD KEYCLOAK_ADMIN_PASSWORD VAULT_DEV_ROOT_TOKEN \
+            GRAPHVIEW_SECRET_KEY GRAPHVIEW_SERVICE_CLIENT_SECRET; do
+            value="${!name:-}"
+            if [[ -n "$value" ]] && grep -Fq -- "$value" "$receipt"; then
+              echo "Canary receipt contains protected value $name." >&2
+              exit 1
+            fi
+          done
       - name: Upload redacted canary receipt
         if: ${{ always() && hashFiles('artifacts/external-canary-receipt.json') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: graphview-external-canary-receipt
           path: artifacts/external-canary-receipt.json

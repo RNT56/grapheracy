@@ -21,7 +21,10 @@ await Promise.all([
   mustExist(".github/workflows/security.yml"),
   mustExist(".github/renovate.json"),
   mustExist("infra/docker/minio-healthcheck.go"),
-  mustExist("infra/docker/otelcol-builder.yaml")
+  mustExist("infra/docker/otelcol-builder.yaml"),
+  mustExist("config/external-canaries.example.json"),
+  mustExist("scripts/manage-external-canaries.mjs"),
+  mustExist("scripts/prepare-external-canary-candidate.sh")
 ]);
 
 const workspace = await readFile(path.join(root, "pnpm-workspace.yaml"), "utf8");
@@ -131,9 +134,26 @@ for (const [file, body] of Object.entries(acceptanceWorkflows)) {
     "azure/setup-helm@v4",
     "docker/login-action@v3",
     "docker/setup-buildx-action@v3",
-    "docker/build-push-action@v6"
+    "docker/build-push-action@v6",
+    "sigstore/cosign-installer@v3"
   ]) {
     if (body.includes(deprecatedAction)) failures.push(`${file} retains deprecated action ${deprecatedAction}`);
+  }
+}
+for (const file of ["staging.yml", "external-canaries.yml", "release.yml"]) {
+  if (!acceptanceWorkflows[file].includes("sigstore/cosign-installer@v4")) {
+    failures.push(`${file} must use the current cosign installer action`);
+  }
+}
+for (const required of [
+  "actions: read",
+  "prepare-external-canary-candidate.sh",
+  "manage-external-canaries.mjs validate-env",
+  "Pull the digest-pinned staging-tested candidate images",
+  "Validate receipt provenance and redaction"
+]) {
+  if (!acceptanceWorkflows["external-canaries.yml"].includes(required)) {
+    failures.push(`external-canaries.yml missing protected candidate requirement ${required}`);
   }
 }
 for (const forbidden of [

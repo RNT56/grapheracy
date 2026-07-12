@@ -236,11 +236,31 @@ text is redacted before job storage, connector health, action audit, or OpenTele
 
 The secret-backed release canary is the manual `Protected external canaries` GitHub Actions workflow bound to the
 `external-canaries` environment. Provision dedicated fixture values for a writable GitHub repository, Google Drive
-folder, Notion page or database, OpenAI model, SMTP relay/recipient, and HTTPS webhook receiver. The workflow builds
-the exact eight candidate images, grants its ephemeral service account review authority only inside the disposable
-stack, performs initial and cursor-based connector syncs, runs cited AI, executes all three reviewed external actions,
-records callback/user-confirmed outcomes and feedback, uploads a redacted ID-only receipt, deletes stored credentials,
-and destroys the stack. Never point these fixtures at production repositories, mail recipients, or workflow receivers.
+folder, Notion page or database, OpenAI model, STARTTLS SMTP relay/recipient, and public HTTPS webhook receiver. The
+workflow resolves the successful staging artifact for its exact commit, verifies the manifest, registry digests, and
+staging Sigstore identity, pins all eight images by digest, grants its ephemeral service account review authority only
+inside the disposable stack, performs initial and cursor-based connector syncs, runs cited AI, executes all three
+reviewed external actions, records callback/user-confirmed outcomes and feedback, uploads a redacted receipt, deletes
+stored credentials, and destroys the stack. Never point these fixtures at production repositories, mail recipients,
+or workflow receivers.
+
+Create the ignored configuration without placing values on a command line or in shell history:
+
+```sh
+cp config/external-canaries.example.json config/external-canaries.json
+chmod 600 config/external-canaries.json
+# Fill only dedicated fixture values, then:
+pnpm run canary:validate
+pnpm run canary:configure
+pnpm run canary:status
+pnpm run canary:dispatch
+```
+
+The configuration manager rejects unknown names, placeholders, partial SMTP authentication, non-STARTTLS SMTP,
+private/local webhook destinations, malformed fixture identifiers, and permissive file modes. `canary:status` reads
+secret names only, proves that a successful staging run and unexpired candidate-manifest artifact exist for the exact
+remote branch SHA, and never retrieves secret values. `canary:dispatch` fails closed until that report is ready; the
+environment approval remains a separate human gate.
 
 ## Logical Project Export
 

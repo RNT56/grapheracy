@@ -28,3 +28,4 @@ logs/
 
 .graphview/
 infra/compose/.data/
+config/external-canaries.json

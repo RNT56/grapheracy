@@ -9,6 +9,8 @@ run_id="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 required_variables=(
   GRAPHVIEW_SERVICE_CLIENT_SECRET
   GRAPHVIEW_CANARY_COMMIT
+  GRAPHVIEW_CANARY_STAGING_RUN_ID
+  GRAPHVIEW_CANARY_CANDIDATE_MANIFEST_SHA256
   GRAPHVIEW_WEB_IMAGE
   GRAPHVIEW_API_IMAGE
   GRAPHVIEW_WORKER_IMAGE
@@ -37,6 +39,14 @@ for variable in "${required_variables[@]}"; do
     exit 1
   fi
 done
+if [[ ! "$GRAPHVIEW_CANARY_STAGING_RUN_ID" =~ ^[0-9]+$ ]]; then
+  echo "GRAPHVIEW_CANARY_STAGING_RUN_ID must identify the successful staging run." >&2
+  exit 1
+fi
+if [[ ! "$GRAPHVIEW_CANARY_CANDIDATE_MANIFEST_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "GRAPHVIEW_CANARY_CANDIDATE_MANIFEST_SHA256 must be a SHA-256 digest." >&2
+  exit 1
+fi
 
 service_token="$(
   curl -fsS -X POST "$base_url/identity/realms/graphview/protocol/openid-connect/token" \
@@ -278,6 +288,8 @@ image_manifest="$(
 )"
 jq -n \
   --arg commit "$GRAPHVIEW_CANARY_COMMIT" \
+  --arg staging_run_id "$GRAPHVIEW_CANARY_STAGING_RUN_ID" \
+  --arg candidate_manifest_sha256 "$GRAPHVIEW_CANARY_CANDIDATE_MANIFEST_SHA256" \
   --argjson images "$image_manifest" \
   --arg run_id "$run_id" \
   --arg github_target_id "$github_target_id" \
@@ -290,7 +302,7 @@ jq -n \
   --arg github_outcome_id "$(jq -er .id <<<"$github_outcome")" \
   --arg smtp_outcome_id "$(jq -er .id <<<"$smtp_outcome")" \
   --arg webhook_outcome_id "$webhook_outcome_id" \
-  '{schema_version:1,commit:$commit,images:$images,run_id:$run_id,connectors:{github:$github_target_id,google:$google_target_id,notion:$notion_target_id},ai_job_id:$ai_job_id,actions:{github:$github_action_run_id,smtp:$smtp_action_run_id,webhook:$webhook_action_run_id},outcomes:{github:$github_outcome_id,smtp:$smtp_outcome_id,webhook:$webhook_outcome_id},status:"passed"}' \
+  '{schema_version:2,commit:$commit,provenance:{staging_run_id:($staging_run_id | tonumber),candidate_manifest_sha256:$candidate_manifest_sha256},images:$images,run_id:$run_id,connectors:{github:$github_target_id,google:$google_target_id,notion:$notion_target_id},ai_job_id:$ai_job_id,actions:{github:$github_action_run_id,smtp:$smtp_action_run_id,webhook:$webhook_action_run_id},outcomes:{github:$github_outcome_id,smtp:$smtp_outcome_id,webhook:$webhook_outcome_id},status:"passed"}' \
   > "$receipt_path"
 
 echo "Protected external canaries passed: GitHub/Google/Notion sync and cursor replay, cited OpenAI query, GitHub Issue, SMTP, signed webhook callback, outcomes, and feedback."

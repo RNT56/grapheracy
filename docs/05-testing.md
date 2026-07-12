@@ -124,8 +124,11 @@ deletion/tombstones, retries, idempotency, provider timeouts, citations, GitHub 
 signed webhooks, callbacks, outcomes, and feedback.
 
 Real-provider proof is the protected `external-canaries` environment and `test:external-canaries` workflow. It uses
-dedicated disposable GitHub, Google Drive, Notion, OpenAI, SMTP, and webhook fixtures, builds the exact candidate
-images, records only redacted IDs, closes the canary GitHub issue, deletes stored credentials, and destroys the stack.
+dedicated disposable GitHub, Google Drive, Notion, OpenAI, SMTP, and webhook fixtures. Before any provider side effect,
+it downloads the successful staging manifest for the exact commit, verifies all eight registry digests and their
+staging-workflow Sigstore identities, and pins the disposable stack to `reference@sha256` images. It records only
+redacted IDs plus the staging run and manifest digest, closes the canary GitHub issue, deletes stored credentials, and
+destroys the stack.
 If those fixtures are not provisioned, the corresponding ledger rows remain explicitly blocked; mocked or local
 provider success is not reported as external production proof.
 

@@ -15,6 +15,7 @@ for (const command of [
   "test:performance",
   "test:performance:live",
   "test:failure-injection:live",
+  "test:external-canary-tools",
   "test:external-canaries",
   "test:staging:live",
   "security:full",
@@ -39,6 +40,10 @@ for (const file of [
   ".github/workflows/security.yml",
   ".github/workflows/release.yml",
   ".github/workflows/external-canaries.yml",
+  "config/external-canaries.example.json",
+  "scripts/manage-external-canaries.mjs",
+  "scripts/manage-external-canaries.test.mjs",
+  "scripts/prepare-external-canary-candidate.sh",
   "scripts/test-live-external-canaries.sh",
   ".github/workflows/staging.yml",
   "scripts/test-kind-staging.sh"
@@ -133,12 +138,18 @@ for (const required of [
 for (const required of [
   "workflow_dispatch:",
   "environment: external-canaries",
-  "candidate-$GITHUB_SHA",
-  "Pull the exact staging-tested candidate images",
+  "actions: read",
+  "manage-external-canaries.mjs validate-env",
+  "prepare-external-canary-candidate.sh",
+  "Pull the digest-pinned staging-tested candidate images",
   "bash scripts/test-live-external-canaries.sh",
+  "Validate receipt provenance and redaction",
   "graphview-external-canary-receipt"
 ]) {
   if (!externalCanaryWorkflow.includes(required)) failures.push(`external canary workflow missing ${required}`);
+}
+for (const command of ["canary:validate", "canary:configure", "canary:status", "canary:dispatch"]) {
+  if (!packageJson.scripts?.[command]) failures.push(`package.json missing ${command}`);
 }
 for (const required of [
   "pull_request:",

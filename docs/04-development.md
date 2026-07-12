@@ -46,10 +46,17 @@ developer adapters; production and acceptance use PostgreSQL, Redis, S3, OIDC, a
 | `pnpm run test:backup-restore:live` | Destructive physical backup/restore with credential and side-effect neutralization. |
 | `pnpm run test:staging:live` | Clean Kind/Helm install, authenticated ingestion, no-op upgrade, and redacted receipt. |
 | `pnpm run test:external-canaries` | Protected, secret-backed GitHub/Google/Notion/OpenAI/SMTP/webhook canaries. |
+| `pnpm run test:external-canary-tools` | Fixture-schema, redaction-safe configuration, and candidate-resolver checks. |
+| `pnpm run canary:status` | Names-only readiness report for the protected environment and current staged commit. |
+| `pnpm run canary:dispatch` | Refuses unless fixtures and staging evidence are complete, then dispatches the protected workflow. |
 
 The `*:live` commands require their documented reference environment. CI owns the Compose stack, PostgreSQL service,
 and Kind cluster used for authoritative release evidence; do not point destructive or external canaries at production
 data.
+
+External fixture values are loaded from the ignored `config/external-canaries.json`; start from
+`config/external-canaries.example.json`. `pnpm run canary:configure` requires mode `0600`, sends secret values to
+GitHub through standard input, and never prints them. Do not source the configuration file in a shell.
 
 ## Development Surfaces
 

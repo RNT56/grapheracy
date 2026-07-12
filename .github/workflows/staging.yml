@@ -115,7 +115,7 @@ jobs:
               image --skip-version-check --scanners vuln --severity HIGH,CRITICAL \
               --ignore-unfixed --exit-code 1 "$image"
           done
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4
       - name: Sign the scanned candidate digests
         run: |
           while IFS=$'\t' read -r reference digest; do

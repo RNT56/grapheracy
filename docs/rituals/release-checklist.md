@@ -43,9 +43,11 @@
     legacy database-envelope migration, response redaction, database neutralization, and permanent Vault purge.
 30. Run `pnpm run test:backup-restore:live` against the exact candidate images and confirm restored connector/provider
     credentials, adapter sessions, Redis sessions, jobs, outbox events, and actions are inert.
-31. Dispatch `Protected external canaries` from the candidate commit against the reviewed `external-canaries`
-    environment; retain the redacted receipt and confirm the GitHub fixture issue was closed. If credentials are not
-    provisioned, keep connector, external-provider, and external-action ledger rows explicitly blocked.
+31. Run `pnpm run canary:status`, require a complete names-only fixture inventory and an unexpired staging manifest for
+    the exact remote commit, then use `pnpm run canary:dispatch`. Approve the reviewed `external-canaries` environment;
+    retain the redacted receipt, verify its staging run and manifest digest, and confirm the GitHub fixture issue was
+    closed. If credentials are not provisioned, keep connector, external-provider, and external-action ledger rows
+    explicitly blocked.
 32. Verify `services/agent-gateway` and `apps/vscode-extension` pass tests and document retryable offline, rate-limit,
     conflict, and server outbox behavior. Confirm permanent 4xx responses are not queued.
 33. Run `pnpm run test:performance:live` on the 100k-node/500k-edge seed and retain the four-route p95 JSON receipt.
