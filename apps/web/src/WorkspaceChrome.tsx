@@ -261,4 +261,3 @@ export function GraphLensIcon({ lensId }: { lensId: GraphLensId }) {
     </svg>
   );
 }
-

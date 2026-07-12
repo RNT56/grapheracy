@@ -415,4 +415,3 @@ Graphview should optimize for internal, provenance-sensitive knowledge work. It 
 
 These boundaries matter because the product's differentiated value comes from controlled knowledge creation, not from
 maximizing unconstrained content ingestion or AI automation.
-
