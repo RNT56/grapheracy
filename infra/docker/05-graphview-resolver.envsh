@@ -1,0 +1,6 @@
+#!/bin/sh
+
+if [ -z "${GRAPHVIEW_DNS_RESOLVER:-}" ]; then
+  GRAPHVIEW_DNS_RESOLVER="$(awk '/^nameserver[[:space:]]+/ { print $2; exit }' /etc/resolv.conf)"
+  export GRAPHVIEW_DNS_RESOLVER
+fi

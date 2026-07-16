@@ -1,0 +1,45 @@
+{{- if .Values.backup.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: {{ .Release.Name }}-backup }
+spec:
+  schedule: {{ .Values.backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata: { labels: { app.kubernetes.io/name: graphview-backup, app.kubernetes.io/part-of: graphview, app.kubernetes.io/instance: {{ .Release.Name }} } }
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+          containers:
+            - name: backup
+              image: {{ .Values.backup.image | quote }}
+              args: [backup, --retention-days, {{ .Values.backup.retentionDays | quote }}]
+              envFrom:
+                - configMapRef: { name: {{ .Release.Name }}-config }
+                - secretRef: { name: {{ .Values.runtimeSecretName }} }
+              env:
+                - name: PGPASSWORD
+                  valueFrom: { secretKeyRef: { name: {{ .Values.runtimeSecretName }}, key: POSTGRES_PASSWORD } }
+                - name: MINIO_ROOT_USER
+                  valueFrom: { secretKeyRef: { name: {{ .Values.runtimeSecretName }}, key: MINIO_ROOT_USER } }
+                - name: MINIO_ROOT_PASSWORD
+                  valueFrom: { secretKeyRef: { name: {{ .Values.runtimeSecretName }}, key: MINIO_ROOT_PASSWORD } }
+                - name: MC_HOST_graphview
+                  value: {{ printf "http://$(MINIO_ROOT_USER):$(MINIO_ROOT_PASSWORD)@%s-minio:9000" .Release.Name | quote }}
+                - name: REDIS_PASSWORD
+                  valueFrom: { secretKeyRef: { name: {{ .Values.runtimeSecretName }}, key: REDIS_PASSWORD } }
+                - name: REDIS_URL
+                  value: {{ printf "redis://:$(REDIS_PASSWORD)@%s-redis-master:6379/0" .Release.Name | quote }}
+                - name: REDIS_HOST
+                  value: {{ printf "%s-redis-master" .Release.Name | quote }}
+              securityContext: { runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+              resources: {{ toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts: [{ name: tmp, mountPath: /tmp }]
+          volumes: [{ name: tmp, emptyDir: { sizeLimit: 20Gi } }]
+{{- end }}

@@ -1,10 +1,11 @@
 {
   "name": "@graphview/worker-contract",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "PYTHONPATH=src uv run python -m graphview_worker",
+    "describe": "PYTHONPATH=src uv run python -m graphview_worker --describe",
     "typecheck": "uv run python -m compileall src tests",
     "test": "PYTHONPATH=src uv run --group dev pytest"
   }

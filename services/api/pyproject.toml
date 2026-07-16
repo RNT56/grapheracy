@@ -1,17 +1,37 @@
 [project]
 name = "graphview-api"
-version = "0.0.0"
+version = "1.0.0"
 description = "Future FastAPI service for Graphview."
 requires-python = ">=3.14"
 dependencies = [
   "alembic",
+  "boto3",
+  "cryptography>=49.0.0",
   "fastapi",
   "httpx",
-  "pydantic-settings",
-  "pypdf",
+  "pyjwt[crypto]>=2.10.1",
+  "pydantic-settings>=2.14.2",
+  "psycopg[binary]",
+  "pypdf>=6.13.3",
+  "pgvector",
+  "python-docx",
+  "python-multipart",
+  "python-pptx",
+  "openpyxl",
+  "opentelemetry-exporter-otlp-proto-grpc",
+  "opentelemetry-instrumentation-fastapi",
+  "opentelemetry-instrumentation-httpx",
+  "opentelemetry-instrumentation-sqlalchemy",
+  "opentelemetry-sdk",
+  "redis>=5.2.1,<6.0.0",
   "sqlalchemy",
-  "uvicorn"
+  "starlette>=1.3.1",
+  "uvicorn",
 ]
+
+[build-system]
+requires = ["hatchling>=1.28.0,<2.0.0"]
+build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [

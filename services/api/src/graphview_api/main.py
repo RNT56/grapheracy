@@ -1,35 +1,122 @@
-from fastapi import Depends, FastAPI, HTTPException, Query, status
-from fastapi.middleware.cors import CORSMiddleware
+import json
 
-from graphview_api.auth import CurrentUser, get_current_user
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from graphview_api.agent_context import create_agent_context_router
+from graphview_api.agent_context.service import AgentContextService
+from graphview_api.actions import create_actions_router
+from graphview_api.actions.service import ActionsService
+from graphview_api.ai import create_agent_tools_router, create_planning_router, create_retrieval_router
+from graphview_api.ai.service import PlanningService
+from graphview_api.ai.tools_service import AgentToolsService
+from graphview_api.ai.retrieval_service import RetrievalService
+from graphview_api.attention import create_attention_router
+from graphview_api.attention.service import AttentionService
+from graphview_api.api_v1 import create_v1_router
+from graphview_api.connector_routes import create_connector_router
+from graphview_api.connector_service import ConnectorService
+from graphview_api.compatibility import install_v1_compatibility_aliases
 from graphview_api.db import create_app_engine
-from graphview_api.ingestion import EMBEDDING_MODEL, build_document, embed_text, generate_proposals
+from graphview_api.graph import create_graph_activity_router, create_graph_exploration_router
+from graphview_api.graph.service import GraphService
+from graphview_api.identity import IdentityService
+from graphview_api.identity.router import create_identity_router
+from graphview_api.http_middleware import install_http_middleware
+from graphview_api.llm import build_llm_provider, build_provider_registry
+from graphview_api.observability import RequestMetrics, configure_telemetry
+from graphview_api.object_store import build_object_store
+from graphview_api.operations import create_data_operations_router, create_health_router, create_operations_router
+from graphview_api.operations.service import DataOperationsService
 from graphview_api.repository import GraphRepository
-from graphview_api.schemas import (
-    ExportBundle,
-    GraphOut,
-    ImportBundle,
-    IngestionCreate,
-    IngestionResultOut,
-    IngestionRunOut,
-    ProposalCreate,
-    ProposalOut,
-    ReviewDecisionCreate,
-    ReviewDecisionOut,
-    SourceCreate,
-    SourceOut,
-    SourceUpdate,
-)
+from graphview_api.review import create_review_router
+from graphview_api.review.service import ReviewService
 from graphview_api.settings import Settings, get_settings
+from graphview_api.secret_store import build_secret_store
+from graphview_api.sources import create_sources_router
+from graphview_api.sources.service import SourcesService
 from graphview_api.version import VERSION
+
+
+def configured_provider_registry(settings: Settings, repository: GraphRepository):
+    return build_provider_registry(
+        settings,
+        provider_api_keys=repository.ai_provider_api_keys(),
+        default_provider=repository.ai_default_provider(),
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     app = FastAPI(title="Graphview API", version=VERSION)
-    repository = GraphRepository(create_app_engine(settings.database_url))
-    repository.initialize()
+    app.dependency_overrides[get_settings] = lambda: settings
+    object_store = build_object_store(settings)
+    repository = GraphRepository(
+        create_app_engine(settings.database_url),
+        secret_key=settings.secret_key,
+        auto_commit_threshold=settings.auto_commit_threshold,
+        safe_action_types=settings.safe_action_types,
+        agent_context_max_blob_bytes=settings.agent_context_max_blob_bytes,
+        agent_context_retention_days=settings.agent_context_retention_days,
+        secret_store=build_secret_store(settings),
+        object_store=object_store,
+    )
+    is_development = settings.environment in {"local", "test", "development"}
+    repository.initialize(create_schema=is_development)
+    if is_development:
+        from graphview_api.demo_seed import seed_development_demo
+
+        seed_development_demo(repository)
     app.state.repository = repository
+    app.state.metrics = RequestMetrics()
+    app.state.identity = IdentityService(settings)
+    app.state.object_store = object_store
+
+    @app.exception_handler(HTTPException)
+    async def problem_details_handler(request: Request, error: HTTPException):
+        detail = error.detail if isinstance(error.detail, str) else "Request could not be completed"
+        return JSONResponse(
+            status_code=error.status_code,
+            content={
+                "type": f"https://graphview.local/problems/http-{error.status_code}",
+                "title": detail,
+                "status": error.status_code,
+                "detail": detail,
+                "instance": request.url.path,
+            },
+            headers=error.headers,
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_problem_handler(request: Request, error: RequestValidationError):
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={
+                "type": "https://graphview.local/problems/validation",
+                "title": "Request validation failed",
+                "status": 422,
+                "detail": "One or more request fields are invalid.",
+                "instance": request.url.path,
+                "errors": json.loads(json.dumps(error.errors(), default=str)),
+            },
+            media_type="application/problem+json",
+        )
+
+    @app.exception_handler(Exception)
+    async def internal_problem_handler(request: Request, _error: Exception):
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "type": "https://graphview.local/problems/internal",
+                "title": "Internal server error",
+                "status": 500,
+                "detail": "The request could not be completed.",
+                "instance": request.url.path,
+            },
+            media_type="application/problem+json",
+        )
 
     app.add_middleware(
         CORSMiddleware,
@@ -39,155 +126,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "service": "graphview-api"}
+    install_http_middleware(app, settings)
+    app.state.telemetry = configure_telemetry(app, repository.engine, settings)
 
     def repo() -> GraphRepository:
         return app.state.repository
 
-    @app.get("/version")
-    async def version(settings: Settings = Depends(get_settings)) -> dict[str, str]:
-        return {"service": "graphview-api", "version": VERSION, "environment": settings.environment}
+    def graph_service() -> GraphService:
+        return GraphService(repo())
+    def sources_service() -> SourcesService:
+        return SourcesService(repo(), settings)
+    def connector_service() -> ConnectorService:
+        return ConnectorService(repo(), settings, llm_provider_factory=build_llm_provider)
+    def review_service() -> ReviewService:
+        return ReviewService(repo())
+    def actions_service() -> ActionsService:
+        return ActionsService(repo())
+    def attention_service() -> AttentionService:
+        return AttentionService(repo())
+    def data_operations_service() -> DataOperationsService:
+        return DataOperationsService(repo())
+    def agent_context_service() -> AgentContextService:
+        return AgentContextService(repo())
+    def planning_service() -> PlanningService:
+        return PlanningService(repo(), settings, provider_registry_factory=configured_provider_registry)
+    def agent_tools_service() -> AgentToolsService:
+        return AgentToolsService(repo())
+    def retrieval_service() -> RetrievalService:
+        return RetrievalService(repo(), settings, provider_registry_factory=configured_provider_registry)
 
-    @app.get("/graph", response_model=GraphOut)
-    async def graph(
-        user: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, object]:
-        project, nodes, edges = repository.graph()
-        return {"project": project, "nodes": nodes, "edges": edges, "user": user.id}
-
-    @app.get("/sources")
-    async def sources(
-        q: str | None = Query(default=None),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[SourceOut]]:
-        return {"sources": repository.list_sources(q)}
-
-    @app.post("/sources", response_model=SourceOut, status_code=status.HTTP_201_CREATED)
-    async def create_source(
-        payload: SourceCreate,
-        _: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        return repository.create_source(payload)
-
-    @app.patch("/sources/{source_id}", response_model=SourceOut)
-    async def update_source(
-        source_id: str,
-        payload: SourceUpdate,
-        _: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        source = repository.update_source(source_id, payload)
-        if source is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
-        return source
-
-    @app.delete("/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-    async def delete_source(
-        source_id: str,
-        _: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> None:
-        if not repository.delete_source(source_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
-
-    @app.get("/ingestion-runs")
-    async def ingestion_runs(
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[IngestionRunOut]]:
-        return {"ingestion_runs": repository.list_ingestion_runs()}
-
-    @app.post("/ingestion-runs", response_model=IngestionResultOut, status_code=status.HTTP_201_CREATED)
-    async def create_ingestion_run(
-        payload: IngestionCreate,
-        user: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            document = await build_document(
-                kind=payload.kind,
-                title=payload.title,
-                content=payload.content,
-                uri=payload.uri,
-                content_base64=payload.content_base64,
-            )
-        except ValueError as error:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
-        except Exception as error:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Source ingestion failed") from error
-        generated = [
-            proposal.__dict__ for proposal in generate_proposals(document, limit=payload.proposal_limit)
-        ]
-        return repository.create_ingestion_result(
-            source_payload=SourceCreate(
-                kind=payload.kind,
-                title=payload.title,
-                uri=payload.uri,
-                checksum=document.checksum,
-            ),
-            generated_proposals=generated,
-            embedding_model=EMBEDDING_MODEL,
-            embedding_vector=embed_text(document.text),
-            actor_id=user.id,
+    app.include_router(
+        create_health_router(
+            repo,
+            identity=app.state.identity,
+            object_store=app.state.object_store,
         )
+    )
+    app.include_router(create_identity_router(app.state.identity, settings))
+    app.include_router(
+        create_operations_router(
+            repo,
+            identity=app.state.identity,
+            object_store=app.state.object_store,
+            request_metrics=app.state.metrics,
+            environment=settings.environment,
+            service_version=VERSION,
+        )
+    )
 
-    @app.get("/proposals")
-    async def proposals(repository: GraphRepository = Depends(repo)) -> dict[str, list[ProposalOut]]:
-        return {"proposals": repository.list_proposals()}
+    app.include_router(create_graph_activity_router(graph_service, telemetry=app.state.telemetry))
+    app.include_router(create_attention_router(attention_service))
+    app.include_router(create_actions_router(actions_service))
+    app.include_router(create_graph_exploration_router(graph_service))
 
-    @app.post("/proposals", response_model=ProposalOut, status_code=status.HTTP_201_CREATED)
-    async def create_proposal(
-        payload: ProposalCreate,
-        user: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.create_proposal(payload, user.id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found") from error
+    app.include_router(create_planning_router(planning_service))
+    app.include_router(create_agent_context_router(agent_context_service, telemetry=app.state.telemetry))
+    app.include_router(create_agent_tools_router(agent_tools_service))
+    app.include_router(create_retrieval_router(retrieval_service))
+    app.include_router(create_connector_router(connector_service))
+    app.include_router(create_sources_router(sources_service))
+    app.include_router(create_review_router(review_service))
 
-    @app.get("/review-decisions")
-    async def review_decisions(
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[ReviewDecisionOut]]:
-        return {"review_decisions": repository.list_review_decisions()}
+    app.include_router(create_data_operations_router(data_operations_service))
 
-    @app.post("/review-decisions", response_model=ReviewDecisionOut, status_code=status.HTTP_201_CREATED)
-    async def create_review_decision(
-        payload: ReviewDecisionCreate,
-        user: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        try:
-            return repository.review(payload, user.id)
-        except KeyError as error:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found") from error
-
-    @app.get("/search")
-    async def search(
-        q: str = Query(min_length=1),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict[str, list[object]]:
-        return repository.search(q)
-
-    @app.get("/export", response_model=ExportBundle)
-    async def export(repository: GraphRepository = Depends(repo)) -> dict:
-        return repository.export_bundle()
-
-    @app.post("/import", response_model=ExportBundle)
-    async def import_bundle(
-        payload: ImportBundle,
-        user: CurrentUser = Depends(get_current_user),
-        repository: GraphRepository = Depends(repo),
-    ) -> dict:
-        for source in payload.sources:
-            repository.create_source(source)
-        for proposal in payload.proposals:
-            repository.create_proposal(proposal, user.id)
-        return repository.export_bundle()
+    app.include_router(create_v1_router(repo, object_store=app.state.object_store, settings=settings))
+    install_v1_compatibility_aliases(app)
 
     return app
 

@@ -1,0 +1,279 @@
+name: graphview-production-reference
+
+x-graphview-environment: &graphview-environment
+  GRAPHVIEW_ENVIRONMENT: production
+  GRAPHVIEW_DATABASE_URL: postgresql+psycopg://graphview:${POSTGRES_PASSWORD:?required}@postgres:5432/graphview
+  ARQ_REDIS_URL: redis://:${REDIS_PASSWORD:?required}@redis:6379/0
+  GRAPHVIEW_SECRET_KEY: ${GRAPHVIEW_SECRET_KEY:?required}
+  GRAPHVIEW_SECRET_PROVIDER: vault
+  GRAPHVIEW_VAULT_ADDRESS: http://vault:8200
+  GRAPHVIEW_VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:?required}
+  GRAPHVIEW_OBJECT_STORE_PROVIDER: s3
+  GRAPHVIEW_S3_ENDPOINT_URL: http://minio:9000
+  GRAPHVIEW_S3_BUCKET: graphview
+  GRAPHVIEW_S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?required}
+  GRAPHVIEW_S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required}
+  GRAPHVIEW_MALWARE_SCAN_CLAMD_HOST: clamav
+  GRAPHVIEW_OIDC_ISSUER_URL: ${GRAPHVIEW_PUBLIC_URL:?required}/identity/realms/graphview
+  GRAPHVIEW_OIDC_BACKCHANNEL_URL: http://keycloak:8080/identity/realms/graphview
+  GRAPHVIEW_OIDC_CLIENT_ID: graphview-web
+  GRAPHVIEW_OIDC_REDIRECT_URI: ${GRAPHVIEW_PUBLIC_URL:?required}/api/v1/auth/callback
+  GRAPHVIEW_CORS_ORIGINS: '["${GRAPHVIEW_PUBLIC_URL:?required}"]'
+  GRAPHVIEW_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  GRAPHVIEW_OTEL_METRIC_EXPORT_INTERVAL_MS: 5000
+  GRAPHVIEW_SAFE_ACTION_TYPES: ${GRAPHVIEW_SAFE_ACTION_TYPES:-mark_source_stale,mark_source_refreshed,create_notification,create_external_ticket,trigger_workflow,connector_sync,create_graph_proposal,request_owner_confirmation}
+  GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS: ${GRAPHVIEW_ACTION_WEBHOOK_ALLOWED_HOSTS:-}
+  GRAPHVIEW_SMTP_HOST: ${GRAPHVIEW_SMTP_HOST:-}
+  GRAPHVIEW_SMTP_PORT: ${GRAPHVIEW_SMTP_PORT:-587}
+  GRAPHVIEW_SMTP_STARTTLS: ${GRAPHVIEW_SMTP_STARTTLS:-true}
+  GRAPHVIEW_SMTP_FROM_ADDRESS: ${GRAPHVIEW_SMTP_FROM_ADDRESS:-}
+  GRAPHVIEW_SMTP_SUPPRESSED_RECIPIENTS: ${GRAPHVIEW_SMTP_SUPPRESSED_RECIPIENTS:-}
+  GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS: ${GRAPHVIEW_OUTBOUND_ALLOWED_HOSTS:?required}
+
+services:
+  web:
+    image: ${GRAPHVIEW_WEB_IMAGE:?required}
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run, /etc/nginx/conf.d:mode=1777]
+    ports: ["8080:8080"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    image: ${GRAPHVIEW_API_IMAGE:?required}
+    environment: *graphview-environment
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+
+  worker:
+    image: ${GRAPHVIEW_WORKER_IMAGE:?required}
+    environment:
+      <<: *graphview-environment
+      GRAPHVIEW_OTEL_SERVICE_NAME: graphview-worker
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  migrate:
+    image: ${GRAPHVIEW_API_IMAGE:?required}
+    command: ["alembic", "-c", "services/api/alembic.ini", "upgrade", "head"]
+    environment: *graphview-environment
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg18
+    user: "999:999"
+    environment:
+      POSTGRES_DB: graphview
+      POSTGRES_USER: graphview
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+    volumes: [postgres-data:/var/lib/postgresql]
+    read_only: true
+    tmpfs: [/tmp, /var/run/postgresql]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U graphview -d graphview"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8.2.3-alpine
+    user: "999:1000"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction", "--requirepass", "${REDIS_PASSWORD:?required}"]
+    volumes: [redis-data:/data]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD-SHELL, "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: ${GRAPHVIEW_MINIO_IMAGE:?required}
+    command: ["server", "/graphview-data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    volumes: [minio-data:/graphview-data]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /usr/bin/minio-healthcheck]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: ${GRAPHVIEW_OPS_IMAGE:?required}
+    user: "10001:10001"
+    entrypoint: [/bin/sh, -c]
+    command:
+      - mc alias set graphview http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" && mc mb --ignore-existing graphview/graphview
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+      HOME: /tmp
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  keycloak-db-init:
+    image: pgvector/pgvector:pg18
+    user: "999:999"
+    command: ["/bin/sh", "-ec", "until pg_isready -h postgres -U graphview -d graphview; do sleep 2; done; psql -h postgres -U graphview -d graphview --set ON_ERROR_STOP=1 --command='CREATE SCHEMA IF NOT EXISTS keycloak AUTHORIZATION graphview'"]
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?required}
+    read_only: true
+    tmpfs: [/tmp, /var/run/postgresql]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  keycloak:
+    image: ${GRAPHVIEW_KEYCLOAK_IMAGE:?required}
+    command: ["start", "--optimized", "--import-realm", "--http-enabled=true"]
+    environment:
+      KC_DB_URL: jdbc:postgresql://postgres:5432/graphview
+      KC_DB_USERNAME: graphview
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      KC_DB_SCHEMA: keycloak
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:?required}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?required}
+      KC_HOSTNAME: ${GRAPHVIEW_PUBLIC_URL:?required}/identity
+      KC_HTTP_RELATIVE_PATH: /identity
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      GRAPHVIEW_SERVICE_CLIENT_SECRET: ${GRAPHVIEW_SERVICE_CLIENT_SECRET:?required}
+    volumes:
+      - ./keycloak/graphview-realm.json:/opt/keycloak/data/import/graphview-realm.json:ro
+    read_only: true
+    tmpfs: [/tmp, /opt/keycloak/data]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD-SHELL, "exec 3<>/dev/tcp/127.0.0.1/9000; echo -e 'GET /identity/health/ready HTTP/1.1\r\nhost: localhost\r\nConnection: close\r\n\r\n' >&3; grep '200 OK' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      keycloak-db-init:
+        condition: service_completed_successfully
+
+  vault:
+    image: hashicorp/vault:2.0.3
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:?required}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      HOME: /tmp
+    command: ["server", "-dev"]
+    healthcheck:
+      test: [CMD-SHELL, "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  clamav:
+    image: ${GRAPHVIEW_CLAMAV_IMAGE:?required}
+    platform: ${GRAPHVIEW_CLAMAV_PLATFORM:-linux/amd64}
+    volumes: [clamav-data:/var/lib/clamav]
+    read_only: true
+    tmpfs: [/tmp, /run/clamav]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /usr/local/bin/clamdcheck.sh]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  otel-collector:
+    image: ${GRAPHVIEW_OTEL_IMAGE:?required}
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-data:/var/lib/otel
+    ports: ["127.0.0.1:8889:8889"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, /otelcol-contrib, validate, --config=/etc/otelcol-contrib/config.yaml]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ops:
+    image: ${GRAPHVIEW_OPS_IMAGE:?required}
+    profiles: [ops]
+    environment:
+      PGHOST: postgres
+      PGUSER: graphview
+      PGDATABASE: graphview
+      PGPASSWORD: ${POSTGRES_PASSWORD:?required}
+      MC_HOST_graphview: http://${MINIO_ROOT_USER:?required}:${MINIO_ROOT_PASSWORD:?required}@minio:9000
+      REDIS_URL: redis://:${REDIS_PASSWORD:?required}@redis:6379/0
+      REDIS_HOST: redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?required}
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  clamav-data:
+  otel-data:

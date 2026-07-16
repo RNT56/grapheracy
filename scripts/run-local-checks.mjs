@@ -5,10 +5,14 @@ const checks = {
   "doc-freshness": ["node", ["scripts/check-doc-freshness.mjs"]],
   "lint:docs": ["node", ["scripts/run-local-checks.mjs", "doc-links", "doc-freshness"]],
   "lint:metadata": ["node", ["scripts/check-workspace-metadata.mjs"]],
-  lint: ["node", ["scripts/run-local-checks.mjs", "lint:docs", "lint:metadata"]],
+  "lint:python": ["uv", ["run", "ruff", "check", "services"]],
+  lint: ["node", ["scripts/run-local-checks.mjs", "lint:docs", "lint:metadata", "lint:python"]],
   "security:local": ["node", ["scripts/check-security-policy.mjs"]],
   "security:licenses": ["node", ["scripts/check-license-policy.mjs"]],
   "changelog:check": ["node", ["scripts/check-changelog.mjs"]],
+  "release:check": ["node", ["scripts/check-release-readiness.mjs"]],
+  "architecture:check": ["node", ["scripts/check-architecture.mjs"]],
+  "api:check": ["node", ["scripts/run-api-check.mjs"]],
   typecheck: ["node", ["scripts/run-workspace-scripts.mjs", "typecheck"]],
   test: ["node", ["scripts/run-workspace-scripts.mjs", "test"]]
 };

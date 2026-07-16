@@ -1,0 +1,176 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  attestations: write
+
+jobs:
+  validate-tag:
+    name: Verify signed mainline tag and staged candidates
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.validate.outputs.commit }}
+      owner: ${{ steps.validate.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v6
+        with: { node-version: "24" }
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: sigstore/cosign-installer@v4.1.2
+      - id: validate
+        name: Match tag, version, main head, and candidate manifests
+        run: |
+          version="$(jq -er .version package.json)"
+          test "$GITHUB_REF_NAME" = "v$version"
+          node scripts/check-release-readiness.mjs
+          git fetch --no-tags origin main
+          tag_commit="$(git rev-list -n 1 "$GITHUB_REF_NAME")"
+          main_commit="$(git rev-parse origin/main)"
+          test "$tag_commit" = "$main_commit"
+          object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME")"
+          test "$(jq -r .object.type <<<"$object")" = tag
+          tag_sha="$(jq -r .object.sha <<<"$object")"
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '.verification.verified' | grep -Fx true
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          staging_identity="https://github.com/$GITHUB_REPOSITORY/.github/workflows/staging.yml@refs/heads/main"
+          for service in api web worker otel ops keycloak clamav minio; do
+            candidate="ghcr.io/$owner/graphview-$service:candidate-$tag_commit"
+            digest="$(docker buildx imagetools inspect "$candidate" --format '{{json .Manifest}}' | jq -er .digest)"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            cosign verify \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              --certificate-identity "$staging_identity" \
+              "$candidate@$digest" >/dev/null
+          done
+          {
+            echo "commit=$tag_commit"
+            echo "owner=$owner"
+          } >> "$GITHUB_OUTPUT"
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+
+  release-images:
+    name: Promote, attest, and sign (${{ matrix.service }})
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [api, web, worker, otel, ops, keycloak, clamav, minio]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - id: promote
+        name: Promote the staging-tested manifest without rebuilding
+        run: |
+          image="ghcr.io/${{ needs.validate-tag.outputs.owner }}/graphview-${{ matrix.service }}"
+          candidate="$image:candidate-${{ needs.validate-tag.outputs.commit }}"
+          release="$image:$GITHUB_REF_NAME"
+          candidate_digest="$(docker buildx imagetools inspect "$candidate" --format '{{json .Manifest}}' | jq -er .digest)"
+          docker buildx imagetools create --tag "$release" "$candidate@$candidate_digest"
+          release_digest="$(docker buildx imagetools inspect "$release" --format '{{json .Manifest}}' | jq -er .digest)"
+          test "$release_digest" = "$candidate_digest"
+          {
+            echo "image=$image"
+            echo "candidate=$candidate@$candidate_digest"
+            echo "digest=$release_digest"
+          } >> "$GITHUB_OUTPUT"
+      - uses: sigstore/cosign-installer@v4.1.2
+      - run: cosign sign --yes "${{ steps.promote.outputs.image }}@${{ steps.promote.outputs.digest }}"
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.promote.outputs.image }}
+          subject-digest: ${{ steps.promote.outputs.digest }}
+          push-to-registry: true
+      - name: Record immutable image digest
+        run: jq -n --arg service "${{ matrix.service }}" --arg image "${{ steps.promote.outputs.image }}" --arg candidate "${{ steps.promote.outputs.candidate }}" --arg digest "${{ steps.promote.outputs.digest }}" '{service:$service,image:$image,candidate:$candidate,digest:$digest}' > "image-${{ matrix.service }}.json"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: image-digest-${{ matrix.service }}
+          path: image-${{ matrix.service }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  client-artifacts:
+    name: Package gateway and editor extension
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with: { version: 10.27.0 }
+      - uses: actions/setup-node@v6
+        with: { node-version: "24", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @graphview/agent-gateway test && pnpm --filter @graphview/vscode-extension test
+      - run: pnpm run release:artifacts && pnpm run release:artifacts:verify
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/release/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: graphview-client-artifacts
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  github-release:
+    name: Verify tag and publish signed release manifest
+    needs: [validate-tag, release-images, client-artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: pnpm/action-setup@v5
+        with: { version: 10.27.0 }
+      - uses: actions/setup-node@v6
+        with: { node-version: "24", cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v8
+        with:
+          name: graphview-client-artifacts
+          path: dist/release
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: image-digest-*
+          path: dist/images
+          merge-multiple: true
+      - name: Verify the annotated tag signature
+        run: |
+          object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME")"
+          test "$(jq -r .object.type <<<"$object")" = tag
+          tag_sha="$(jq -r .object.sha <<<"$object")"
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$tag_sha" --jq '.verification.verified' | grep -Fx true
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - run: pnpm run release:artifacts:verify
+      - name: Assemble immutable image manifest
+        run: |
+          jq -s --arg release "$GITHUB_REF_NAME" '{schema_version:1,release:$release,images:(sort_by(.service))}' dist/images/*.json > dist/release/image-manifest.json
+          (cd dist/release && sha256sum image-manifest.json >> SHA256SUMS)
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign the complete release checksum manifest
+        run: cosign sign-blob --yes --bundle dist/release/SHA256SUMS.sigstore.json dist/release/SHA256SUMS
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/release/*
+      - name: Publish the authored release notes and immutable artifacts
+        run: |
+          notes_file="docs/releases/${GITHUB_REF_NAME#v}.md"
+          test -f "$notes_file"
+          gh release create "${GITHUB_REF_NAME}" --verify-tag --notes-file "$notes_file" dist/release/*
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }

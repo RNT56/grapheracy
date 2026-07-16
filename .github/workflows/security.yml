@@ -31,7 +31,7 @@ jobs:
       - run: pnpm run security:audit
       - run: pnpm run security:signatures
       - name: OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@v3
+        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             scan source -r .
@@ -44,12 +44,59 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  sbom-plan:
-    name: SBOM generation plan
+  image-security:
+    name: Image SBOM and vulnerability scan (${{ matrix.service }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: api, dockerfile: infra/docker/api.Dockerfile }
+          - { service: web, dockerfile: infra/docker/web.Dockerfile }
+          - { service: worker, dockerfile: infra/docker/worker.Dockerfile }
+          - { service: otel, dockerfile: infra/docker/otel-collector.Dockerfile }
+          - { service: ops, dockerfile: infra/docker/ops.Dockerfile }
+          - { service: keycloak, dockerfile: infra/docker/keycloak.Dockerfile }
+          - { service: clamav, dockerfile: infra/docker/clamav.Dockerfile }
+          - { service: minio, dockerfile: infra/docker/minio.Dockerfile }
     steps:
       - uses: actions/checkout@v5
-      - name: SBOM placeholder
-        run: echo "Release image SBOM generation begins when app/API/worker images become runnable."
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          load: true
+          tags: graphview-${{ matrix.service }}:security-scan
+      - uses: anchore/sbom-action@v0
+        with:
+          image: graphview-${{ matrix.service }}:security-scan
+          artifact-name: graphview-${{ matrix.service }}.spdx.json
+          format: spdx-json
+      - name: Generate all-severity image SARIF
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: graphview-${{ matrix.service }}:security-scan
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          exit-code: "0"
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+      - name: Enforce fixed HIGH and CRITICAL image findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: graphview-${{ matrix.service }}:security-scan
+          format: table
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true

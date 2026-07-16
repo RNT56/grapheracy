@@ -1,0 +1,162 @@
+name: Staging acceptance
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+concurrency:
+  group: graphview-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    name: Exact-image Kind and Helm smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: staging
+    env:
+      GRAPHVIEW_STAGING_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ env.GRAPHVIEW_STAGING_COMMIT }}
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v4
+      - uses: azure/setup-helm@v5
+        with: { version: v4.2.3 }
+      - name: Prepare immutable image names and ephemeral secrets
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" && "${{ github.event.pull_request.head.repo.full_name }}" != "$GITHUB_REPOSITORY" ]]; then
+            echo "Candidate images may only be published from a branch in the protected repository." >&2
+            exit 1
+          fi
+          registry_owner="${GITHUB_REPOSITORY_OWNER,,}"
+          candidate_tag="candidate-$GRAPHVIEW_STAGING_COMMIT"
+          export_masked() {
+            local name="$1"
+            local value="$2"
+            printf '::add-mask::%s\n' "$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          export_masked POSTGRES_PASSWORD "$(openssl rand -hex 18)"
+          export_masked REDIS_PASSWORD "$(openssl rand -hex 18)"
+          export_masked MINIO_ROOT_PASSWORD "$(openssl rand -hex 24)"
+          export_masked KEYCLOAK_ADMIN_PASSWORD "$(openssl rand -hex 18)"
+          export_masked VAULT_DEV_ROOT_TOKEN "$(openssl rand -hex 18)"
+          export_masked GRAPHVIEW_SECRET_KEY "$(openssl rand -hex 32)"
+          export_masked GRAPHVIEW_SERVICE_CLIENT_SECRET "$(openssl rand -hex 24)"
+          {
+            echo "GRAPHVIEW_STAGING_WEB_IMAGE=ghcr.io/$registry_owner/graphview-web:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_API_IMAGE=ghcr.io/$registry_owner/graphview-api:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_WORKER_IMAGE=ghcr.io/$registry_owner/graphview-worker:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_OTEL_IMAGE=ghcr.io/$registry_owner/graphview-otel:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_OPS_IMAGE=ghcr.io/$registry_owner/graphview-ops:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_KEYCLOAK_IMAGE=ghcr.io/$registry_owner/graphview-keycloak:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_CLAMAV_IMAGE=ghcr.io/$registry_owner/graphview-clamav:$candidate_tag"
+            echo "GRAPHVIEW_STAGING_MINIO_IMAGE=ghcr.io/$registry_owner/graphview-minio:$candidate_tag"
+            echo "MINIO_ROOT_USER=graphviewstaging"
+          } >> "$GITHUB_ENV"
+      - name: Build and publish provenance-enabled candidate images
+        run: |
+          build_candidate() {
+            local dockerfile="$1"
+            local image="$2"
+            docker buildx build --file "$dockerfile" --tag "$image" --platform linux/amd64 \
+              --sbom=true --provenance=mode=max --push .
+            docker pull --platform linux/amd64 "$image"
+          }
+          build_candidate infra/docker/api.Dockerfile "$GRAPHVIEW_STAGING_API_IMAGE"
+          build_candidate infra/docker/worker.Dockerfile "$GRAPHVIEW_STAGING_WORKER_IMAGE"
+          build_candidate infra/docker/otel-collector.Dockerfile "$GRAPHVIEW_STAGING_OTEL_IMAGE"
+          build_candidate infra/docker/web.Dockerfile "$GRAPHVIEW_STAGING_WEB_IMAGE"
+          build_candidate infra/docker/ops.Dockerfile "$GRAPHVIEW_STAGING_OPS_IMAGE"
+          build_candidate infra/docker/keycloak.Dockerfile "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE"
+          build_candidate infra/docker/clamav.Dockerfile "$GRAPHVIEW_STAGING_CLAMAV_IMAGE"
+          build_candidate infra/docker/minio.Dockerfile "$GRAPHVIEW_STAGING_MINIO_IMAGE"
+      - name: Record immutable candidate manifest
+        run: |
+          image_entry() {
+            local reference="$1"
+            docker buildx imagetools inspect "$reference" --format '{{json .Manifest}}' \
+              | jq --arg reference "$reference" '{reference:$reference,digest:.digest}'
+          }
+          mkdir -p artifacts
+          jq -n \
+            --arg commit "$GRAPHVIEW_STAGING_COMMIT" \
+            --argjson web "$(image_entry "$GRAPHVIEW_STAGING_WEB_IMAGE")" \
+            --argjson api "$(image_entry "$GRAPHVIEW_STAGING_API_IMAGE")" \
+            --argjson worker "$(image_entry "$GRAPHVIEW_STAGING_WORKER_IMAGE")" \
+            --argjson otel "$(image_entry "$GRAPHVIEW_STAGING_OTEL_IMAGE")" \
+            --argjson ops "$(image_entry "$GRAPHVIEW_STAGING_OPS_IMAGE")" \
+            --argjson keycloak "$(image_entry "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE")" \
+            --argjson clamav "$(image_entry "$GRAPHVIEW_STAGING_CLAMAV_IMAGE")" \
+            --argjson minio "$(image_entry "$GRAPHVIEW_STAGING_MINIO_IMAGE")" \
+            '{schema_version:1,commit:$commit,images:{web:$web,api:$api,worker:$worker,otel:$otel,ops:$ops,keycloak:$keycloak,clamav:$clamav,minio:$minio}}' \
+            > artifacts/candidate-image-manifest.json
+          echo "GRAPHVIEW_STAGING_IMAGE_MANIFEST=artifacts/candidate-image-manifest.json" >> "$GITHUB_ENV"
+      - name: Enforce fixed HIGH and CRITICAL findings on candidate images
+        run: |
+          for image in \
+            "$GRAPHVIEW_STAGING_API_IMAGE" "$GRAPHVIEW_STAGING_WORKER_IMAGE" \
+            "$GRAPHVIEW_STAGING_OTEL_IMAGE" "$GRAPHVIEW_STAGING_WEB_IMAGE" \
+            "$GRAPHVIEW_STAGING_OPS_IMAGE" "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE" \
+            "$GRAPHVIEW_STAGING_CLAMAV_IMAGE" "$GRAPHVIEW_STAGING_MINIO_IMAGE"; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.71.0 \
+              image --skip-version-check --scanners vuln --severity HIGH,CRITICAL \
+              --ignore-unfixed --exit-code 1 "$image"
+          done
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign the scanned candidate digests
+        run: |
+          while IFS=$'\t' read -r reference digest; do
+            cosign sign --yes "$reference@$digest"
+          done < <(jq -r '.images[] | [.reference,.digest] | @tsv' "$GRAPHVIEW_STAGING_IMAGE_MANIFEST")
+      - name: Create clean Kubernetes 1.35 staging cluster
+        uses: helm/kind-action@v1.14.0
+        with:
+          version: v0.32.0
+          kubectl_version: v1.35.5
+          node_image: kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95
+          cluster_name: graphview-staging
+          wait: 120s
+      - name: Load exact candidate images
+        run: |
+          kind load docker-image --name graphview-staging \
+            "$GRAPHVIEW_STAGING_WEB_IMAGE" "$GRAPHVIEW_STAGING_API_IMAGE" \
+            "$GRAPHVIEW_STAGING_WORKER_IMAGE" "$GRAPHVIEW_STAGING_OTEL_IMAGE" \
+            "$GRAPHVIEW_STAGING_OPS_IMAGE" "$GRAPHVIEW_STAGING_KEYCLOAK_IMAGE" \
+            "$GRAPHVIEW_STAGING_CLAMAV_IMAGE" "$GRAPHVIEW_STAGING_MINIO_IMAGE"
+      - name: Install, exercise, and upgrade Graphview
+        run: bash scripts/test-kind-staging.sh
+      - name: Upload redacted staging receipt
+        if: ${{ always() && hashFiles('artifacts/staging-smoke-receipt.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: graphview-staging-smoke-receipt
+          path: artifacts/staging-smoke-receipt.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload immutable candidate image manifest
+        if: ${{ always() && hashFiles('artifacts/candidate-image-manifest.json') != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: graphview-candidate-image-manifest
+          path: artifacts/candidate-image-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Capture failed staging state
+        if: failure()
+        run: |
+          kubectl get all,pvc,jobs -A -o wide
+          kubectl describe pods -n graphview-staging
+          kubectl logs -n graphview-staging -l app.kubernetes.io/part-of=graphview --all-containers --tail=200 --prefix

@@ -3,15 +3,19 @@ import path from "node:path";
 
 const root = process.cwd();
 const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
+const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 
-const required = ["# Changelog", "## [Unreleased]", "### Added"];
+const required = ["# Changelog", "## [Unreleased]", `## [${packageJson.version}]`];
 const missing = required.filter((text) => !changelog.includes(text));
 
 const fragmentDir = path.join(root, "docs/changelog/unreleased");
 const fragments = (await readdir(fragmentDir)).filter((file) => file.endsWith(".md"));
 
-if (fragments.length === 0) {
-  missing.push("at least one unreleased changelog fragment");
+if (packageJson.version === "0.0.0" && fragments.length === 0) {
+  missing.push("at least one unreleased changelog fragment before the first release");
+}
+if (packageJson.version !== "0.0.0" && fragments.length > 0) {
+  missing.push("release changelog consolidation; unreleased fragments remain");
 }
 
 for (const fragment of fragments) {

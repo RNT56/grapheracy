@@ -57,13 +57,64 @@ before it is allowed.
   deterministic local heuristics and hash embeddings until secrets, vendor risk, data retention, and cost controls are
   reviewed.
 
+## Phase 5 Access Control Notes
+
+- Local seeded users are `reader`, `researcher`, and `maintainer`.
+- Reader access can read graph data and readiness state.
+- Researcher access can create sources, ingestion runs, proposals, and review decisions.
+- Maintainer access adds destructive and operator actions: source deletion, import/export, backup/restore, and metrics.
+- Phase 5 does not add production OIDC. The local role boundary is a testable adapter shape for the internal SSO work.
+
+## Phase 24 Dependency Approval Notes
+
+Phase 24 introduced the browser and graphics dependencies now retained by Graphview 1.0. The current dependency
+approval record is:
+
+- `three`: lazy runtime for the isolated 3D renderer boundary, including hit-testing, orbit, tooltip projection, and
+  context recovery. It is not loaded by default 2D sessions and does not own graph domain state.
+- `sigma` and `graphology`: the primary 2D WebGL renderer and canonical in-browser graph model. Incremental lifecycle,
+  reducers, camera state, and WebGL picking remain isolated behind the shared renderer scene contract.
+- `@types/three`: development-only TypeScript types for `three`. It has no runtime footprint and should stay scoped to
+  the web package.
+- `@playwright/test`: development-only browser automation for nonblank 2D/3D graph rendering, tooltip/tether behavior,
+  URL handling, reduced-motion checks, and mobile smoke coverage. It downloads browser binaries through Playwright's
+  normal installer outside package lifecycle scripts; CI should cache browsers and document any install step separately.
+- `pngjs`: development-only PNG inspection for screenshot pixel checks. It keeps nonblank render assertions local and
+  deterministic without adding native image-processing dependencies.
+
+Approval is conditional on the coordinator reviewing `pnpm-workspace.yaml` and `pnpm-lock.yaml`, confirming no package
+lifecycle allowlist expansion, and recording moderate `pnpm audit`, OSV, lockfile integrity/trust, and license results before Phase 24
+is released.
+
+## Phase 27 Dependency Approval Notes
+
+Phase 27 adds active agent context capture and approved connector dependencies:
+
+- `cryptography`: API runtime dependency for app-level encryption of redacted active-context text blobs before storage.
+  Alternatives considered were a local HMAC stream envelope and metadata-only storage; `cryptography` provides a
+  reviewed primitive with clear maintenance and no JavaScript lifecycle exposure. `uv.lock` records `cryptography`
+  plus `cffi` and `pycparser`.
+- `@modelcontextprotocol/sdk`: gateway runtime dependency for MCP server registration and stdio transport. It is the
+  official TypeScript SDK, MIT licensed, Node 18+ compatible, and locked in `pnpm-lock.yaml`. The lockfile adds the SDK
+  transitive HTTP, schema, and protocol packages used by its server/client implementation.
+- `@types/vscode`: extension development dependency for VS Code-compatible adapter typing. It has no runtime footprint
+  and is scoped to `apps/vscode-extension`.
+
+Lifecycle scripts remain denied by `.npmrc`. No package-specific lifecycle allowlist is added. Release requires the
+normal security, license, changelog, typecheck, test, browser, and release-readiness gates through `pnpm run
+release:verify`; external audit, OSV, lockfile integrity/trust, secret scans, image scans, and signed provenance remain
+CI/release gates.
+
 ## Required Gates
 
 - JS audit: `pnpm audit --audit-level=moderate`.
-- npm package signatures where applicable: `npm audit signatures`.
+- pnpm supply-chain integrity: enforce the release-age and provenance no-downgrade policies, require sha512-pinned
+  registry resolutions with no exotic dependencies, and verify the frozen lockfile offline through
+  `pnpm run security:signatures`.
 - OSV lockfile scan: `osv-scanner scan source -r .`.
 - Python dependency audit after service dependencies are added.
-- Secret scan: `gitleaks detect`.
+- Secret scan: `pnpm run security:secrets`; it uses an installed `gitleaks` binary or the pinned official Go module
+  fallback, and always redacts findings from console output.
 - License check.
 - Typecheck, lint, and tests.
 - Docs hygiene and changelog validation.
@@ -78,13 +129,66 @@ scanner gates are wired in CI and require the tools installed there.
 - Production secrets must live in external secret stores.
 - Never bake secrets into images, fixtures, logs, docs, or incident notes.
 
+## AI Provider Secrets And Review Gates
+
+- Configure AI credentials through environment-backed settings such as `GRAPHVIEW_OPENAI_API_KEY`,
+  `GRAPHVIEW_ANTHROPIC_API_KEY`, and `GRAPHVIEW_GEMINI_API_KEY`, or through operator-only provider credential routes
+  that persist project-scoped encrypted API keys.
+- Provider catalog and settings responses must expose only configured/enabled state, model IDs, capabilities, and
+  non-secret defaults; never raw API keys, encrypted API keys, connector tokens, encrypted token JSON, or prompt payloads
+  containing private content.
+- Agent runs store provider, model, trace ID, summaries, citations, confidence, and status for audit. Avoid logging full
+  prompts when they may include private source text or user secrets.
+- Graph query should prefer stored Graphview graph, source chunk, lineage, neighborhood, and path context over external
+  tools for private connector content unless an operator explicitly configures provider use.
+- GitHub Issue, SMTP, and signed-workflow adapter credentials are written through the operator-only action-credential
+  API into the configured secret provider. Public settings expose only configured state and rotation time; proposals
+  carry a non-secret `credential_id`, and workers resolve the opaque secret reference only at execution time.
+- AI research may create sources, source chunks, ingestion runs, embeddings, proposals, research tasks, and action
+  proposals. Reviewed nodes and edges must still flow through the existing review decision path.
+
+## Active Agent Context Capture
+
+- Adapter clients use one-time `gvctx_...` bearer tokens created by maintainers. Token hashes are stored; raw tokens are
+  returned only at creation and are not restored from backups.
+- Context ingest routes accept only capture-scoped adapter tokens. Requested adapter scopes are normalized to
+  `context:capture`; UI reads continue to use Graphview reader/operator permissions, and full artifact content reads
+  require maintainer access.
+- Capture authority must be preserved in every event: `gateway` is authoritative, `adapter_reported` is trusted adapter
+  telemetry, and `passive_reconciled` is best-effort editor observation.
+- Text blobs are redacted before encrypted-at-rest storage. The default deny policy rejects `.env`, private-key, and
+  certificate path fragments before capture.
+- Normal export/backup includes context metadata only. Restoring a bundle must not recreate usable adapter tokens or
+  rehydrate raw captured content by default.
+- Retention cleanup must purge expired encrypted blobs without deleting session/event audit metadata.
+
+Production credentials are stored only behind opaque Vault KV v2 references. Updates write a new version at the same
+validated reference, preventing reference churn; connector/provider credential removal permanently deletes Vault
+metadata and all versions. At API startup, legacy database AES-GCM and older reversible envelopes are decrypted once,
+written to the configured external secret store, and replaced with opaque references. The exact-image live gate must
+prove rotation, migration, response redaction, and purge without printing secret values.
+
+Production disaster restore is stricter than logical project import. It runs only with Graphview API, worker, and
+Keycloak database clients stopped; refuses remaining client connections; never restores Vault; removes connector and AI
+provider credential references; revokes adapter token hashes; clears connector leases and Redis sessions; and converts
+all unfinished job, outbox, ingestion, connector, AI, and external-action state to explicit inert terminal records.
+Completed external receipts remain audit evidence and are never enqueued again.
+
 ## Containers
 
 - Run as non-root users.
 - Use minimal base images.
 - Pin major runtime image lines.
+- Fetch remote build inputs only by immutable commit or version and verified SHA-256 checksum. MinIO and `mc` are
+  rebuilt from their latest official source commits with an explicitly patched module set and the current fixed Go
+  toolchain; the Collector is a minimal component allowlist built with the same toolchain.
+- Upgrade final Debian/Alpine package sets during the candidate build, remove unused vulnerable helpers and database
+  drivers, and reuse the scanned operations image for object-bucket initialization instead of an unscanned client.
 - Do not bake secrets into image layers.
-- Generate SBOMs for app, API, and worker images before release.
+- Generate SBOMs for all eight release images plus the packaged gateway and editor extension before release.
+- Tag publication requires GitHub's cryptographic annotated-tag verification, digest-pinned image signatures and
+  provenance attestations, client-artifact provenance attestations, a complete image digest manifest, and a keyless
+  Sigstore bundle over the SHA-256 manifest.
 
 ## Failure Modes
 
@@ -93,3 +197,8 @@ scanner gates are wired in CI and require the tools installed there.
 - Local-only secrets copied into docs or image layers.
 - CI security tools missing or silently skipped.
 - Allowlisted lifecycle scripts expanding without review.
+- Operator-only backup, restore, export, or metrics routes becoming readable by non-maintainer users.
+- AI provider, run, or catalog routes returning secrets or allowing reviewed graph writes without proposal review.
+- Active context adapters capturing denied files, unredacted shell output, raw provider keys, or passive editor state that
+  is displayed as exact prompt context. Server ingest rejects default denied paths and absolute paths outside configured
+  workspace roots before writing artifact records.

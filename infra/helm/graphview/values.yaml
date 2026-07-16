@@ -1,0 +1,152 @@
+image:
+  web: ghcr.io/example/graphview-web:1.0.0
+  api: ghcr.io/example/graphview-api:1.0.0
+  worker: ghcr.io/example/graphview-worker:1.0.0
+  otel: ghcr.io/example/graphview-otel:1.0.0
+  pullPolicy: IfNotPresent
+
+replicas:
+  web: 2
+  api: 2
+  worker: 2
+
+runtimeSecretName: graphview-runtime
+publicUrl: https://graphview.example.invalid
+oidcIssuerUrl: https://graphview.example.invalid/identity/realms/graphview
+otelEndpoint: http://graphview-otel-collector:4317
+otelMetricExportIntervalMs: 15000
+observability:
+  prometheusNamespace: monitoring
+outboundAllowedHosts:
+  - api.github.com
+  - oauth2.googleapis.com
+  - www.googleapis.com
+  - api.notion.com
+
+actions:
+  safeTypes:
+    - mark_source_stale
+    - mark_source_refreshed
+    - create_notification
+    - create_external_ticket
+    - trigger_workflow
+    - connector_sync
+    - create_graph_proposal
+    - request_owner_confirmation
+  webhookAllowedHosts: []
+  smtp:
+    host: ""
+    port: 587
+    starttls: true
+    fromAddress: ""
+    suppressedRecipients: []
+
+resources:
+  web:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  api:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  worker:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "4", memory: 4Gi }
+
+ingress:
+  enabled: true
+  controllerNamespace: ingress-nginx
+  className: nginx
+  annotations: {}
+  host: graphview.example.invalid
+  tlsSecretName: graphview-tls
+
+autoscaling:
+  enabled: true
+  api: { minReplicas: 2, maxReplicas: 10, targetCPUUtilizationPercentage: 70 }
+  worker: { minReplicas: 2, maxReplicas: 20, targetCPUUtilizationPercentage: 70 }
+
+backup:
+  enabled: true
+  schedule: "17 2 * * *"
+  image: ghcr.io/example/graphview-ops:1.0.0
+  retentionDays: 30
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+migration:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+database:
+  enabled: true
+  image: pgvector/pgvector:pg18
+  auth:
+    username: graphview
+    database: graphview
+    existingSecret: graphview-runtime
+    passwordKey: POSTGRES_PASSWORD
+  persistence: { enabled: true, size: 100Gi, storageClassName: "" }
+
+redis:
+  enabled: true
+  image: redis:8.2.3-alpine
+  auth:
+    existingSecret: graphview-runtime
+    passwordKey: REDIS_PASSWORD
+  persistence: { enabled: true, size: 20Gi, storageClassName: "" }
+
+minio:
+  enabled: true
+  image: ghcr.io/example/graphview-minio:1.0.0
+  clientImage: ghcr.io/example/graphview-ops:1.0.0
+  auth:
+    existingSecret: graphview-runtime
+    rootUserKey: MINIO_ROOT_USER
+    rootPasswordKey: MINIO_ROOT_PASSWORD
+  persistence: { enabled: true, size: 250Gi, storageClassName: "" }
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 4Gi }
+
+keycloak:
+  enabled: true
+  image: ghcr.io/example/graphview-keycloak:1.0.0
+  replicas: 1
+  realmConfigMapName: graphview-keycloak-realm
+  auth:
+    existingSecret: graphview-runtime
+    adminUser: admin
+    adminPasswordKey: KEYCLOAK_ADMIN_PASSWORD
+    serviceClientSecretKey: GRAPHVIEW_SERVICE_CLIENT_SECRET
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "2", memory: 2Gi }
+
+clamav:
+  enabled: true
+  image: ghcr.io/example/graphview-clamav:1.0.0
+  persistence: { enabled: true, size: 5Gi, storageClassName: "" }
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "2", memory: 3Gi }
+
+vault:
+  enabled: true
+  injector: { enabled: false }
+  server:
+    networkPolicy: { enabled: false }
+    resources:
+      requests: { cpu: 100m, memory: 256Mi }
+      limits: { cpu: "1", memory: 1Gi }
+    statefulSet:
+      securityContext:
+        pod: { runAsNonRoot: true, runAsUser: 100, runAsGroup: 1000, fsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+        container: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+    volumes: [{ name: tmp, emptyDir: {} }]
+    volumeMounts: [{ name: tmp, mountPath: /tmp }]
+    dev:
+      enabled: true
+      devRootToken: graphview-reference-only
+    dataStorage: { enabled: true, size: 10Gi }
